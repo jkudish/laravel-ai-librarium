@@ -25,7 +25,7 @@ The initial package intentionally exposes only the query boundary. Profiles, pro
 
 - PHP 8.4+
 - Laravel 13
-- Laravel AI SDK 0.10.3+
+- Laravel AI SDK >=0.10.3,<0.11.0
 
 ## Development
 

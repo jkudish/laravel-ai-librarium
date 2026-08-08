@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use InvalidArgumentException;
 use Jkudish\LaravelAiLibrarium\Contracts\Librarium as LibrariumContract;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\LibrariumManager;
@@ -16,7 +17,7 @@ it('registers the manager behind the package contract', function (): void {
 });
 
 it('merges the package configuration', function (): void {
-    expect(config('librarium.profiles'))->toBe([]);
+    expect(config('librarium'))->toBe([]);
 });
 
 it('starts a research query through the facade', function (): void {
@@ -25,4 +26,9 @@ it('starts a research query through the facade', function (): void {
     expect($research)
         ->toBeInstanceOf(PendingResearch::class)
         ->input->toBe('Compare current agent memory architectures.');
+});
+
+it('rejects empty input through the facade', function (): void {
+    expect(fn (): PendingResearch => Librarium::query('   '))
+        ->toThrow(InvalidArgumentException::class);
 });

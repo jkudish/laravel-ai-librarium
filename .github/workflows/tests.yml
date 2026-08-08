@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -32,9 +35,11 @@ jobs:
     name: PHP ${{ matrix.php }} / Laravel 13 / ${{ matrix.stability }} / ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
-      - uses: shivammathur/setup-php@v2
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
         with:
           php-version: ${{ matrix.php }}
           coverage: none
@@ -50,9 +55,11 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
-      - uses: shivammathur/setup-php@v2
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
         with:
           php-version: '8.4'
           coverage: none
@@ -70,4 +77,4 @@ jobs:
         working-directory: consumer
         run: |
           php artisan package:discover --ansi
-          php artisan tinker --execute="dump(app(\\Jkudish\\LaravelAiLibrarium\\Contracts\\Librarium::class)::class);"
+          php -r 'require "vendor/autoload.php"; $app = require "bootstrap/app.php"; $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap(); if (! $app->make(Jkudish\LaravelAiLibrarium\Contracts\Librarium::class) instanceof Jkudish\LaravelAiLibrarium\LibrariumManager) { throw new RuntimeException("Librarium contract binding failed."); } if (! Jkudish\LaravelAiLibrarium\Facades\Librarium::query("smoke test") instanceof Jkudish\LaravelAiLibrarium\PendingResearch) { throw new RuntimeException("Librarium facade query failed."); }'
