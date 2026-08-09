@@ -35,6 +35,12 @@ it('verifies the exact accepted upstream snapshot offline', function (): void {
         ->and($manifest['files'])->toHaveCount(ContractSnapshot::MANIFEST_FILE_COUNT);
 });
 
+it('accepts a snapshot directory with a trailing separator', function (): void {
+    $manifest = (new ContractSnapshot($this->workingSnapshotDirectory.DIRECTORY_SEPARATOR))->verify();
+
+    expect($manifest['snapshot_format_version'])->toBe(ContractSnapshot::SNAPSHOT_FORMAT_VERSION);
+});
+
 it('reports missing required files', function (): void {
     File::delete($this->workingSnapshotDirectory.'/schema/domain.schema.json');
 

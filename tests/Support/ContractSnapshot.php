@@ -30,7 +30,12 @@ final class ContractSnapshot
 
     public const int SNAPSHOT_FILE_COUNT = 80;
 
-    public function __construct(private readonly string $directory) {}
+    private readonly string $directory;
+
+    public function __construct(string $directory)
+    {
+        $this->directory = rtrim($directory, '/\\');
+    }
 
     public static function vendored(): self
     {
@@ -70,6 +75,13 @@ final class ContractSnapshot
 
         if ($unexpectedFiles !== []) {
             throw new UnexpectedValueException('Contract snapshot contains unexpected file(s): '.implode(', ', $unexpectedFiles).'.');
+        }
+
+        if (count($actualFiles) !== self::SNAPSHOT_FILE_COUNT) {
+            throw new UnexpectedValueException(
+                'Contract snapshot contains '.count($actualFiles)
+                .' files; expected '.self::SNAPSHOT_FILE_COUNT.'.'
+            );
         }
 
         foreach ($checksums as $relativePath => $expectedChecksum) {
