@@ -1,0 +1,8 @@
+parameters:
+    level: max
+    # Pest's dynamic expectation API is verified by Pest; static analysis covers package code and config.
+    paths:
+        - src
+        - config
+    tmpDir: build/phpstan
+    reportUnmatchedIgnoredErrors: true
