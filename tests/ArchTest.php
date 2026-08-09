@@ -14,6 +14,11 @@ arch('the core package has no persistence or presentation concerns')
         'Symfony\\Component\\Process',
     ]);
 
+arch('interchange values are immutable leaves')
+    ->expect('Jkudish\\LaravelAiLibrarium\\Interchange\\Values')
+    ->toBeFinal()
+    ->toBeReadonly();
+
 it('ships no package-owned database migrations', function (): void {
     expect(is_dir(__DIR__.'/../database'))->toBeFalse();
 });
