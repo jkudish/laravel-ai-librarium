@@ -9,8 +9,3 @@ it('preserves the exact research input', function (): void {
 
     expect($research->input)->toBe("  Research this exactly.\n");
 });
-
-it('rejects empty research input', function (string $input): void {
-    expect(fn (): PendingResearch => new PendingResearch($input))
-        ->toThrow(InvalidArgumentException::class, 'Research input must not be empty.');
-})->with(['', '   ', "\n\t"]);

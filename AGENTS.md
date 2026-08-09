@@ -4,6 +4,11 @@
 
 This repository contains `jkudish/laravel-ai-librarium`, a Laravel-native research abstraction built on the official Laravel AI SDK.
 
+## Sibling implementation
+
+- The TypeScript sibling is [`jkudish/librarium`](https://github.com/jkudish/librarium), normally checked out locally at `../librarium`.
+- Consult its accepted, released interchange contract and semantic fixtures when implementing cross-language behavior. Do not copy its CLI, Node, filesystem, or private runtime architecture into this package.
+
 ## Architecture boundaries
 
 - Use Laravel AI SDK primitives before adding custom AI integration code.

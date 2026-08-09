@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use InvalidArgumentException;
+use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Contracts\Librarium as LibrariumContract;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\LibrariumManager;
@@ -28,7 +28,7 @@ it('starts a research query through the facade', function (): void {
         ->input->toBe('Compare current agent memory architectures.');
 });
 
-it('rejects empty input through the facade', function (): void {
-    expect(fn (): PendingResearch => Librarium::query('   '))
-        ->toThrow(InvalidArgumentException::class);
-});
+it('rejects empty input through the facade', function (string $input): void {
+    expect(fn (): PendingResearch => Librarium::query($input))
+        ->toThrow(ValidationException::class);
+})->with(['', '   ', "\n\t"]);
