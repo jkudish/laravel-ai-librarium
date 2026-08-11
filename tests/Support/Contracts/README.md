@@ -2,19 +2,29 @@
 
 `v1/` is an exact, development-only copy of `contracts/v1` from
 [`jkudish/librarium`](https://github.com/jkudish/librarium) at commit
-`04f1b512e1cd19b03f48b794d13c165ccfc5c81a`.
+`b3fbacef70ff41975eba131756f3f59cfddf8bd2`.
 
 Pinned facts:
 
 - Contract directory: `v1`
-- Snapshot format version: `1.0.0`
-- Contract versions: `domain`, `artifacts`, `custom_provider`, and `interchange` at `1.0.0`
-- Manifest SHA-256: `23c12e55ab3f99ff8c4aa4cfd70b55411bcc831636305ea01f6c1cd811237af3`
-- Checksum index SHA-256: `c49bd2ad000ce861d3e15908939e0b473da698e63a6f0c555463dcea9f6f30c5`
-- Manifest entries: 78
-- Checksum entries: 79, including `manifest.json`
-- Total snapshot files: 80, including `checksums.sha256`
+- Snapshot version: `1`
+- Contract scope: terminal interchange only
+- Manifest SHA-256: `32055999bc9a72cf9cc7a7fd5f14f1a40df36bd542dd1cb74d83da485b562404`
+- Checksum index SHA-256: `0d1e11fdc7e3461d0f692a3cd2aa18c2fd713ff639289602664d20c69677129a`
+- Schemas: 1
+- Top-level schema definitions: 7
+- Valid fixtures: 17
+- Invalid fixtures: 34
+- Semantic rules: 5
+- Manifest entries: 54, including `manifest.json`
+- Checksum entries: 54, including `manifest.json`
+- Total snapshot files: 55, including `checksums.sha256`
 
-The snapshot is test support only. It does not add a TypeScript, npm, or Node runtime dependency and is not part of the package's public API.
+The source generator prunes execution, lifecycle, artifact, and other runtime
+contracts from this terminal snapshot. The PHP verifier runs offline. It does
+not add a TypeScript, npm, or Node runtime dependency. The snapshot is test
+support only and is not part of the package's public API.
 
-Before the final package release, replace this development baseline with the eventual accepted Librarium v2 Git tag and repin both SHA-256 values. A commit hash alone is not the release provenance gate.
+This commit pin is a development baseline. Before the final package release,
+replace it with the accepted Librarium v2 Git tag and repin both SHA-256 values.
+A commit hash alone is not the release provenance gate.
