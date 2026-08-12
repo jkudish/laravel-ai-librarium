@@ -41,6 +41,7 @@ it('verifies the exact accepted upstream snapshot offline and reports machine-re
         'upstream_commit' => 'b3fbacef70ff41975eba131756f3f59cfddf8bd2',
         'manifest_sha256' => '32055999bc9a72cf9cc7a7fd5f14f1a40df36bd542dd1cb74d83da485b562404',
         'checksums_sha256' => '0d1e11fdc7e3461d0f692a3cd2aa18c2fd713ff639289602664d20c69677129a',
+        'interchange_schema_sha256' => '637a0d93418bc742ecbcb07d84cecacd1f61168d8389645da349fdeebb6264cd',
         'totals' => [
             'schemas' => 1,
             'definitions' => 7,
@@ -228,6 +229,16 @@ it('reports files modified after the checksum snapshot was accepted', function (
 
     expect(fn (): array => (new ContractSnapshot($this->workingSnapshotDirectory))->verify())
         ->toThrow(UnexpectedValueException::class, "Contract snapshot checksum mismatch for {$relativePath}");
+});
+
+it('reports a modified interchange schema through its dedicated checksum pin', function (): void {
+    File::append($this->workingSnapshotDirectory.'/schema/interchange.schema.json', "\n");
+
+    expect(fn (): array => (new ContractSnapshot($this->workingSnapshotDirectory))->verify())
+        ->toThrow(
+            UnexpectedValueException::class,
+            'Contract snapshot interchange schema does not match the pinned upstream baseline',
+        );
 });
 
 it('reports unexpected extra files', function (): void {

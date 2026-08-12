@@ -24,6 +24,8 @@ final class ContractSnapshot
 
     public const string CHECKSUMS_SHA256 = '0d1e11fdc7e3461d0f692a3cd2aa18c2fd713ff639289602664d20c69677129a';
 
+    public const string INTERCHANGE_SCHEMA_SHA256 = '637a0d93418bc742ecbcb07d84cecacd1f61168d8389645da349fdeebb6264cd';
+
     public const int SCHEMA_FILE_COUNT = 1;
 
     public const int DEFINITION_COUNT = 7;
@@ -83,6 +85,7 @@ final class ContractSnapshot
      *     upstream_commit: string,
      *     manifest_sha256: string,
      *     checksums_sha256: string,
+     *     interchange_schema_sha256: string,
      *     totals: array{
      *         schemas: int,
      *         definitions: int,
@@ -138,6 +141,8 @@ final class ContractSnapshot
             );
         }
 
+        $this->verifyInterchangeSchemaChecksum();
+
         foreach ($checksums as $relativePath => $expectedChecksum) {
             $actualChecksum = hash_file('sha256', $this->directory.'/'.$relativePath);
 
@@ -171,6 +176,7 @@ final class ContractSnapshot
             'upstream_commit' => self::UPSTREAM_COMMIT,
             'manifest_sha256' => self::MANIFEST_SHA256,
             'checksums_sha256' => self::CHECKSUMS_SHA256,
+            'interchange_schema_sha256' => self::INTERCHANGE_SCHEMA_SHA256,
             'totals' => [
                 'schemas' => self::SCHEMA_FILE_COUNT,
                 'definitions' => self::DEFINITION_COUNT,
@@ -238,6 +244,23 @@ final class ContractSnapshot
             throw new UnexpectedValueException(
                 'Contract snapshot checksum index does not match the pinned upstream baseline: '
                 .'expected '.self::CHECKSUMS_SHA256.", got {$actualChecksum}."
+            );
+        }
+    }
+
+    private function verifyInterchangeSchemaChecksum(): void
+    {
+        $schemaPath = $this->directory.'/schema/interchange.schema.json';
+        $actualChecksum = hash_file('sha256', $schemaPath);
+
+        if ($actualChecksum === false) {
+            throw new UnexpectedValueException('Unable to hash contract snapshot interchange schema.');
+        }
+
+        if (! hash_equals(self::INTERCHANGE_SCHEMA_SHA256, $actualChecksum)) {
+            throw new UnexpectedValueException(
+                'Contract snapshot interchange schema does not match the pinned upstream baseline: '
+                .'expected '.self::INTERCHANGE_SCHEMA_SHA256.", got {$actualChecksum}."
             );
         }
     }

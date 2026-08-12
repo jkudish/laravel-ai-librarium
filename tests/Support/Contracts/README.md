@@ -11,6 +11,7 @@ Pinned facts:
 - Contract scope: terminal interchange only
 - Manifest SHA-256: `32055999bc9a72cf9cc7a7fd5f14f1a40df36bd542dd1cb74d83da485b562404`
 - Checksum index SHA-256: `0d1e11fdc7e3461d0f692a3cd2aa18c2fd713ff639289602664d20c69677129a`
+- Interchange schema SHA-256: `637a0d93418bc742ecbcb07d84cecacd1f61168d8389645da349fdeebb6264cd`
 - Schemas: 1
 - Top-level schema definitions: 7
 - Valid fixtures: 17
@@ -26,5 +27,5 @@ not add a TypeScript, npm, or Node runtime dependency. The snapshot is test
 support only and is not part of the package's public API.
 
 This commit pin is a development baseline. Before the final package release,
-replace it with the accepted Librarium v2 Git tag and repin both SHA-256 values.
+replace it with the accepted Librarium v2 Git tag and repin all SHA-256 values.
 A commit hash alone is not the release provenance gate.
