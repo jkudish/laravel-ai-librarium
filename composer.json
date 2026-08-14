@@ -20,6 +20,7 @@
         "php": "^8.4",
         "illuminate/contracts": "^13.0",
         "illuminate/support": "^13.0",
+        "illuminate/validation": "^13.0",
         "laravel/ai": "^0.10.3"
     },
     "require-dev": {
