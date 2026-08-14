@@ -64,8 +64,8 @@ final readonly class Citation
             'id' => ['bail', 'required', 'string', 'min:1', 'max:255', 'regex:/^(?!\\s)(?!.*\\s$)[^\\x00-\\x1f\\x7f]+$/'],
             'derivation' => ['bail', 'required', 'string', Rule::enum(CitationDerivation::class)],
             'source' => ['required', 'array'],
-            'excerpt' => ['nullable', 'string', 'min:1'],
-            'locator' => ['nullable', 'string', 'min:1'],
+            'excerpt' => ['string', 'min:1'],
+            'locator' => ['string', 'min:1'],
         ]);
 
         $validator->after(static function (\Illuminate\Validation\Validator $validator) use ($value): void {

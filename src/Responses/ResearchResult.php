@@ -10,39 +10,39 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ContentFormat;
+use stdClass;
 
-final readonly class ResearchResult
+final class ResearchResult
 {
+    private ?string $completedAtWire = null;
+
     /**
      * @param  Collection<int, Citation>  $citations
-     * @param  array<array-key, mixed>  $content
-     * @param  array<array-key, mixed>|null  $providerMeta
+     * @param  array<array-key, mixed>|stdClass  $content
      */
     public function __construct(
-        public string $id,
-        public ContentFormat $contentFormat,
-        public string|array $content,
-        public string $requestedProfile,
-        public string $provider,
-        public string $profile,
-        public ResultProvenance $provenance,
-        public Collection $citations,
-        public CarbonImmutable $completedAt,
-        public ?string $model = null,
-        public ?string $fallbackReason = null,
-        public ?Usage $usage = null,
-        public ?array $providerMeta = null,
-        private ?string $completedAtWire = null,
+        public readonly string $id,
+        public readonly ContentFormat $contentFormat,
+        public readonly string|array|stdClass $content,
+        public readonly string $requestedProfile,
+        public readonly string $provider,
+        public readonly string $profile,
+        public readonly ResultProvenance $provenance,
+        public readonly Collection $citations,
+        public readonly CarbonImmutable $completedAt,
+        public readonly ?string $model = null,
+        public readonly ?string $fallbackReason = null,
+        public readonly ?Usage $usage = null,
+        public readonly ?stdClass $providerMeta = null,
     ) {}
 
     /**
      * @param  Collection<int, Citation>  $citations
-     * @param  array<array-key, mixed>  $content
-     * @param  array<array-key, mixed>|null  $providerMeta
+     * @param  array<array-key, mixed>|stdClass  $content
      */
     public static function make(
         ContentFormat $contentFormat,
-        string|array $content,
+        string|array|stdClass $content,
         string $requestedProfile,
         string $provider,
         string $profile,
@@ -52,7 +52,7 @@ final readonly class ResearchResult
         ?string $model = null,
         ?string $fallbackReason = null,
         ?Usage $usage = null,
-        ?array $providerMeta = null,
+        ?stdClass $providerMeta = null,
     ): self {
         return new self(Str::ulid()->toString(), $contentFormat, $content, $requestedProfile, $provider, $profile, $provenance, $citations, $completedAt, $model, $fallbackReason, $usage, $providerMeta);
     }
@@ -64,9 +64,9 @@ final readonly class ResearchResult
         $provenance = self::array($value, 'provenance');
         $citationValues = self::listOfArrays($value, 'citations');
         $usage = self::nullableArray($value, 'usage');
-        $providerMeta = self::nullableArray($value, 'provider_meta');
+        $providerMeta = self::providerMeta($value);
 
-        return new self(
+        $result = new self(
             id: self::string($value, 'id'),
             contentFormat: ContentFormat::from(self::string($value, 'content_format')),
             content: self::content($value),
@@ -80,8 +80,10 @@ final readonly class ResearchResult
             fallbackReason: self::nullableString($value, 'fallback_reason'),
             usage: $usage === null ? null : Usage::fromArray($usage),
             providerMeta: $providerMeta,
-            completedAtWire: $completedAt,
         );
+        $result->completedAtWire = $completedAt;
+
+        return $result;
     }
 
     /** @return array<string, mixed> */
@@ -96,7 +98,7 @@ final readonly class ResearchResult
             'profile' => $this->profile,
             'provenance' => $this->provenance->toArray(),
             'citations' => $this->citations->map(static fn (Citation $citation): array => $citation->toArray())->values()->all(),
-            'completed_at' => $this->completedAtWire ?? $this->completedAt->format('Y-m-d\\TH:i:s\\Z'),
+            'completed_at' => $this->completedAtWire ?? self::formatTimestamp($this->completedAt),
             'model' => $this->model,
             'fallback_reason' => $this->fallbackReason,
             'usage' => $this->usage?->toArray(),
@@ -122,10 +124,9 @@ final readonly class ResearchResult
             'citations' => ['present', 'array', 'list'],
             'citations.*' => ['array'],
             'completed_at' => ['required', 'string', 'regex:/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$/'],
-            'model' => ['nullable', 'string', 'min:1'],
-            'fallback_reason' => ['nullable', 'string', 'min:1'],
-            'usage' => ['nullable', 'array'],
-            'provider_meta' => ['nullable', 'array'],
+            'model' => ['string', 'min:1'],
+            'fallback_reason' => ['string', 'min:1'],
+            'usage' => ['array'],
         ]);
 
         $validator->after(static function (\Illuminate\Validation\Validator $validator) use ($value): void {
@@ -139,10 +140,10 @@ final readonly class ResearchResult
             if (in_array($format, [ContentFormat::Markdown->value, ContentFormat::Text->value], true) && ! is_string($content)) {
                 $validator->errors()->add('content', 'must be a string for text content.');
             }
-            if ($format === ContentFormat::Json->value && ! is_array($content)) {
+            if ($format === ContentFormat::Json->value && ! is_array($content) && ! $content instanceof stdClass) {
                 $validator->errors()->add('content', 'must be an object or array for JSON content.');
             }
-            if ($format === ContentFormat::Json->value && is_array($content)) {
+            if ($format === ContentFormat::Json->value && (is_array($content) || $content instanceof stdClass)) {
                 self::validateJsonValue($content, $validator, 'content');
             }
 
@@ -157,7 +158,7 @@ final readonly class ResearchResult
                 }
             }
 
-            if (isset($value['provider_meta'])) {
+            if (array_key_exists('provider_meta', $value)) {
                 self::validateProviderMeta($value['provider_meta'], $validator);
             }
         });
@@ -209,16 +210,16 @@ final readonly class ResearchResult
     }
 
     /** @param array<array-key, mixed> $value
-     * @return string|array<array-key, mixed>
+     * @return string|array<array-key, mixed>|stdClass
      */
-    private static function content(array $value): string|array
+    private static function content(array $value): string|array|stdClass
     {
         $item = $value['content'] ?? null;
-        if (! is_string($item) && ! is_array($item)) {
+        if (! is_string($item) && ! is_array($item) && ! $item instanceof stdClass) {
             throw ValidationException::withMessages(['content' => 'must be a string or JSON value.']);
         }
 
-        return $item;
+        return is_string($item) ? $item : self::normalizeJsonValue($item);
     }
 
     /** @param array<array-key, mixed> $value */
@@ -236,19 +237,45 @@ final readonly class ResearchResult
      */
     private static function nullableArray(array $value, string $key): ?array
     {
-        if (! array_key_exists($key, $value) || $value[$key] === null) {
+        if (! array_key_exists($key, $value)) {
             return null;
         }
 
         return self::array($value, $key);
     }
 
+    /** @param array<array-key, mixed> $value */
+    private static function providerMeta(array $value): ?stdClass
+    {
+        if (! array_key_exists('provider_meta', $value)) {
+            return null;
+        }
+
+        $metadata = $value['provider_meta'];
+        if ($metadata instanceof stdClass) {
+            return self::normalizeJsonObject($metadata);
+        }
+        if (! is_array($metadata) || array_is_list($metadata)) {
+            throw ValidationException::withMessages(['provider_meta' => 'must be an object.']);
+        }
+
+        return self::normalizeJsonObject((object) $metadata);
+    }
+
     private static function validateProviderMeta(mixed $metadata, \Illuminate\Validation\Validator $validator): void
     {
-        if (! is_array($metadata) || array_is_list($metadata)) {
+        if (! $metadata instanceof stdClass && (! is_array($metadata) || array_is_list($metadata))) {
             $validator->errors()->add('provider_meta', 'must be an object.');
 
             return;
+        }
+
+        foreach ($metadata instanceof stdClass ? get_object_vars($metadata) : $metadata as $key => $_value) {
+            if ((string) $key === '') {
+                $validator->errors()->add('provider_meta', 'property names must not be empty.');
+
+                return;
+            }
         }
 
         self::validateJsonValue($metadata, $validator, 'provider_meta', true);
@@ -265,26 +292,27 @@ final readonly class ResearchResult
         }
 
         $walk = static function (mixed $value, string $path) use (&$walk, $inspectMetadataKeys, $validator): void {
-            if (is_resource($value) || is_object($value) || (is_float($value) && ! is_finite($value))) {
+            if (is_resource($value) || (is_object($value) && ! $value instanceof stdClass) || (is_float($value) && ! is_finite($value))) {
                 $validator->errors()->add($path, 'must be JSON-safe.');
 
                 return;
             }
 
-            if (! is_array($value)) {
+            $isObject = $value instanceof stdClass || (is_array($value) && ! array_is_list($value));
+            if ($value instanceof stdClass) {
+                $entries = get_object_vars($value);
+            } elseif (is_array($value)) {
+                $entries = $value;
+            } else {
                 return;
             }
 
-            foreach ($value as $key => $nested) {
+            foreach ($entries as $key => $nested) {
                 $keyString = (string) $key;
-                $normalized = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $keyString));
-                if ($inspectMetadataKeys) {
-                    $forbidden = ['apikey', 'accesstoken', 'refreshtoken', 'authtoken', 'authorization', 'secret', 'password', 'credential', 'rawresponse', 'rawrequest', 'responsebody', 'requestbody', 'headers', 'header', 'stacktrace', 'privatekey', 'signingkey'];
-                    if (array_any($forbidden, static fn (string $term): bool => str_contains($normalized, $term)) || $normalized === 'token' || str_ends_with($normalized, 'token')) {
-                        $validator->errors()->add($path.'.'.$keyString, 'must not include credentials or raw provider data.');
+                if ($inspectMetadataKeys && $isObject && self::isForbiddenMetadataKey($keyString)) {
+                    $validator->errors()->add($path.'.'.$keyString, 'must not include credentials or raw provider data.');
 
-                        return;
-                    }
+                    return;
                 }
 
                 $walk($nested, $path.'.'.$keyString);
@@ -292,5 +320,118 @@ final readonly class ResearchResult
         };
 
         $walk($value, $path);
+    }
+
+    private static function isForbiddenMetadataKey(string $key): bool
+    {
+        $normalized = (string) preg_replace('/^_+|_+$/', '', strtolower((string) preg_replace(
+            ['/URLs/', '/([A-Z]+)([A-Z][a-z])/', '/([a-z\\d])([A-Z])/', '/[^a-z\\d]+/i'],
+            ['_urls', '$1_$2', '$1_$2', '_'],
+            $key,
+        )));
+        $candidates = [$normalized, (string) preg_replace('/_?\\d+$/', '', $normalized)];
+        $namespaceSeparator = strrpos($key, ':');
+        if ($namespaceSeparator !== false) {
+            $localName = substr($key, $namespaceSeparator + 1);
+            $localName = (string) preg_replace('/^_+|_+$/', '', strtolower((string) preg_replace(
+                ['/URLs/', '/([A-Z]+)([A-Z][a-z])/', '/([a-z\\d])([A-Z])/', '/[^a-z\\d]+/i'],
+                ['_urls', '$1_$2', '$1_$2', '_'],
+                $localName,
+            )));
+            $candidates[] = $localName;
+            $candidates[] = (string) preg_replace('/_?\\d+$/', '', $localName);
+        }
+
+        return array_any($candidates, self::isForbiddenNormalizedMetadataKey(...));
+    }
+
+    private static function isForbiddenNormalizedMetadataKey(string $key): bool
+    {
+        $forbidden = [
+            'api_key', 'api_keys', 'access_token', 'access_tokens', 'auth_token', 'auth_tokens', 'client_token', 'client_tokens',
+            'client_secret', 'client_secrets', 'secret_key', 'secret_keys', 'secret_access_key', 'secret_access_keys',
+            'refresh_token', 'refresh_tokens', 'resume_token', 'resume_tokens', 'resume_secret', 'resume_secrets',
+            'session_token', 'session_tokens', 'session_secret', 'session_secrets', 'task_token', 'task_tokens', 'task_secret',
+            'task_secrets', 'id_token', 'id_tokens', 'private_key', 'private_keys', 'encryption_key', 'encryption_keys',
+            'signing_key', 'signing_keys', 'presigned_url', 'presigned_urls', 'signed_url', 'signed_urls', 'signed_polling_url',
+            'signed_polling_urls', 'connection_string', 'connection_strings', 'database_url', 'database_urls', 'dsn', 'dsns',
+            'authorization', 'auth', 'bearer', 'cookie', 'cookies', 'credential', 'credentials', 'password', 'passwords',
+            'passwd', 'passwds', 'secret', 'secrets', 'token', 'tokens', 'request_header', 'request_headers', 'response_header',
+            'response_headers', 'authorization_header', 'authorization_headers', 'header', 'headers', 'raw', 'raws', 'raw_body', 'raw_bodies',
+            'raw_provider', 'raw_providers', 'raw_response', 'raw_responses', 'provider_payload', 'provider_payloads', 'binary', 'binary_data', 'binary_material',
+            'binary_materials', 'binary_payload', 'binary_payloads', 'stack', 'stacks', 'stack_trace', 'stack_traces',
+        ];
+        $benignTokenQualifiers = ['accepted', 'cached', 'cache_creation', 'cache_read', 'completion', 'input', 'max', 'num', 'output', 'prompt', 'reasoning', 'rejected', 'total', 'thinking'];
+
+        foreach ($forbidden as $name) {
+            if ($key === $name || (str_ends_with($key, '_'.$name) && ! in_array($name, ['token', 'tokens'], true))) {
+                return true;
+            }
+            if (in_array($name, ['token', 'tokens'], true) && str_ends_with($key, '_'.$name) && self::hasSensitiveTokenSuffix($key, $benignTokenQualifiers)) {
+                return true;
+            }
+        }
+
+        $fused = str_replace('_', '', $key);
+        $fusedNames = array_map(static fn (string $name): string => str_replace('_', '', $name), $forbidden);
+        $benignFusedSuffix = array_any($benignTokenQualifiers, static fn (string $qualifier): bool => str_ends_with($fused, str_replace('_', '', $qualifier).'token') || str_ends_with($fused, str_replace('_', '', $qualifier).'tokens'));
+        $fusedSuffixes = array_filter($fusedNames, static fn (string $name): bool => strlen($name) >= 6 && $name !== 'tokens');
+
+        return in_array($fused, $fusedNames, true)
+            || (! $benignFusedSuffix && (str_ends_with($fused, 'token') || str_ends_with($fused, 'tokens')))
+            || array_any($fusedSuffixes, static fn (string $name): bool => str_ends_with($fused, $name));
+    }
+
+    /** @param list<string> $benignTokenQualifiers */
+    private static function hasSensitiveTokenSuffix(string $key, array $benignTokenQualifiers): bool
+    {
+        $words = explode('_', $key);
+        $suffix = array_pop($words);
+        if (! in_array($suffix, ['token', 'tokens'], true)) {
+            return false;
+        }
+        $qualifier = implode('_', $words);
+
+        return ! array_any($benignTokenQualifiers, static fn (string $benign): bool => $qualifier === $benign || str_ends_with($qualifier, '_'.$benign));
+    }
+
+    /**
+     * @param  array<array-key, mixed>|stdClass  $value
+     * @return array<array-key, mixed>|stdClass
+     */
+    private static function normalizeJsonValue(array|stdClass $value): array|stdClass
+    {
+        if ($value instanceof stdClass) {
+            $normalized = new stdClass;
+            foreach (get_object_vars($value) as $key => $nested) {
+                $normalized->{$key} = is_array($nested) || $nested instanceof stdClass ? self::normalizeJsonValue($nested) : $nested;
+            }
+
+            return $normalized;
+        }
+
+        if (! array_is_list($value)) {
+            return self::normalizeJsonValue((object) $value);
+        }
+
+        return array_map(static fn (mixed $nested): mixed => is_array($nested) || $nested instanceof stdClass ? self::normalizeJsonValue($nested) : $nested, $value);
+    }
+
+    private static function normalizeJsonObject(stdClass $value): stdClass
+    {
+        $normalized = new stdClass;
+        foreach (get_object_vars($value) as $key => $nested) {
+            $normalized->{$key} = is_array($nested) || $nested instanceof stdClass ? self::normalizeJsonValue($nested) : $nested;
+        }
+
+        return $normalized;
+    }
+
+    private static function formatTimestamp(CarbonImmutable $timestamp): string
+    {
+        $timestamp = $timestamp->utc();
+        $fraction = rtrim($timestamp->format('u'), '0');
+
+        return $timestamp->format('Y-m-d\\TH:i:s').($fraction === '' ? '' : '.'.$fraction).'Z';
     }
 }

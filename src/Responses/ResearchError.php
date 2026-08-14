@@ -39,7 +39,7 @@ final readonly class ResearchError
         $validator = Validator::make($value, [
             'code' => ['bail', 'required', 'string', 'min:3', 'max:255', 'regex:/^[A-Za-z0-9][A-Za-z0-9_.-]*(?:[.:\\/][A-Za-z0-9_.-]+)+$/'],
             'message' => ['required', 'string', 'min:1', 'max:2048'],
-            'profile' => ['nullable', 'string', 'min:1'],
+            'profile' => ['string', 'min:1'],
         ]);
 
         $validator->after(static function (\Illuminate\Validation\Validator $validator) use ($value): void {

@@ -60,14 +60,14 @@ final readonly class Usage
     private static function validate(array $value): void
     {
         $validator = Validator::make($value, [
-            'prompt_tokens' => ['nullable', 'integer', 'min:0', 'max:9007199254740991'],
-            'completion_tokens' => ['nullable', 'integer', 'min:0', 'max:9007199254740991'],
-            'cache_write_input_tokens' => ['nullable', 'integer', 'min:0', 'max:9007199254740991'],
-            'cache_read_input_tokens' => ['nullable', 'integer', 'min:0', 'max:9007199254740991'],
-            'reasoning_tokens' => ['nullable', 'integer', 'min:0', 'max:9007199254740991'],
-            'actual_cost' => ['nullable', 'string', 'regex:/^(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$/'],
-            'estimated_cost' => ['nullable', 'string', 'regex:/^(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$/'],
-            'currency' => ['nullable', 'string', 'min:1'],
+            'prompt_tokens' => ['integer', 'min:0', 'max:9007199254740991'],
+            'completion_tokens' => ['integer', 'min:0', 'max:9007199254740991'],
+            'cache_write_input_tokens' => ['integer', 'min:0', 'max:9007199254740991'],
+            'cache_read_input_tokens' => ['integer', 'min:0', 'max:9007199254740991'],
+            'reasoning_tokens' => ['integer', 'min:0', 'max:9007199254740991'],
+            'actual_cost' => ['string', 'regex:/^(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$/'],
+            'estimated_cost' => ['string', 'regex:/^(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$/'],
+            'currency' => ['string', 'min:1'],
         ]);
 
         $validator->after(static function (\Illuminate\Validation\Validator $validator) use ($value): void {

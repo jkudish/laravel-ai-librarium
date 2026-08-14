@@ -14,22 +14,23 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 
-final readonly class ResultProvenance
+final class ResultProvenance
 {
+    private ?string $observedAtWire = null;
+
     /**
      * @param  Collection<int, RetrievalMethod>  $retrievalMethods
      * @param  Collection<int, Corpus>  $corpora
      * @param  array<string, string|Authentication>|null  $context
      */
     public function __construct(
-        public ResultKind $resultKind,
-        public Collection $retrievalMethods,
-        public Collection $corpora,
-        public CarbonImmutable $observedAt,
-        public ?string $collector = null,
-        public ?string $surface = null,
-        public ?array $context = null,
-        private ?string $observedAtWire = null,
+        public readonly ResultKind $resultKind,
+        public readonly Collection $retrievalMethods,
+        public readonly Collection $corpora,
+        public readonly CarbonImmutable $observedAt,
+        public readonly ?string $collector = null,
+        public readonly ?string $surface = null,
+        public readonly ?array $context = null,
     ) {}
 
     /** @param array<array-key, mixed> $value */
@@ -40,7 +41,7 @@ final readonly class ResultProvenance
         $retrievalMethods = self::listOfStrings($value, 'retrieval_methods');
         $corpora = self::listOfStrings($value, 'corpora');
 
-        return new self(
+        $provenance = new self(
             resultKind: ResultKind::from(self::string($value, 'result_kind')),
             retrievalMethods: collect($retrievalMethods)->map(static fn (string $method): RetrievalMethod => RetrievalMethod::from($method)),
             corpora: collect($corpora)->map(static fn (string $corpus): Corpus => Corpus::from($corpus)),
@@ -48,8 +49,10 @@ final readonly class ResultProvenance
             collector: self::nullableString($value, 'collector'),
             surface: self::nullableString($value, 'surface'),
             context: $context,
-            observedAtWire: $observedAt,
         );
+        $provenance->observedAtWire = $observedAt;
+
+        return $provenance;
     }
 
     /** @return array<string, mixed> */
@@ -64,7 +67,7 @@ final readonly class ResultProvenance
             'result_kind' => $this->resultKind->value,
             'retrieval_methods' => $this->retrievalMethods->map(static fn (RetrievalMethod $method): string => $method->value)->all(),
             'corpora' => $this->corpora->map(static fn (Corpus $corpus): string => $corpus->value)->all(),
-            'observed_at' => $this->observedAtWire ?? $this->observedAt->format('Y-m-d\\TH:i:s\\Z'),
+            'observed_at' => $this->observedAtWire ?? self::formatTimestamp($this->observedAt),
             'collector' => $this->collector,
             'surface' => $this->surface,
             'context' => $context,
@@ -85,13 +88,13 @@ final readonly class ResultProvenance
             'corpora' => ['present', 'array', 'list'],
             'corpora.*' => ['bail', 'string', Rule::enum(Corpus::class)],
             'observed_at' => ['required', 'string', 'regex:/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$/'],
-            'collector' => ['nullable', 'string', 'min:1'],
-            'surface' => ['nullable', 'string', 'min:1'],
-            'context' => ['nullable', 'array:locale,country,device,authentication'],
-            'context.locale' => ['nullable', 'string', 'min:1'],
-            'context.country' => ['nullable', 'string', 'min:1'],
-            'context.device' => ['nullable', 'string', 'min:1'],
-            'context.authentication' => ['nullable', 'string', Rule::enum(Authentication::class)],
+            'collector' => ['string', 'min:1'],
+            'surface' => ['string', 'min:1'],
+            'context' => ['array:locale,country,device,authentication'],
+            'context.locale' => ['string', 'min:1'],
+            'context.country' => ['string', 'min:1'],
+            'context.device' => ['string', 'min:1'],
+            'context.authentication' => ['string', Rule::enum(Authentication::class)],
         ]);
 
         $validator->after(static function (\Illuminate\Validation\Validator $validator) use ($value): void {
@@ -179,5 +182,13 @@ final readonly class ResultProvenance
         ], static fn (mixed $item): bool => $item !== null);
 
         return $context;
+    }
+
+    private static function formatTimestamp(CarbonImmutable $timestamp): string
+    {
+        $timestamp = $timestamp->utc();
+        $fraction = rtrim($timestamp->format('u'), '0');
+
+        return $timestamp->format('Y-m-d\\TH:i:s').($fraction === '' ? '' : '.'.$fraction).'Z';
     }
 }

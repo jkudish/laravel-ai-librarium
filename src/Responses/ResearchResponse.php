@@ -12,22 +12,23 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResponseStatus;
 
-final readonly class ResearchResponse
+final class ResearchResponse
 {
+    private ?string $completedAtWire = null;
+
     /**
      * @param  Collection<int, ResearchResult>  $results
      * @param  Collection<int, ResearchError>  $errors
      */
     public function __construct(
-        public string $generator,
-        public string $generatorVersion,
-        public string $requestId,
-        public ResponseStatus $status,
-        public CarbonImmutable $completedAt,
-        public Collection $results,
-        public Collection $errors,
-        public ?Usage $usage = null,
-        private ?string $completedAtWire = null,
+        public readonly string $generator,
+        public readonly string $generatorVersion,
+        public readonly string $requestId,
+        public readonly ResponseStatus $status,
+        public readonly CarbonImmutable $completedAt,
+        public readonly Collection $results,
+        public readonly Collection $errors,
+        public readonly ?Usage $usage = null,
     ) {}
 
     /**
@@ -54,7 +55,7 @@ final readonly class ResearchResponse
         $errorValues = self::listOfArrays($value, 'errors');
         $usage = self::nullableArray($value, 'usage');
 
-        return new self(
+        $response = new self(
             generator: self::string($value, 'generator'),
             generatorVersion: self::string($value, 'generator_version'),
             requestId: self::string($value, 'request_id'),
@@ -63,8 +64,10 @@ final readonly class ResearchResponse
             results: collect($resultValues)->map(static fn (array $result): ResearchResult => ResearchResult::fromArray($result)),
             errors: collect($errorValues)->map(static fn (array $error): ResearchError => ResearchError::fromArray($error)),
             usage: $usage === null ? null : Usage::fromArray($usage),
-            completedAtWire: $completedAt,
         );
+        $response->completedAtWire = $completedAt;
+
+        return $response;
     }
 
     /** @return array<string, mixed> */
@@ -75,7 +78,7 @@ final readonly class ResearchResponse
             'generator_version' => $this->generatorVersion,
             'request_id' => $this->requestId,
             'status' => $this->status->value,
-            'completed_at' => $this->completedAtWire ?? $this->completedAt->format('Y-m-d\\TH:i:s\\Z'),
+            'completed_at' => $this->completedAtWire ?? self::formatTimestamp($this->completedAt),
             'results' => $this->results->map(static fn (ResearchResult $result): array => $result->toArray())->values()->all(),
             'errors' => $this->errors->map(static fn (ResearchError $error): array => $error->toArray())->values()->all(),
             'usage' => $this->usage?->toArray(),
@@ -99,7 +102,7 @@ final readonly class ResearchResponse
             'results.*' => ['array'],
             'errors' => ['present', 'array', 'list'],
             'errors.*' => ['array'],
-            'usage' => ['nullable', 'array'],
+            'usage' => ['array'],
         ]);
 
         $validator->after(static function (\Illuminate\Validation\Validator $validator) use ($value): void {
@@ -180,5 +183,13 @@ final readonly class ResearchResponse
         }
 
         return $value[$key];
+    }
+
+    private static function formatTimestamp(CarbonImmutable $timestamp): string
+    {
+        $timestamp = $timestamp->utc();
+        $fraction = rtrim($timestamp->format('u'), '0');
+
+        return $timestamp->format('Y-m-d\\TH:i:s').($fraction === '' ? '' : '.'.$fraction).'Z';
     }
 }

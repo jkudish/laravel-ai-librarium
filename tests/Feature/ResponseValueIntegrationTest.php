@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\File;
+use Illuminate\Validation\Factory;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResponse;
 use Jkudish\LaravelAiLibrarium\Responses\Usage;
 
@@ -18,6 +19,7 @@ it('keeps terminal response values usable by a Laravel package consumer', functi
     $response = ResearchResponse::fromArray($fixture);
 
     expect($response->usage)->toBeInstanceOf(Usage::class)
+        ->and(app(Illuminate\Contracts\Validation\Factory::class))->toBeInstanceOf(Factory::class)
         ->and($response->results)->toHaveCount(1)
         ->and($response->errors)->toHaveCount(1)
         ->and($response->toArray())->toBe($fixture);

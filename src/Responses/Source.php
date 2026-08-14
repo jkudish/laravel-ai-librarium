@@ -10,16 +10,17 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\SourceKind;
 
-final readonly class Source
+final class Source
 {
+    private ?string $publishedAtWire = null;
+
     public function __construct(
-        public SourceKind $kind,
-        public ?string $url = null,
-        public ?string $providerReference = null,
-        public ?string $title = null,
-        public ?string $publisher = null,
-        public ?CarbonImmutable $publishedAt = null,
-        private ?string $publishedAtWire = null,
+        public readonly SourceKind $kind,
+        public readonly ?string $url = null,
+        public readonly ?string $providerReference = null,
+        public readonly ?string $title = null,
+        public readonly ?string $publisher = null,
+        public readonly ?CarbonImmutable $publishedAt = null,
     ) {}
 
     /** @param array<array-key, mixed> $value */
@@ -27,15 +28,17 @@ final readonly class Source
     {
         self::validate($value);
 
-        return new self(
+        $source = new self(
             kind: SourceKind::from(self::string($value, 'kind')),
             url: self::nullableString($value, 'url'),
             providerReference: self::nullableString($value, 'provider_reference'),
             title: self::nullableString($value, 'title'),
             publisher: self::nullableString($value, 'publisher'),
             publishedAt: ($publishedAt = self::nullableString($value, 'published_at')) === null ? null : CarbonImmutable::parse($publishedAt),
-            publishedAtWire: $publishedAt,
         );
+        $source->publishedAtWire = $publishedAt;
+
+        return $source;
     }
 
     /** @return array<string, mixed> */
@@ -47,7 +50,7 @@ final readonly class Source
             'provider_reference' => $this->providerReference,
             'title' => $this->title,
             'publisher' => $this->publisher,
-            'published_at' => $this->publishedAt === null ? null : ($this->publishedAtWire ?? $this->publishedAt->format('Y-m-d\\TH:i:s\\Z')),
+            'published_at' => $this->publishedAt === null ? null : ($this->publishedAtWire ?? self::formatTimestamp($this->publishedAt)),
         ], static fn (mixed $item): bool => $item !== null);
 
         self::validate($value);
@@ -60,11 +63,11 @@ final readonly class Source
     {
         $validator = Validator::make($value, [
             'kind' => ['bail', 'required', 'string', Rule::enum(SourceKind::class)],
-            'url' => ['nullable', 'string', 'min:1'],
-            'provider_reference' => ['nullable', 'string', 'min:1', 'max:255', 'regex:/^(?!\\s)(?!.*\\s$)[^\\x00-\\x1f\\x7f]+$/'],
-            'title' => ['nullable', 'string', 'min:1'],
-            'publisher' => ['nullable', 'string', 'min:1'],
-            'published_at' => ['nullable', 'string', 'regex:/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$/'],
+            'url' => ['string', 'min:1'],
+            'provider_reference' => ['string', 'min:1', 'max:255', 'regex:/^(?!\\s)(?!.*\\s$)[^\\x00-\\x1f\\x7f]+$/'],
+            'title' => ['string', 'min:1'],
+            'publisher' => ['string', 'min:1'],
+            'published_at' => ['string', 'regex:/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$/'],
         ]);
 
         $validator->after(static function (\Illuminate\Validation\Validator $validator) use ($value): void {
@@ -110,5 +113,13 @@ final readonly class Source
         }
 
         return self::string($value, $key);
+    }
+
+    private static function formatTimestamp(CarbonImmutable $timestamp): string
+    {
+        $timestamp = $timestamp->utc();
+        $fraction = rtrim($timestamp->format('u'), '0');
+
+        return $timestamp->format('Y-m-d\\TH:i:s').($fraction === '' ? '' : '.'.$fraction).'Z';
     }
 }
