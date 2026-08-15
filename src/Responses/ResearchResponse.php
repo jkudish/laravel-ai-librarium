@@ -95,7 +95,7 @@ final class ResearchResponse
         $validator = Validator::make($value, [
             'generator' => ['bail', 'required', 'string', 'min:1', 'max:255', 'regex:/^(?:[a-z0-9][a-z0-9._-]*|@?[a-z0-9][a-z0-9._-]*\\/[a-z0-9][a-z0-9._-]*)$/'],
             'generator_version' => ['bail', 'required', 'string', 'max:255', 'regex:/^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-(?:0|[1-9]\\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9]\\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$/'],
-            'request_id' => ['bail', 'required', 'string', 'min:1', 'max:255', 'regex:/^(?!\\s)(?!.*\\s$)[^\\x00-\\x1f\\x7f]+$/'],
+            'request_id' => ['bail', 'required', 'string', 'min:1', 'max:255', 'regex:/^(?!\\s)(?!.*\\s$)[^\\x00-\\x1f\\x7f]+$/u'],
             'status' => ['bail', 'required', 'string', Rule::enum(ResponseStatus::class)],
             'completed_at' => ['required', 'string', 'regex:/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$/'],
             'results' => ['present', 'array', 'list'],

@@ -61,7 +61,7 @@ final readonly class Citation
     private static function validate(array $value): void
     {
         $validator = Validator::make($value, [
-            'id' => ['bail', 'required', 'string', 'min:1', 'max:255', 'regex:/^(?!\\s)(?!.*\\s$)[^\\x00-\\x1f\\x7f]+$/'],
+            'id' => ['bail', 'required', 'string', 'min:1', 'max:255', 'regex:/^(?!\\s)(?!.*\\s$)[^\\x00-\\x1f\\x7f]+$/u'],
             'derivation' => ['bail', 'required', 'string', Rule::enum(CitationDerivation::class)],
             'source' => ['required', 'array'],
             'excerpt' => ['string', 'min:1'],

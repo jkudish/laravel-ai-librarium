@@ -18,11 +18,11 @@ final class ContractSnapshot
 
     public const int SNAPSHOT_VERSION = 1;
 
-    public const string UPSTREAM_COMMIT = 'b3fbacef70ff41975eba131756f3f59cfddf8bd2';
+    public const string UPSTREAM_COMMIT = 'a838881f5804052690f61c783256cc00edd0acee';
 
-    public const string MANIFEST_SHA256 = '32055999bc9a72cf9cc7a7fd5f14f1a40df36bd542dd1cb74d83da485b562404';
+    public const string MANIFEST_SHA256 = 'd06553f4bb56bc50598ae0ee98b1da6172120bcf47c7f837fc04a5b5b16709ce';
 
-    public const string CHECKSUMS_SHA256 = '0d1e11fdc7e3461d0f692a3cd2aa18c2fd713ff639289602664d20c69677129a';
+    public const string CHECKSUMS_SHA256 = '32857dd761dde938e28b36477d6a7c7e10cd8bb06e8395ac19590413470e7724';
 
     public const string INTERCHANGE_SCHEMA_SHA256 = '637a0d93418bc742ecbcb07d84cecacd1f61168d8389645da349fdeebb6264cd';
 
@@ -32,17 +32,17 @@ final class ContractSnapshot
 
     public const int VALID_FIXTURE_COUNT = 17;
 
-    public const int INVALID_FIXTURE_COUNT = 34;
+    public const int INVALID_FIXTURE_COUNT = 39;
 
     public const int FIXTURE_COUNT = self::VALID_FIXTURE_COUNT + self::INVALID_FIXTURE_COUNT;
 
     public const int SEMANTIC_RULE_COUNT = 5;
 
-    public const int MANIFEST_FILE_COUNT = 54;
+    public const int MANIFEST_FILE_COUNT = 59;
 
-    public const int CHECKSUM_ENTRY_COUNT = 54;
+    public const int CHECKSUM_ENTRY_COUNT = 59;
 
-    public const int SNAPSHOT_FILE_COUNT = 55;
+    public const int SNAPSHOT_FILE_COUNT = 60;
 
     /** @var list<string> */
     public const array DEFINITION_NAMES = [
