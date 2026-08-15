@@ -109,6 +109,26 @@ it('rejects unavailable explicit Profiles before execution', function (): void {
         ->and(app(ResearchExecutor::class)->plans)->toBe([]);
 });
 
+it('uses resolved config credentials without exposing them in Profiles or previews', function (): void {
+    config()->set('services.librarium.key', 'resolved-secret-value');
+    config()->set('librarium.profiles.gemini-grounded.credential', config('services.librarium.key'));
+
+    $preview = Librarium::query('Research this.')->using('gemini-grounded')->preview();
+    $profile = $preview->profiles->sole();
+
+    expect(property_exists($profile, 'credential'))->toBeFalse()
+        ->and(json_encode($preview))->not->toContain('resolved-secret-value');
+});
+
+it('marks a Profile unavailable when its resolved credential is missing', function (): void {
+    config()->set('librarium.profiles.gemini-grounded.credential', config('services.missing.key'));
+
+    $preview = Librarium::query('Research this.')->preview();
+
+    expect($preview->profiles->pluck('id')->all())->toBe(['openrouter-grounded'])
+        ->and($preview->unavailable->get('gemini-grounded'))->toBe(['Credential is not configured.']);
+});
+
 it('lets the Driver validate bounded options before execution', function (array $options): void {
     config()->set('librarium.profiles.gemini-grounded.options', $options);
 

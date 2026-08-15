@@ -64,8 +64,16 @@ final class ProfileCatalog
                 ['id' => ['required', 'string', 'max:255', 'regex:/^[a-z0-9][a-z0-9._-]*$/']],
             )->validate();
 
-            $profile = $this->profile($id, $this->associativeArray($value, "profiles.{$id}"));
-            $items[$id] = new ProfileAvailability($profile, $this->reasons($profile));
+            $configuration = $this->associativeArray($value, "profiles.{$id}");
+            $profile = $this->profile($id, $configuration);
+            $items[$id] = new ProfileAvailability(
+                $profile,
+                $this->reasons(
+                    profile: $profile,
+                    requiresCredential: array_key_exists('credential', $configuration),
+                    credential: $this->nullableString($configuration, 'credential'),
+                ),
+            );
         }
 
         return collect($items);
@@ -180,7 +188,6 @@ final class ProfileCatalog
         $prompt = $this->string($value, 'prompt');
         $enabled = data_get($value, 'enabled', true);
         $options = $this->associativeArray(data_get($value, 'options', []), 'options');
-        $credential = $this->nullableString($value, 'credential');
         $estimatedCost = data_get($value, 'estimated_cost.amount');
         $currency = data_get($value, 'estimated_cost.currency');
 
@@ -205,14 +212,13 @@ final class ProfileCatalog
             prompt: $prompt,
             enabled: $enabled,
             options: $options,
-            credential: $credential,
             estimatedCostMicros: is_string($estimatedCost) || is_numeric($estimatedCost) ? $this->micros((string) $estimatedCost) : null,
             currency: $currency,
         );
     }
 
     /** @return list<string> */
-    private function reasons(Profile $profile): array
+    private function reasons(Profile $profile, bool $requiresCredential, ?string $credential): array
     {
         $reasons = [];
 
@@ -220,8 +226,8 @@ final class ProfileCatalog
             $reasons[] = 'Profile is disabled.';
         }
 
-        if ($profile->credential !== null && blank($this->config->get($profile->credential))) {
-            $reasons[] = "Credential [{$profile->credential}] is not configured.";
+        if ($requiresCredential && blank($credential)) {
+            $reasons[] = 'Credential is not configured.';
         }
 
         $reasons = [...$reasons, ...$this->optionValidator->errors($profile->driver, $profile->options)];

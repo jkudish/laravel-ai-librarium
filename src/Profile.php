@@ -31,7 +31,6 @@ final class Profile
         public readonly string $prompt,
         public readonly bool $enabled,
         public readonly array $options,
-        public readonly ?string $credential = null,
         public readonly ?int $estimatedCostMicros = null,
         public readonly ?string $currency = null,
     ) {}
