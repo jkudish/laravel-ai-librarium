@@ -25,6 +25,23 @@ final readonly class ProfileOptionValidator
         'sessiontoken',
     ];
 
+    /** @var list<string> */
+    private const array ALLOWED_TOKEN_KEYS = [
+        'maxtokens',
+        'mintokens',
+        'inputtokens',
+        'outputtokens',
+        'prompttokens',
+        'completiontokens',
+        'reasoningtokens',
+        'cachereadtokens',
+        'cachewritetokens',
+        'totaltokens',
+        'tokencount',
+        'tokenbudget',
+        'tokenlimit',
+    ];
+
     public function __construct(
         private ValidationFactory $validator,
         private ConfigRepository $config,
@@ -44,6 +61,10 @@ final readonly class ProfileOptionValidator
 
         if ($this->containsCredentialKey($options)) {
             $errors[] = 'Profile options may not contain credentials or secrets.';
+        }
+
+        if ($this->containsObject($options)) {
+            $errors[] = 'Profile options may contain only arrays and JSON scalar values.';
         }
 
         $encoded = json_encode($options);
@@ -81,6 +102,10 @@ final readonly class ProfileOptionValidator
         foreach ($options as $key => $value) {
             if (is_string($key)) {
                 $normalized = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $key));
+                if (str_contains($normalized, 'token') && ! in_array($normalized, self::ALLOWED_TOKEN_KEYS, true)) {
+                    return true;
+                }
+
                 foreach (self::FORBIDDEN_KEY_PARTS as $forbidden) {
                     if (str_contains($normalized, $forbidden)) {
                         return true;
@@ -89,6 +114,22 @@ final readonly class ProfileOptionValidator
             }
 
             if (is_array($value) && $this->containsCredentialKey($value)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @param array<array-key, mixed> $options */
+    private function containsObject(array $options): bool
+    {
+        foreach ($options as $value) {
+            if (is_object($value) || is_resource($value)) {
+                return true;
+            }
+
+            if (is_array($value) && $this->containsObject($value)) {
                 return true;
             }
         }

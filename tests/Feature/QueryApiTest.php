@@ -124,15 +124,22 @@ it('lets the Driver validate bounded options before execution', function (array 
     'wrapped credential' => [['client_secret_value' => 'do-not-store-this-here']],
     'authorization header' => [['authorization_header' => 'do-not-store-this-here']],
     'nested credential' => [['provider' => ['access_token' => 'do-not-store-this-here']]],
+    'client token' => [['client_token' => 'do-not-store-this-here']],
+    'identity token' => [['id_token' => 'do-not-store-this-here']],
+    'task token' => [['task_token' => 'do-not-store-this-here']],
+    'resume token' => [['resume_token' => 'do-not-store-this-here']],
+    'provider token' => [['github_token' => 'do-not-store-this-here']],
+    'unqualified token' => [['token' => 'do-not-store-this-here']],
+    'object-nested credential' => [['provider' => (object) ['access_token' => 'do-not-store-this-here']]],
     'invalid known option' => [['temperature' => 9]],
 ]);
 
-it('allows legitimate token controls in Profile options', function (): void {
-    config()->set('librarium.profiles.gemini-grounded.options', ['max_tokens' => 4000]);
+it('allows legitimate token controls in Profile options', function (string $key): void {
+    config()->set('librarium.profiles.gemini-grounded.options', [$key => 4000]);
 
     expect(Librarium::query('Research this.')->using('gemini-grounded')->preview()->profiles)
         ->toHaveCount(1);
-});
+})->with(['max_tokens', 'prompt_tokens', 'completion_tokens', 'reasoning_tokens']);
 
 it('rejects Drivers that do not publish Profile option rules', function (): void {
     config()->set('librarium.profiles.gemini-grounded.driver', stdClass::class);

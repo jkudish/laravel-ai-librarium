@@ -26,6 +26,9 @@ final class FakeProfileDriver implements ValidatesProfileOptions
             'temperature' => ['sometimes', 'numeric', 'between:0,2'],
             'search_depth' => ['sometimes', 'string', 'in:basic,advanced'],
             'max_tokens' => ['sometimes', 'integer', 'min:1'],
+            'prompt_tokens' => ['sometimes', 'integer', 'min:1'],
+            'completion_tokens' => ['sometimes', 'integer', 'min:1'],
+            'reasoning_tokens' => ['sometimes', 'integer', 'min:1'],
             'provider' => ['sometimes', 'array:mode'],
             'provider.mode' => ['sometimes', 'string'],
         ];
