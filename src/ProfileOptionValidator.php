@@ -6,40 +6,59 @@ namespace Jkudish\LaravelAiLibrarium;
 
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Validation\Factory as ValidationFactory;
+use Illuminate\Support\Str;
 use Jkudish\LaravelAiLibrarium\Contracts\ValidatesProfileOptions;
 
 final readonly class ProfileOptionValidator
 {
     /** @var list<string> */
-    private const array FORBIDDEN_KEY_PARTS = [
-        'apikey',
+    private const array FORBIDDEN_KEY_WORDS = [
+        'auth',
         'authorization',
+        'bearer',
+        'cookie',
+        'cookies',
         'credential',
+        'credentials',
+        'dsn',
         'password',
+        'passwords',
         'secret',
+        'secrets',
+    ];
+
+    /** @var list<string> */
+    private const array FORBIDDEN_COMPACT_KEY_PARTS = [
+        'apikey',
         'privatekey',
         'accesstoken',
         'authtoken',
         'bearertoken',
         'refreshtoken',
         'sessiontoken',
+        'signedurl',
+        'presignedurl',
+        'connectionstring',
     ];
 
     /** @var list<string> */
-    private const array ALLOWED_TOKEN_KEYS = [
-        'maxtokens',
-        'mintokens',
-        'inputtokens',
-        'outputtokens',
-        'prompttokens',
-        'completiontokens',
-        'reasoningtokens',
-        'cachereadtokens',
-        'cachewritetokens',
-        'totaltokens',
-        'tokencount',
-        'tokenbudget',
-        'tokenlimit',
+    private const array SAFE_TOKEN_WORDS = [
+        'budget',
+        'cache',
+        'completion',
+        'count',
+        'input',
+        'limit',
+        'max',
+        'min',
+        'output',
+        'prompt',
+        'read',
+        'reasoning',
+        'token',
+        'tokens',
+        'total',
+        'write',
     ];
 
     public function __construct(
@@ -101,13 +120,19 @@ final readonly class ProfileOptionValidator
     {
         foreach ($options as $key => $value) {
             if (is_string($key)) {
-                $normalized = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $key));
-                if (str_contains($normalized, 'token') && ! in_array($normalized, self::ALLOWED_TOKEN_KEYS, true)) {
+                $words = $this->keyWords($key);
+                $compact = implode('', $words);
+
+                if (str_contains($compact, 'token') && ! $this->isSafeTokenControl($words)) {
                     return true;
                 }
 
-                foreach (self::FORBIDDEN_KEY_PARTS as $forbidden) {
-                    if (str_contains($normalized, $forbidden)) {
+                if (array_intersect($words, self::FORBIDDEN_KEY_WORDS) !== []) {
+                    return true;
+                }
+
+                foreach (self::FORBIDDEN_COMPACT_KEY_PARTS as $forbidden) {
+                    if (str_contains($compact, $forbidden)) {
                         return true;
                     }
                 }
@@ -119,6 +144,23 @@ final readonly class ProfileOptionValidator
         }
 
         return false;
+    }
+
+    /** @return list<string> */
+    private function keyWords(string $key): array
+    {
+        $words = preg_split('/[^a-z0-9]+/', Str::snake($key), -1, PREG_SPLIT_NO_EMPTY);
+
+        return is_array($words) ? $words : [];
+    }
+
+    /** @param list<string> $words */
+    private function isSafeTokenControl(array $words): bool
+    {
+        $qualifiers = array_values(array_diff($words, ['token', 'tokens']));
+
+        return $qualifiers !== []
+            && array_diff($words, self::SAFE_TOKEN_WORDS) === [];
     }
 
     /** @param array<array-key, mixed> $options */

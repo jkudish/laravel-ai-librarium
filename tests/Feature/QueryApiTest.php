@@ -157,6 +157,7 @@ it('uses resolved config credentials without exposing them in Profiles or previe
 
     expect($profile->credential)->toBe('resolved-secret-value')
         ->and($profile->toArray())->not->toHaveKey('credential')
+        ->and(json_encode($profile))->not->toContain('resolved-secret-value')
         ->and(json_encode($preview))->not->toContain('resolved-secret-value');
 });
 
@@ -190,6 +191,17 @@ it('lets the Driver validate bounded options before execution', function (array 
     'resume token' => [['resume_token' => 'do-not-store-this-here']],
     'provider token' => [['github_token' => 'do-not-store-this-here']],
     'unqualified token' => [['token' => 'do-not-store-this-here']],
+    'auth value' => [['auth' => 'do-not-store-this-here']],
+    'auth header' => [['auth_header' => 'do-not-store-this-here']],
+    'prefixed camel-case auth header' => [['vendor:authHeader' => 'do-not-store-this-here']],
+    'bearer value' => [['bearer' => 'do-not-store-this-here']],
+    'cookie value' => [['cookie' => 'do-not-store-this-here']],
+    'session cookie' => [['session_cookie' => 'do-not-store-this-here']],
+    'signed URL' => [['signed_url' => 'do-not-store-this-here']],
+    'presigned URL' => [['presigned_url' => 'do-not-store-this-here']],
+    'DSN' => [['dsn' => 'do-not-store-this-here']],
+    'connection string' => [['connection_string' => 'do-not-store-this-here']],
+    'nested auth value' => [['provider' => ['auth' => 'do-not-store-this-here']]],
     'object-nested credential' => [['provider' => (object) ['access_token' => 'do-not-store-this-here']]],
     'oversized option tree' => [['provider' => ['mode' => str_repeat('x', 17_000)]]],
     'invalid known option' => [['temperature' => 9]],
@@ -200,7 +212,14 @@ it('allows legitimate token controls in Profile options', function (string $key)
 
     expect(Librarium::query('Research this.')->using('gemini-grounded')->preview()->profiles)
         ->toHaveCount(1);
-})->with(['max_tokens', 'prompt_tokens', 'completion_tokens', 'reasoning_tokens']);
+})->with([
+    'max_tokens',
+    'prompt_tokens',
+    'completion_tokens',
+    'reasoning_tokens',
+    'max_output_tokens',
+    'max_completion_tokens',
+]);
 
 it('rejects Drivers that do not publish Profile option rules', function (): void {
     config()->set('librarium.profiles.gemini-grounded.driver', stdClass::class);

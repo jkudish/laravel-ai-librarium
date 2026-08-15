@@ -11,9 +11,10 @@ use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
+use JsonSerializable;
 
 /** @implements Arrayable<string, mixed> */
-final class Profile implements Arrayable
+final class Profile implements Arrayable, JsonSerializable
 {
     /**
      * @param  Collection<int, Corpus>  $corpora
@@ -62,5 +63,11 @@ final class Profile implements Arrayable
             'estimated_cost_micros' => $this->estimatedCostMicros,
             'currency' => $this->currency,
         ];
+    }
+
+    /** @return array<string, mixed> */
+    public function jsonSerialize(): array
+    {
+        return $this->toArray();
     }
 }

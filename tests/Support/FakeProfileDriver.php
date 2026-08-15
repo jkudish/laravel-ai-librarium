@@ -29,6 +29,8 @@ final class FakeProfileDriver implements ValidatesProfileOptions
             'prompt_tokens' => ['sometimes', 'integer', 'min:1'],
             'completion_tokens' => ['sometimes', 'integer', 'min:1'],
             'reasoning_tokens' => ['sometimes', 'integer', 'min:1'],
+            'max_output_tokens' => ['sometimes', 'integer', 'min:1'],
+            'max_completion_tokens' => ['sometimes', 'integer', 'min:1'],
             'provider' => ['sometimes', 'array:mode'],
             'provider.mode' => ['sometimes', 'string'],
         ];
