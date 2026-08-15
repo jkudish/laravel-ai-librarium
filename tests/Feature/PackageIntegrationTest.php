@@ -17,7 +17,9 @@ it('registers the manager behind the package contract', function (): void {
 });
 
 it('merges the package configuration', function (): void {
-    expect(config('librarium'))->toBe([]);
+    expect(config('librarium.default_group'))->toBe('quick')
+        ->and(config('librarium.timeout'))->toBe(7200)
+        ->and(config('librarium.status_ttl'))->toBe(10800);
 });
 
 it('starts a research query through the facade', function (): void {
