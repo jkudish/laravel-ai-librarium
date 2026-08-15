@@ -6,6 +6,8 @@ namespace Jkudish\LaravelAiLibrarium;
 
 use Illuminate\Support\ServiceProvider;
 use Jkudish\LaravelAiLibrarium\Contracts\Librarium;
+use Jkudish\LaravelAiLibrarium\Contracts\ResearchExecutor;
+use Jkudish\LaravelAiLibrarium\Execution\UnconfiguredResearchExecutor;
 
 final class LaravelAiLibrariumServiceProvider extends ServiceProvider
 {
@@ -14,6 +16,20 @@ final class LaravelAiLibrariumServiceProvider extends ServiceProvider
         $this->mergeConfigFrom(__DIR__.'/../config/librarium.php', 'librarium');
 
         $this->app->singleton(LibrariumManager::class);
+        $this->app->singleton(ProfileCatalog::class);
+        $this->app->singleton(ResearchCompiler::class);
+        $this->app->singleton(ResearchExecutor::class, UnconfiguredResearchExecutor::class);
+        $this->app->singleton(
+            ResearchStatusStore::class,
+            function (): ResearchStatusStore {
+                $ttl = config('librarium.status_ttl', 10800);
+
+                return new ResearchStatusStore(
+                    cache: $this->app->make('cache.store'),
+                    ttl: is_int($ttl) ? $ttl : 10800,
+                );
+            },
+        );
         $this->app->singleton(
             Librarium::class,
             fn (): Librarium => $this->app->make(LibrariumManager::class),
