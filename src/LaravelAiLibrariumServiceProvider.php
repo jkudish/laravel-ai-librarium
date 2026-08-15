@@ -7,7 +7,9 @@ namespace Jkudish\LaravelAiLibrarium;
 use Illuminate\Support\ServiceProvider;
 use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
 use Jkudish\LaravelAiLibrarium\Contracts\Librarium;
-use Jkudish\LaravelAiLibrarium\Execution\UnconfiguredResearchExecutor;
+use Jkudish\LaravelAiLibrarium\Execution\ProfileCompatibility;
+use Jkudish\LaravelAiLibrarium\Execution\ResearchRuntime;
+use Jkudish\LaravelAiLibrarium\Webhooks\WebhookSignalStore;
 
 final class LaravelAiLibrariumServiceProvider extends ServiceProvider
 {
@@ -17,8 +19,9 @@ final class LaravelAiLibrariumServiceProvider extends ServiceProvider
 
         $this->app->singleton(LibrariumManager::class);
         $this->app->singleton(ProfileCatalog::class);
+        $this->app->singleton(ProfileCompatibility::class);
         $this->app->singleton(ResearchCompiler::class);
-        $this->app->singleton(ExecutesResearch::class, UnconfiguredResearchExecutor::class);
+        $this->app->singleton(ExecutesResearch::class, ResearchRuntime::class);
         $this->app->singleton(
             ResearchStatusStore::class,
             function (): ResearchStatusStore {
@@ -26,6 +29,18 @@ final class LaravelAiLibrariumServiceProvider extends ServiceProvider
 
                 return new ResearchStatusStore(
                     cache: $this->app->make('cache.store'),
+                    ttl: is_int($ttl) ? $ttl : 10800,
+                );
+            },
+        );
+        $this->app->singleton(
+            WebhookSignalStore::class,
+            function (): WebhookSignalStore {
+                $ttl = config('librarium.webhook_signal_ttl', 10800);
+
+                return new WebhookSignalStore(
+                    cache: $this->app->make('cache.store'),
+                    validator: $this->app->make('validator'),
                     ttl: is_int($ttl) ? $ttl : 10800,
                 );
             },

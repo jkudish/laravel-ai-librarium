@@ -4,15 +4,41 @@ A Laravel-native research query abstraction built on the official [Laravel AI SD
 
 > This package is under active development and does not yet have a stable release.
 
-## Direction
+## Usage
 
 ```php
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 
-$research = Librarium::query('Compare current agent memory architectures.');
+$response = Librarium::query('Compare current agent memory architectures.')
+    ->using('gemini-grounded')
+    ->fallbacks(['openrouter-grounded'])
+    ->run();
 ```
 
-The initial package intentionally exposes only the query boundary. Profiles, provider selection, execution policies, fan-out, fallback, and durable execution will be added after their shared semantic contracts are approved.
+Use `queue()` for the same research path in one encrypted Laravel job:
+
+```php
+$research = Librarium::query('Compare current agent memory architectures.')
+    ->group('deep')
+    ->queue()
+    ->then(fn ($response) => /* store or present the terminal response */)
+    ->catch(fn ($exception) => /* report the infrastructure failure */);
+```
+
+Queued research uses the dedicated `research` queue by default. Configure its connection through `librarium.queue.connection`, or use normal pending-dispatch methods such as `onConnection()` and `onQueue()` on the queued response.
+
+The default research deadline is 6,900 seconds inside a 7,200-second queue timeout. This leaves five minutes for normalization, events, callbacks, and worker cleanup. Multiple Profiles execute sequentially in 1.0 and share that research deadline, so a slow earlier Profile can leave less time for later fan-out slots.
+
+For safe long-running work, keep these limits in order:
+
+```text
+request/job timeout < Horizon supervisor timeout < queue retry_after
+process stopwaitsecs > Horizon supervisor timeout
+```
+
+The queue connection's `retry_after` must exceed every Horizon worker timeout to prevent duplicate execution. Supervisor `stopwaitsecs` must exceed the worker timeout so deployment or restart signals do not terminate active research early.
+
+Provider-native polling, resumable handles, and webhook verification stay inside Drivers and optional adapter packages. The public API remains `run()` and `queue()`; it does not expose provider execution modes or handles.
 
 ## Boundaries
 
@@ -20,6 +46,7 @@ The initial package intentionally exposes only the query boundary. Profiles, pro
 - Applications own evidence policy, verification thresholds, conversations, and domain workflows.
 - TypeScript Librarium remains the local-agent and CLI runtime; both implementations share a language-neutral interchange rather than runtime internals.
 - Substantial optional integrations, including Firecrawl, live in separate adapter packages.
+- `ResearchStarted`, `ResearchProgressed`, `ResearchCompleted`, and `ResearchFailed` provide non-broadcast application integration points without adding persistence to the package.
 
 ## Requirements
 
