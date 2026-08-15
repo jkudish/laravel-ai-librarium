@@ -6,7 +6,7 @@ namespace Jkudish\LaravelAiLibrarium;
 
 use Illuminate\Contracts\Validation\Factory as ValidationFactory;
 use Illuminate\Validation\ValidationException;
-use Jkudish\LaravelAiLibrarium\Contracts\ResearchExecutor;
+use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
@@ -35,7 +35,7 @@ final class PendingResearch
         public readonly string $requestId,
         private readonly ValidationFactory $validator,
         private readonly ResearchCompiler $compiler,
-        private readonly ResearchExecutor $executor,
+        private readonly ExecutesResearch $executor,
     ) {}
 
     public function using(string $profile): self

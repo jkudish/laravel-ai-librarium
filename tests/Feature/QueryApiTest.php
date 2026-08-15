@@ -5,7 +5,7 @@ declare(strict_types=1);
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\ValidationException;
-use Jkudish\LaravelAiLibrarium\Contracts\ResearchExecutor;
+use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
@@ -46,7 +46,7 @@ beforeEach(function (): void {
         ),
     ]);
     config()->set('librarium.groups.custom:focused', ['deep-report', 'disabled-report']);
-    app()->singleton(ResearchExecutor::class, fn (): FakeResearchExecutor => new FakeResearchExecutor);
+    app()->singleton(ExecutesResearch::class, fn (): FakeResearchExecutor => new FakeResearchExecutor);
 });
 
 afterEach(function (): void {
@@ -64,7 +64,7 @@ it('uses quick by default and exposes unavailable curated members', function ():
         ->and($preview->costEstimateComplete)->toBeTrue()
         ->and(FakeProfileDriver::$constructorCalls)->toBe(0)
         ->and(FakeProfileDriver::$validationCalls)->toBeGreaterThan(0)
-        ->and(app(ResearchExecutor::class)->plans)->toBe([]);
+        ->and(app(ExecutesResearch::class)->plans)->toBe([]);
 });
 
 it('resolves curated derived and custom groups', function (string $group, array $expected): void {
@@ -106,7 +106,7 @@ it('rejects unavailable explicit Profiles before execution', function (): void {
         ->toThrow(ValidationException::class);
 
     expect(FakeProfileDriver::$constructorCalls)->toBe(0)
-        ->and(app(ResearchExecutor::class)->plans)->toBe([]);
+        ->and(app(ExecutesResearch::class)->plans)->toBe([]);
 });
 
 it('uses resolved config credentials without exposing them in Profiles or previews', function (): void {
@@ -116,7 +116,8 @@ it('uses resolved config credentials without exposing them in Profiles or previe
     $preview = Librarium::query('Research this.')->using('gemini-grounded')->preview();
     $profile = $preview->profiles->sole();
 
-    expect(property_exists($profile, 'credential'))->toBeFalse()
+    expect($profile->credential)->toBe('resolved-secret-value')
+        ->and($profile->toArray())->not->toHaveKey('credential')
         ->and(json_encode($preview))->not->toContain('resolved-secret-value');
 });
 
@@ -136,7 +137,7 @@ it('lets the Driver validate bounded options before execution', function (array 
         ->toThrow(ValidationException::class);
 
     expect(FakeProfileDriver::$constructorCalls)->toBe(0)
-        ->and(app(ResearchExecutor::class)->plans)->toBe([]);
+        ->and(app(ExecutesResearch::class)->plans)->toBe([]);
 })->with([
     'unknown option' => [['unexpected' => true]],
     'credential option' => [['access_token' => 'do-not-store-this-here']],
@@ -168,7 +169,7 @@ it('rejects Drivers that do not publish Profile option rules', function (): void
     expect(fn () => Librarium::query('Research this.')->using('gemini-grounded')->preview())
         ->toThrow(ValidationException::class);
 
-    expect(app(ResearchExecutor::class)->plans)->toBe([]);
+    expect(app(ExecutesResearch::class)->plans)->toBe([]);
 });
 
 it('rejects malformed configured Profile IDs in derived groups', function (string $id): void {
@@ -192,7 +193,7 @@ it('requires complete estimates for a hard cost ceiling', function (): void {
 
 it('hands the same compiled plan shape to run and queue', function (): void {
     /** @var FakeResearchExecutor $executor */
-    $executor = app(ResearchExecutor::class);
+    $executor = app(ExecutesResearch::class);
 
     $run = Librarium::query('Research this.')->using('gemini-grounded')->timeout(500);
     $runResponse = $run->run();

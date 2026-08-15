@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jkudish\LaravelAiLibrarium;
 
+use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Support\Collection;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
@@ -11,7 +12,8 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 
-final class Profile
+/** @implements Arrayable<string, mixed> */
+final class Profile implements Arrayable
 {
     /**
      * @param  Collection<int, Corpus>  $corpora
@@ -31,6 +33,7 @@ final class Profile
         public readonly string $prompt,
         public readonly bool $enabled,
         public readonly array $options,
+        public readonly ?string $credential = null,
         public readonly ?int $estimatedCostMicros = null,
         public readonly ?string $currency = null,
     ) {}
@@ -38,5 +41,26 @@ final class Profile
     public function renderPrompt(string $input): string
     {
         return str_replace('{{ query }}', $input, $this->prompt);
+    }
+
+    /** @return array<string, mixed> */
+    public function toArray(): array
+    {
+        return [
+            'id' => $this->id,
+            'driver' => $this->driver,
+            'provider' => $this->provider,
+            'model' => $this->model,
+            'result_kind' => $this->resultKind->value,
+            'grounding' => $this->grounding->value,
+            'observation' => $this->observation->value,
+            'corpora' => $this->corpora->map(fn (Corpus $corpus): string => $corpus->value)->values()->all(),
+            'retrieval_methods' => $this->retrievalMethods->map(fn (RetrievalMethod $method): string => $method->value)->values()->all(),
+            'prompt' => $this->prompt,
+            'enabled' => $this->enabled,
+            'options' => $this->options,
+            'estimated_cost_micros' => $this->estimatedCostMicros,
+            'currency' => $this->currency,
+        ];
     }
 }

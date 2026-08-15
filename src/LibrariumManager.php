@@ -6,15 +6,15 @@ namespace Jkudish\LaravelAiLibrarium;
 
 use Illuminate\Contracts\Validation\Factory as ValidationFactory;
 use Illuminate\Support\Str;
+use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
 use Jkudish\LaravelAiLibrarium\Contracts\Librarium;
-use Jkudish\LaravelAiLibrarium\Contracts\ResearchExecutor;
 
 final readonly class LibrariumManager implements Librarium
 {
     public function __construct(
         private ValidationFactory $validator,
         private ResearchCompiler $compiler,
-        private ResearchExecutor $executor,
+        private ExecutesResearch $executor,
         private ResearchStatusStore $statusStore,
     ) {}
 

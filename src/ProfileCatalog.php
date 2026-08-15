@@ -71,7 +71,6 @@ final class ProfileCatalog
                 $this->reasons(
                     profile: $profile,
                     requiresCredential: array_key_exists('credential', $configuration),
-                    credential: $this->nullableString($configuration, 'credential'),
                 ),
             );
         }
@@ -188,6 +187,7 @@ final class ProfileCatalog
         $prompt = $this->string($value, 'prompt');
         $enabled = data_get($value, 'enabled', true);
         $options = $this->associativeArray(data_get($value, 'options', []), 'options');
+        $credential = $this->nullableString($value, 'credential');
         $estimatedCost = data_get($value, 'estimated_cost.amount');
         $currency = data_get($value, 'estimated_cost.currency');
 
@@ -212,13 +212,14 @@ final class ProfileCatalog
             prompt: $prompt,
             enabled: $enabled,
             options: $options,
+            credential: $credential,
             estimatedCostMicros: is_string($estimatedCost) || is_numeric($estimatedCost) ? $this->micros((string) $estimatedCost) : null,
             currency: $currency,
         );
     }
 
     /** @return list<string> */
-    private function reasons(Profile $profile, bool $requiresCredential, ?string $credential): array
+    private function reasons(Profile $profile, bool $requiresCredential): array
     {
         $reasons = [];
 
@@ -226,7 +227,7 @@ final class ProfileCatalog
             $reasons[] = 'Profile is disabled.';
         }
 
-        if ($requiresCredential && blank($credential)) {
+        if ($requiresCredential && blank($profile->credential)) {
             $reasons[] = 'Credential is not configured.';
         }
 

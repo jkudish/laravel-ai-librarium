@@ -8,7 +8,7 @@ use Jkudish\LaravelAiLibrarium\QueuedResearchResponse;
 use Jkudish\LaravelAiLibrarium\ResearchPlan;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResponse;
 
-interface ResearchExecutor
+interface ExecutesResearch
 {
     public function run(ResearchPlan $plan): ResearchResponse;
 

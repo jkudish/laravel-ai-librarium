@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Jkudish\LaravelAiLibrarium;
 
 use Illuminate\Support\ServiceProvider;
+use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
 use Jkudish\LaravelAiLibrarium\Contracts\Librarium;
-use Jkudish\LaravelAiLibrarium\Contracts\ResearchExecutor;
 use Jkudish\LaravelAiLibrarium\Execution\UnconfiguredResearchExecutor;
 
 final class LaravelAiLibrariumServiceProvider extends ServiceProvider
@@ -18,7 +18,7 @@ final class LaravelAiLibrariumServiceProvider extends ServiceProvider
         $this->app->singleton(LibrariumManager::class);
         $this->app->singleton(ProfileCatalog::class);
         $this->app->singleton(ResearchCompiler::class);
-        $this->app->singleton(ResearchExecutor::class, UnconfiguredResearchExecutor::class);
+        $this->app->singleton(ExecutesResearch::class, UnconfiguredResearchExecutor::class);
         $this->app->singleton(
             ResearchStatusStore::class,
             function (): ResearchStatusStore {

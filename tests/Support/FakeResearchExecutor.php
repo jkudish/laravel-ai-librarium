@@ -5,13 +5,13 @@ declare(strict_types=1);
 namespace Jkudish\LaravelAiLibrarium\Tests\Support;
 
 use Illuminate\Support\Facades\File;
-use Jkudish\LaravelAiLibrarium\Contracts\ResearchExecutor;
+use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
 use Jkudish\LaravelAiLibrarium\QueuedResearchResponse;
 use Jkudish\LaravelAiLibrarium\ResearchPlan;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResponse;
 use Laravel\Ai\FakePendingDispatch;
 
-final class FakeResearchExecutor implements ResearchExecutor
+final class FakeResearchExecutor implements ExecutesResearch
 {
     /** @var list<ResearchPlan> */
     public array $plans = [];
