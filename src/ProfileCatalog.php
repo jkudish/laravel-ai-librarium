@@ -199,6 +199,20 @@ final class ProfileCatalog
             throw ValidationException::withMessages(['estimated_cost.currency' => 'The currency must be a string.']);
         }
 
+        if ($observation === ObservationMode::SurfaceSnapshot->value) {
+            if ($resultKind !== ResultKind::SurfaceObservation->value) {
+                throw ValidationException::withMessages([
+                    'result_kind' => 'A surface snapshot Profile must use the surface_observation result kind.',
+                ]);
+            }
+
+            if (! in_array(RetrievalMethod::SurfaceCollector->value, $retrievalMethods, true)) {
+                throw ValidationException::withMessages([
+                    'retrieval_methods' => 'A surface snapshot Profile must include the surface_collector retrieval method.',
+                ]);
+            }
+        }
+
         return new Profile(
             id: $id,
             driver: $driver,

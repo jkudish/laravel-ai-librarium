@@ -89,10 +89,10 @@ it('preserves the curated visibility order while skipping unavailable Profiles',
     $profiles = config('librarium.profiles');
     $profiles['searchapi-chatgpt'] = profileConfig(
         provider: 'searchapi',
-        resultKind: ResultKind::GroundedAnswer,
+        resultKind: ResultKind::SurfaceObservation,
         estimatedCost: '0.01',
         observation: ObservationMode::SurfaceSnapshot,
-        retrievalMethod: RetrievalMethod::SearchEndpoint,
+        retrievalMethod: RetrievalMethod::SurfaceCollector,
     );
     $profiles['perplexity-sonar-pro'] = profileConfig('perplexity', ResultKind::GroundedAnswer, estimatedCost: '0.02');
     $profiles['grok'] = profileConfig('xai', ResultKind::GroundedAnswer, estimatedCost: '0.03');
@@ -107,6 +107,26 @@ it('preserves the curated visibility order while skipping unavailable Profiles',
         'grok',
     ]);
 });
+
+it('rejects invalid surface Profiles before Driver validation or execution', function (ResultKind $resultKind, RetrievalMethod $retrievalMethod): void {
+    config()->set('librarium.profiles', [
+        'surface' => profileConfig(
+            provider: 'searchapi',
+            resultKind: $resultKind,
+            observation: ObservationMode::SurfaceSnapshot,
+            retrievalMethod: $retrievalMethod,
+        ),
+    ]);
+
+    expect(fn () => Librarium::query('Research this.')->using('surface')->preview())
+        ->toThrow(ValidationException::class)
+        ->and(FakeProfileDriver::$constructorCalls)->toBe(0)
+        ->and(FakeProfileDriver::$validationCalls)->toBe(0)
+        ->and(app(ExecutesResearch::class)->plans)->toBe([]);
+})->with([
+    'wrong result kind' => [ResultKind::GroundedAnswer, RetrievalMethod::SurfaceCollector],
+    'missing surface collector' => [ResultKind::SurfaceObservation, RetrievalMethod::SearchEndpoint],
+]);
 
 it('fans out across explicit Profiles in their requested order', function (): void {
     $preview = Librarium::query('Research this.')

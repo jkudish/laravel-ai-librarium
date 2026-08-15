@@ -18,13 +18,13 @@ final class ContractSnapshot
 
     public const int SNAPSHOT_VERSION = 1;
 
-    public const string UPSTREAM_COMMIT = 'a838881f5804052690f61c783256cc00edd0acee';
+    public const string UPSTREAM_COMMIT = 'fc8536591db36dee301651537c009463d7d99f1e';
 
-    public const string MANIFEST_SHA256 = 'd06553f4bb56bc50598ae0ee98b1da6172120bcf47c7f837fc04a5b5b16709ce';
+    public const string MANIFEST_SHA256 = '4b8667d98ea5334793e95ebf3c15c96518d42a5e0369ac5ed66fb599b0e1793f';
 
-    public const string CHECKSUMS_SHA256 = '32857dd761dde938e28b36477d6a7c7e10cd8bb06e8395ac19590413470e7724';
+    public const string CHECKSUMS_SHA256 = '740b34d67fa2edfe25af93174080a6f9afb3d2a59b85919eb4fe7f2ead80bebd';
 
-    public const string INTERCHANGE_SCHEMA_SHA256 = '637a0d93418bc742ecbcb07d84cecacd1f61168d8389645da349fdeebb6264cd';
+    public const string INTERCHANGE_SCHEMA_SHA256 = 'a9a0092fc26f64111d8e4ff0ade4d7e72d382e5f9f005649928b1b777e412002';
 
     public const int SCHEMA_FILE_COUNT = 1;
 
@@ -32,17 +32,17 @@ final class ContractSnapshot
 
     public const int VALID_FIXTURE_COUNT = 17;
 
-    public const int INVALID_FIXTURE_COUNT = 39;
+    public const int INVALID_FIXTURE_COUNT = 40;
 
     public const int FIXTURE_COUNT = self::VALID_FIXTURE_COUNT + self::INVALID_FIXTURE_COUNT;
 
-    public const int SEMANTIC_RULE_COUNT = 5;
+    public const int SEMANTIC_RULE_COUNT = 6;
 
-    public const int MANIFEST_FILE_COUNT = 59;
+    public const int MANIFEST_FILE_COUNT = 60;
 
-    public const int CHECKSUM_ENTRY_COUNT = 59;
+    public const int CHECKSUM_ENTRY_COUNT = 60;
 
-    public const int SNAPSHOT_FILE_COUNT = 60;
+    public const int SNAPSHOT_FILE_COUNT = 61;
 
     /** @var list<string> */
     public const array DEFINITION_NAMES = [
@@ -60,6 +60,7 @@ final class ContractSnapshot
         'provider_meta.safe_metadata',
         'research_response.terminal_shape',
         'result_provenance.surface_requires_collector',
+        'result_provenance.surface_snapshot_boundary',
         'source.locator_required',
         'usage.cost_requires_currency',
     ];

@@ -208,8 +208,18 @@ it('rejects semantically incompatible reserves and transient TTLs before Driver 
     config()->set('librarium.profiles', [
         'primary' => runtimeProfileConfig('primary'),
         'wrong-kind' => runtimeProfileConfig('wrong-kind', resultKind: ResultKind::ResearchReport),
-        'surface-primary' => runtimeProfileConfig('surface-primary', observation: ObservationMode::SurfaceSnapshot),
-        'surface-fallback' => runtimeProfileConfig('surface-fallback', observation: ObservationMode::SurfaceSnapshot),
+        'surface-primary' => runtimeProfileConfig(
+            'surface-primary',
+            resultKind: ResultKind::SurfaceObservation,
+            observation: ObservationMode::SurfaceSnapshot,
+            retrievalMethods: [RetrievalMethod::SurfaceCollector],
+        ),
+        'surface-fallback' => runtimeProfileConfig(
+            'surface-fallback',
+            resultKind: ResultKind::SurfaceObservation,
+            observation: ObservationMode::SurfaceSnapshot,
+            retrievalMethods: [RetrievalMethod::SurfaceCollector],
+        ),
     ]);
 
     expect(fn () => Librarium::query('Research this.')
@@ -244,7 +254,14 @@ it('rejects Driver results outside the effective Profile semantics', function (s
     $observation = $mismatch === 'missing surface facts'
         ? ObservationMode::SurfaceSnapshot
         : ObservationMode::ApiOutput;
-    config()->set('librarium.profiles.primary', runtimeProfileConfig('primary', observation: $observation));
+    config()->set('librarium.profiles.primary', runtimeProfileConfig(
+        'primary',
+        resultKind: $mismatch === 'missing surface facts' ? ResultKind::SurfaceObservation : ResultKind::GroundedAnswer,
+        observation: $observation,
+        retrievalMethods: $mismatch === 'missing surface facts'
+            ? [RetrievalMethod::SurfaceCollector]
+            : [RetrievalMethod::ModelSearchTool],
+    ));
     FakeRuntimeDriver::$outcomes['primary'] = [function (DriverRequest $request) use ($mismatch): ResearchResult {
         $provenance = match ($mismatch) {
             'result kind' => new ResultProvenance(
@@ -283,7 +300,9 @@ it('rejects Driver results outside the effective Profile semantics', function (s
 it('accepts a surface result with explicit collector and surface provenance', function (): void {
     config()->set('librarium.profiles.primary', runtimeProfileConfig(
         'primary',
+        resultKind: ResultKind::SurfaceObservation,
         observation: ObservationMode::SurfaceSnapshot,
+        retrievalMethods: [RetrievalMethod::SurfaceCollector],
     ));
     FakeRuntimeDriver::$outcomes['primary'] = [function (DriverRequest $request): ResearchResult {
         return runtimeResult(
@@ -296,6 +315,7 @@ it('accepts a surface result with explicit collector and surface provenance', fu
                 observedAt: CarbonImmutable::now(),
                 collector: 'searchapi',
                 surface: 'chatgpt',
+                observationMode: ObservationMode::SurfaceSnapshot,
             ),
         );
     }];

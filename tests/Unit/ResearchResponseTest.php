@@ -9,6 +9,7 @@ use Jkudish\LaravelAiLibrarium\Responses\Citation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ContentFormat;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\Personalization;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResponseStatus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
@@ -56,6 +57,48 @@ it('round trips every accepted terminal response fixture without a mapper', func
     'provider metadata benign keys' => ['provider-meta-benign-keys.json'],
 ]);
 
+it('preserves typed personalization while allowing an omitted observation mode', function (): void {
+    $value = responseFixture('valid/surface-context-authentication-unknown.json');
+    unset($value['results'][0]['provenance']['observation_mode']);
+
+    $response = ResearchResponse::fromArray($value);
+    $provenance = $response->results->sole()->provenance;
+
+    expect($provenance->observationMode)->toBeNull()
+        ->and($provenance->context['personalization'])->toBe(Personalization::Unknown)
+        ->and($response->toArray())->toBe($value);
+});
+
+it('preserves empty provenance context as a JSON object and rejects an empty list', function (): void {
+    $objectValue = responseFixture('valid/markdown-success.json');
+    $objectValue['results'][0]['provenance']['context'] = new stdClass;
+
+    $serialized = ResearchResponse::fromArray($objectValue)->toArray();
+
+    expect($serialized['results'][0]['provenance']['context'])->toBeInstanceOf(stdClass::class);
+
+    $listValue = responseFixture('valid/markdown-success.json');
+    $listValue['results'][0]['provenance']['context'] = [];
+
+    expect(fn (): ResearchResponse => ResearchResponse::fromArray($listValue))
+        ->toThrow(ValidationException::class);
+});
+
+it('enforces every surface snapshot provenance boundary', function (string $mutation): void {
+    $value = responseFixture('valid/surface-context-authentication-unknown.json');
+
+    if ($mutation === 'surface' || $mutation === 'collector') {
+        unset($value['results'][0]['provenance'][$mutation]);
+    } elseif ($mutation === 'retrieval method') {
+        $value['results'][0]['provenance']['retrieval_methods'] = ['model_search_tool'];
+    } else {
+        $value['results'][0]['provenance']['result_kind'] = 'grounded_answer';
+    }
+
+    expect(fn (): ResearchResponse => ResearchResponse::fromArray($value))
+        ->toThrow(ValidationException::class);
+})->with(['surface', 'collector', 'retrieval method', 'result kind']);
+
 it('rejects every invalid terminal response fixture through Laravel validation', function (string $fixture): void {
     expect(fn (): ResearchResponse => ResearchResponse::fromArray(responseFixture("invalid/{$fixture}")))
         ->toThrow(ValidationException::class);
@@ -93,6 +136,7 @@ it('rejects every invalid terminal response fixture through Laravel validation',
     'cost missing currency' => ['usage-cost-no-currency.json'],
     'provenance context' => ['provenance-context-unknown.json'],
     'surface missing collector' => ['provenance-surface-no-collector.json'],
+    'surface snapshot wrong result' => ['provenance-surface-snapshot-wrong-result.json'],
     'closed enum' => ['invalid-enum.json'],
     'timestamp' => ['invalid-timestamp.json'],
     'identifier' => ['invalid-id.json'],
@@ -114,6 +158,7 @@ it('does not introduce an interchange mapper or terminal execution model', funct
         'CitationDerivation',
         'ContentFormat',
         'Corpus',
+        'Personalization',
         'ResearchError',
         'ResearchResponse',
         'ResearchResult',

@@ -38,19 +38,19 @@ it('verifies the exact accepted upstream snapshot offline and reports machine-re
     expect($report)->toBe([
         'contract_version' => 'v1',
         'snapshot_version' => 1,
-        'upstream_commit' => 'a838881f5804052690f61c783256cc00edd0acee',
-        'manifest_sha256' => 'd06553f4bb56bc50598ae0ee98b1da6172120bcf47c7f837fc04a5b5b16709ce',
-        'checksums_sha256' => '32857dd761dde938e28b36477d6a7c7e10cd8bb06e8395ac19590413470e7724',
-        'interchange_schema_sha256' => '637a0d93418bc742ecbcb07d84cecacd1f61168d8389645da349fdeebb6264cd',
+        'upstream_commit' => 'fc8536591db36dee301651537c009463d7d99f1e',
+        'manifest_sha256' => '4b8667d98ea5334793e95ebf3c15c96518d42a5e0369ac5ed66fb599b0e1793f',
+        'checksums_sha256' => '740b34d67fa2edfe25af93174080a6f9afb3d2a59b85919eb4fe7f2ead80bebd',
+        'interchange_schema_sha256' => 'a9a0092fc26f64111d8e4ff0ade4d7e72d382e5f9f005649928b1b777e412002',
         'totals' => [
             'schemas' => 1,
             'definitions' => 7,
             'valid_fixtures' => 17,
-            'invalid_fixtures' => 39,
-            'semantic_rules' => 5,
-            'manifest_entries' => 59,
-            'checksum_entries' => 59,
-            'snapshot_files' => 60,
+            'invalid_fixtures' => 40,
+            'semantic_rules' => 6,
+            'manifest_entries' => 60,
+            'checksum_entries' => 60,
+            'snapshot_files' => 61,
         ],
     ])->and(json_decode(json_encode($report, JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR))
         ->toBe($report);
@@ -138,11 +138,16 @@ it('pins every closed terminal vocabulary', function (): void {
         'grounded_answer',
         'research_report',
         'model_answer',
+        'surface_observation',
     ])->and($definitions['result_provenance']['properties']['retrieval_methods']['items']['enum'])->toBe([
         'search_endpoint',
         'model_search_tool',
         'research_agent',
         'model_only',
+        'surface_collector',
+    ])->and($definitions['result_provenance']['properties']['observation_mode']['enum'])->toBe([
+        'api_output',
+        'surface_snapshot',
     ])->and($definitions['result_provenance']['properties']['corpora']['items']['enum'])->toBe([
         'web',
         'news',
@@ -153,6 +158,10 @@ it('pins every closed terminal vocabulary', function (): void {
         'anonymous',
         'authenticated',
         'managed',
+        'unknown',
+    ])->and($definitions['result_provenance']['properties']['context']['properties']['personalization']['enum'])->toBe([
+        'present',
+        'absent',
         'unknown',
     ])->and($definitions['citation']['properties']['derivation']['enum'])->toBe([
         'provider_reported',
@@ -211,10 +220,10 @@ it('pins all fixtures and semantic rules in the generated inventories', function
     $semanticRuleIds = array_column($manifest['semantic_rules'], 'rule_id');
     sort($semanticRuleIds);
 
-    expect($manifest['files'])->toHaveCount(59)
-        ->and($fixtureIndex['fixtures'])->toHaveCount(56)
+    expect($manifest['files'])->toHaveCount(60)
+        ->and($fixtureIndex['fixtures'])->toHaveCount(57)
         ->and($validFixtures)->toHaveCount(17)
-        ->and($invalidFixtures)->toHaveCount(39)
+        ->and($invalidFixtures)->toHaveCount(40)
         ->and($semanticRuleIds)->toBe(ContractSnapshot::SEMANTIC_RULE_IDS);
 });
 

@@ -37,7 +37,8 @@ final readonly class ProfileCompatibility
             && $this->sameValues($profile->retrievalMethods, $provenance->retrievalMethods)
             && match ($profile->observation) {
                 ObservationMode::ApiOutput => $provenance->surface === null,
-                ObservationMode::SurfaceSnapshot => $provenance->collector !== null
+                ObservationMode::SurfaceSnapshot => $provenance->observationMode === ObservationMode::SurfaceSnapshot
+                    && $provenance->collector !== null
                     && $provenance->surface !== null,
             };
     }

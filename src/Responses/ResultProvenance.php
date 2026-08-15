@@ -9,10 +9,13 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Authentication;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\Personalization;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
+use stdClass;
 
 final class ResultProvenance
 {
@@ -21,7 +24,7 @@ final class ResultProvenance
     /**
      * @param  Collection<int, RetrievalMethod>  $retrievalMethods
      * @param  Collection<int, Corpus>  $corpora
-     * @param  array<string, string|Authentication>|null  $context
+     * @param  array<string, string|Authentication|Personalization>|stdClass|null  $context
      */
     public function __construct(
         public readonly ResultKind $resultKind,
@@ -30,7 +33,8 @@ final class ResultProvenance
         public readonly CarbonImmutable $observedAt,
         public readonly ?string $collector = null,
         public readonly ?string $surface = null,
-        public readonly ?array $context = null,
+        public readonly array|stdClass|null $context = null,
+        public readonly ?ObservationMode $observationMode = null,
     ) {}
 
     /** @param array<array-key, mixed> $value */
@@ -49,6 +53,9 @@ final class ResultProvenance
             collector: self::nullableString($value, 'collector'),
             surface: self::nullableString($value, 'surface'),
             context: $context,
+            observationMode: ($observationMode = self::nullableString($value, 'observation_mode')) === null
+                ? null
+                : ObservationMode::from($observationMode),
         );
         $provenance->observedAtWire = $observedAt;
 
@@ -59,8 +66,11 @@ final class ResultProvenance
     public function toArray(): array
     {
         $context = $this->context;
-        if ($context !== null && ($context['authentication'] ?? null) instanceof Authentication) {
+        if (is_array($context) && ($context['authentication'] ?? null) instanceof Authentication) {
             $context['authentication'] = $context['authentication']->value;
+        }
+        if (is_array($context) && ($context['personalization'] ?? null) instanceof Personalization) {
+            $context['personalization'] = $context['personalization']->value;
         }
 
         $value = array_filter([
@@ -68,6 +78,7 @@ final class ResultProvenance
             'retrieval_methods' => $this->retrievalMethods->map(static fn (RetrievalMethod $method): string => $method->value)->all(),
             'corpora' => $this->corpora->map(static fn (Corpus $corpus): string => $corpus->value)->all(),
             'observed_at' => $this->observedAtWire ?? self::formatTimestamp($this->observedAt),
+            'observation_mode' => $this->observationMode?->value,
             'collector' => $this->collector,
             'surface' => $this->surface,
             'context' => $context,
@@ -81,29 +92,63 @@ final class ResultProvenance
     /** @param array<array-key, mixed> $value */
     private static function validate(array $value): void
     {
-        $validator = Validator::make($value, [
+        $validationValue = $value;
+        if (($validationValue['context'] ?? null) instanceof stdClass) {
+            $validationValue['context'] = get_object_vars($validationValue['context']);
+        }
+
+        $validator = Validator::make($validationValue, [
             'result_kind' => ['bail', 'required', 'string', Rule::enum(ResultKind::class)],
             'retrieval_methods' => ['present', 'array', 'list'],
             'retrieval_methods.*' => ['bail', 'string', Rule::enum(RetrievalMethod::class)],
             'corpora' => ['present', 'array', 'list'],
             'corpora.*' => ['bail', 'string', Rule::enum(Corpus::class)],
             'observed_at' => ['required', 'string', 'regex:/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$/'],
+            'observation_mode' => ['string', Rule::enum(ObservationMode::class)],
             'collector' => ['string', 'min:1'],
             'surface' => ['string', 'min:1'],
-            'context' => ['array:locale,country,device,authentication'],
+            'context' => ['array:locale,country,device,authentication,personalization'],
             'context.locale' => ['string', 'min:1'],
             'context.country' => ['string', 'min:1'],
             'context.device' => ['string', 'min:1'],
             'context.authentication' => ['string', Rule::enum(Authentication::class)],
+            'context.personalization' => ['string', Rule::enum(Personalization::class)],
         ]);
 
         $validator->after(static function (\Illuminate\Validation\Validator $validator) use ($value): void {
-            if (array_diff(array_keys($value), ['result_kind', 'retrieval_methods', 'corpora', 'observed_at', 'collector', 'surface', 'context']) !== []) {
+            if (array_diff(array_keys($value), ['result_kind', 'retrieval_methods', 'corpora', 'observed_at', 'observation_mode', 'collector', 'surface', 'context']) !== []) {
                 $validator->errors()->add('provenance', 'contains an unknown field.');
+            }
+
+            $context = $value['context'] ?? null;
+            if (is_array($context) && array_is_list($context)) {
+                $validator->errors()->add('context', 'must be an object.');
             }
 
             if (($value['surface'] ?? null) !== null && ($value['collector'] ?? null) === null) {
                 $validator->errors()->add('collector', 'is required when a surface is present.');
+            }
+
+            if (($value['result_kind'] ?? null) === ResultKind::SurfaceObservation->value
+                && ($value['surface'] ?? null) === null) {
+                $validator->errors()->add('surface', 'is required for a surface observation.');
+            }
+
+            if (($value['observation_mode'] ?? null) === ObservationMode::SurfaceSnapshot->value) {
+                $retrievalMethods = $value['retrieval_methods'] ?? null;
+
+                if (($value['result_kind'] ?? null) !== ResultKind::SurfaceObservation->value) {
+                    $validator->errors()->add('result_kind', 'must be surface_observation for a surface snapshot.');
+                }
+
+                if (! is_array($retrievalMethods)
+                    || ! in_array(RetrievalMethod::SurfaceCollector->value, $retrievalMethods, true)) {
+                    $validator->errors()->add('retrieval_methods', 'must include surface_collector for a surface snapshot.');
+                }
+
+                if (($value['collector'] ?? null) === null) {
+                    $validator->errors()->add('collector', 'is required for a surface snapshot.');
+                }
             }
 
             if (is_string($value['observed_at'] ?? null)) {
@@ -162,15 +207,21 @@ final class ResultProvenance
     }
 
     /** @param array<array-key, mixed> $value
-     * @return array<string, string|Authentication>|null
+     * @return array<string, string|Authentication|Personalization>|stdClass|null
      */
-    private static function context(array $value): ?array
+    private static function context(array $value): array|stdClass|null
     {
         $input = $value['context'] ?? null;
         if ($input === null) {
             return null;
         }
-        if (! is_array($input)) {
+        if ($input instanceof stdClass) {
+            $input = get_object_vars($input);
+            if ($input === []) {
+                return new stdClass;
+            }
+        }
+        if (! is_array($input) || array_is_list($input)) {
             throw ValidationException::withMessages(['context' => 'must be an object.']);
         }
 
@@ -179,6 +230,7 @@ final class ResultProvenance
             'country' => self::nullableString($input, 'country'),
             'device' => self::nullableString($input, 'device'),
             'authentication' => ($authentication = self::nullableString($input, 'authentication')) === null ? null : Authentication::from($authentication),
+            'personalization' => ($personalization = self::nullableString($input, 'personalization')) === null ? null : Personalization::from($personalization),
         ], static fn (mixed $item): bool => $item !== null);
 
         return $context;
