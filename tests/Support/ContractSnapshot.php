@@ -18,7 +18,7 @@ final class ContractSnapshot
 
     public const int SNAPSHOT_VERSION = 1;
 
-    public const string UPSTREAM_COMMIT = 'af696debe20490fa98197d45209379e74e189a15';
+    public const string UPSTREAM_COMMIT = 'a838881f5804052690f61c783256cc00edd0acee';
 
     public const string MANIFEST_SHA256 = 'd06553f4bb56bc50598ae0ee98b1da6172120bcf47c7f837fc04a5b5b16709ce';
 

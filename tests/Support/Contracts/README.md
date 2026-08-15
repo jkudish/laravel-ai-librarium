@@ -2,7 +2,7 @@
 
 `v1/` is an exact, development-only copy of `contracts/v1` from
 [`jkudish/librarium`](https://github.com/jkudish/librarium) at commit
-`af696debe20490fa98197d45209379e74e189a15`.
+`a838881f5804052690f61c783256cc00edd0acee`.
 
 Pinned facts:
 

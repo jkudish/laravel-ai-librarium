@@ -38,7 +38,7 @@ it('verifies the exact accepted upstream snapshot offline and reports machine-re
     expect($report)->toBe([
         'contract_version' => 'v1',
         'snapshot_version' => 1,
-        'upstream_commit' => 'af696debe20490fa98197d45209379e74e189a15',
+        'upstream_commit' => 'a838881f5804052690f61c783256cc00edd0acee',
         'manifest_sha256' => 'd06553f4bb56bc50598ae0ee98b1da6172120bcf47c7f837fc04a5b5b16709ce',
         'checksums_sha256' => '32857dd761dde938e28b36477d6a7c7e10cd8bb06e8395ac19590413470e7724',
         'interchange_schema_sha256' => '637a0d93418bc742ecbcb07d84cecacd1f61168d8389645da349fdeebb6264cd',
