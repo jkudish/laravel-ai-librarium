@@ -7,7 +7,7 @@ namespace Jkudish\LaravelAiLibrarium;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Validation\Factory as ValidationFactory;
 use Illuminate\Support\Str;
-use Jkudish\LaravelAiLibrarium\Contracts\ValidatesProfileOptions;
+use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 
 final readonly class ProfileOptionValidator
 {
@@ -72,8 +72,8 @@ final readonly class ProfileOptionValidator
      */
     public function errors(string $driver, array $options): array
     {
-        if (! is_subclass_of($driver, ValidatesProfileOptions::class)) {
-            return ["Driver [{$driver}] must implement ValidatesProfileOptions."];
+        if (! is_subclass_of($driver, Driver::class)) {
+            return ["Driver [{$driver}] must implement Driver."];
         }
 
         $errors = [];

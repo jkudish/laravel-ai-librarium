@@ -11,5 +11,6 @@ final class ResearchPlan
         public readonly string $requestId,
         public readonly ResearchPreview $preview,
         public readonly int $timeout,
+        public readonly int $jobTimeout,
     ) {}
 }

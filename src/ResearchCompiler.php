@@ -7,6 +7,7 @@ namespace Jkudish\LaravelAiLibrarium;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
+use Jkudish\LaravelAiLibrarium\Execution\ProfileCompatibility;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
@@ -18,6 +19,7 @@ final readonly class ResearchCompiler
     public function __construct(
         private ProfileCatalog $catalog,
         private ConfigRepository $config,
+        private ProfileCompatibility $compatibility,
     ) {}
 
     public function compile(PendingResearch $research): ResearchPlan
@@ -42,17 +44,42 @@ final readonly class ResearchCompiler
             ]);
         }
 
+        $incompatibleFallbacks = $fallbacks
+            ->reject(fn (Profile $fallback): bool => $profiles->contains(
+                fn (Profile $primary): bool => $this->compatibility->allows($primary, $fallback),
+            ))
+            ->map(fn (Profile $fallback): string => $fallback->id)
+            ->values()
+            ->all();
+        if ($incompatibleFallbacks !== []) {
+            throw ValidationException::withMessages([
+                'fallbacks' => 'Fallback Profiles must be compatible with at least one primary Profile: '.implode(', ', $incompatibleFallbacks).'.',
+            ]);
+        }
+
         $all = $profiles->concat($fallbacks);
         [$estimatedCost, $currency, $complete, $warnings] = $this->estimate($all, $research->maximumCost());
         $prompts = $all->mapWithKeys(fn (Profile $profile): array => [
             $profile->id => $profile->renderPrompt($research->input),
         ]);
 
-        $configuredTimeout = $this->config->get('librarium.timeout', 7200);
-        $timeout = $research->timeoutSeconds() ?? (is_int($configuredTimeout) ? $configuredTimeout : 7200);
+        $configuredTimeout = $this->config->get('librarium.timeout', 6900);
+        $timeout = $research->timeoutSeconds() ?? (is_int($configuredTimeout) ? $configuredTimeout : 6900);
         if ($timeout < 1 || $timeout > 86400) {
             throw ValidationException::withMessages(['timeout' => 'The configured timeout must be between 1 and 86400 seconds.']);
         }
+
+        $configuredJobTimeout = $this->config->get('librarium.queue.timeout', 7200);
+        $jobTimeout = is_int($configuredJobTimeout) ? $configuredJobTimeout : 7200;
+        if ($jobTimeout < 2 || $jobTimeout > 86400) {
+            throw ValidationException::withMessages(['queue.timeout' => 'The configured queue timeout must be between 2 and 86400 seconds.']);
+        }
+        if ($timeout >= $jobTimeout) {
+            throw ValidationException::withMessages(['timeout' => "The research timeout must be less than the queue timeout of {$jobTimeout} seconds."]);
+        }
+
+        $this->validateTransientTtl('status_ttl', $jobTimeout);
+        $this->validateTransientTtl('webhook_signal_ttl', $jobTimeout);
 
         return new ResearchPlan(
             requestId: $research->requestId,
@@ -68,7 +95,19 @@ final readonly class ResearchCompiler
                 costEstimateComplete: $complete,
             ),
             timeout: $timeout,
+            jobTimeout: $jobTimeout,
         );
+    }
+
+    private function validateTransientTtl(string $key, int $timeout): void
+    {
+        $ttl = $this->config->get('librarium.'.$key, 10800);
+
+        if (! is_int($ttl) || $ttl <= $timeout) {
+            throw ValidationException::withMessages([
+                $key => "The configured {$key} must be an integer greater than the selected timeout of {$timeout} seconds.",
+            ]);
+        }
     }
 
     /**

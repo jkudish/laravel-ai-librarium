@@ -116,17 +116,34 @@ it('fans out across explicit Profiles in their requested order', function (): vo
     expect($preview->profiles->pluck('id')->all())->toBe(['openrouter-grounded', 'gemini-grounded']);
 });
 
-it('selects matching and fallback Profiles', function (): void {
+it('selects matching Profiles', function (): void {
     $preview = Librarium::query('Research this.')
         ->matching(resultKind: ResultKind::GroundedAnswer, corpora: [Corpus::Web])
-        ->fallbacks(['deep-report'])
         ->timeout(600)
-        ->maxCost('0.40')
+        ->maxCost('0.20')
         ->preview();
 
     expect($preview->profiles->pluck('id')->all())->toBe(['gemini-grounded', 'openrouter-grounded'])
-        ->and($preview->fallbacks->pluck('id')->all())->toBe(['deep-report'])
-        ->and($preview->maximumEstimatedCost)->toBe('0.4');
+        ->and($preview->fallbacks)->toBeEmpty()
+        ->and($preview->maximumEstimatedCost)->toBe('0.15');
+});
+
+it('selects compatible fallback Profiles', function (): void {
+    $profiles = config('librarium.profiles');
+    $profiles['backup-grounded'] = profileConfig(
+        provider: 'backup',
+        resultKind: ResultKind::GroundedAnswer,
+        estimatedCost: '0.04',
+    );
+    config()->set('librarium.profiles', $profiles);
+
+    $preview = Librarium::query('Research this.')
+        ->using('gemini-grounded')
+        ->fallbacks(['backup-grounded'])
+        ->preview();
+
+    expect($preview->profiles->pluck('id')->all())->toBe(['gemini-grounded'])
+        ->and($preview->fallbacks->pluck('id')->all())->toBe(['backup-grounded']);
 });
 
 it('rejects conflicting selectors and repeated fallbacks', function (): void {

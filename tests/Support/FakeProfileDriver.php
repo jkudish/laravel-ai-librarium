@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace Jkudish\LaravelAiLibrarium\Tests\Support;
 
-use Jkudish\LaravelAiLibrarium\Contracts\ValidatesProfileOptions;
+use Jkudish\LaravelAiLibrarium\Contracts\Driver;
+use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
+use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
+use LogicException;
 
-final class FakeProfileDriver implements ValidatesProfileOptions
+final class FakeProfileDriver implements Driver
 {
     public static int $constructorCalls = 0;
 
@@ -34,5 +37,10 @@ final class FakeProfileDriver implements ValidatesProfileOptions
             'provider' => ['sometimes', 'array:mode'],
             'provider.mode' => ['sometimes', 'string'],
         ];
+    }
+
+    public function run(DriverRequest $request): ResearchResult
+    {
+        throw new LogicException('FakeProfileDriver does not execute research.');
     }
 }
