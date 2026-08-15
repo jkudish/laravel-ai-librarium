@@ -53,6 +53,14 @@ afterEach(function (): void {
     CarbonImmutable::setTestNow();
 });
 
+it('preserves the exact research input and assigns a request ID', function (): void {
+    $research = Librarium::query("  Research this exactly.\n");
+
+    expect($research)
+        ->input->toBe("  Research this exactly.\n")
+        ->requestId->not->toBeEmpty();
+});
+
 it('uses quick by default and exposes unavailable curated members', function (): void {
     $preview = Librarium::query('Compare memory systems.')->preview();
 
@@ -77,7 +85,38 @@ it('resolves curated derived and custom groups', function (string $group, array 
     'custom' => ['custom:focused', ['deep-report']],
 ]);
 
-it('selects exact fan out matching and fallback Profiles', function (): void {
+it('preserves the curated visibility order while skipping unavailable Profiles', function (): void {
+    $profiles = config('librarium.profiles');
+    $profiles['searchapi-chatgpt'] = profileConfig(
+        provider: 'searchapi',
+        resultKind: ResultKind::GroundedAnswer,
+        estimatedCost: '0.01',
+        observation: ObservationMode::SurfaceSnapshot,
+        retrievalMethod: RetrievalMethod::SearchEndpoint,
+    );
+    $profiles['perplexity-sonar-pro'] = profileConfig('perplexity', ResultKind::GroundedAnswer, estimatedCost: '0.02');
+    $profiles['grok'] = profileConfig('xai', ResultKind::GroundedAnswer, estimatedCost: '0.03');
+    config()->set('librarium.profiles', $profiles);
+
+    $preview = Librarium::query('Research this.')->group('visibility')->preview();
+
+    expect($preview->profiles->pluck('id')->all())->toBe([
+        'searchapi-chatgpt',
+        'perplexity-sonar-pro',
+        'gemini-grounded',
+        'grok',
+    ]);
+});
+
+it('fans out across explicit Profiles in their requested order', function (): void {
+    $preview = Librarium::query('Research this.')
+        ->fanOut(['openrouter-grounded', 'gemini-grounded'])
+        ->preview();
+
+    expect($preview->profiles->pluck('id')->all())->toBe(['openrouter-grounded', 'gemini-grounded']);
+});
+
+it('selects matching and fallback Profiles', function (): void {
     $preview = Librarium::query('Research this.')
         ->matching(resultKind: ResultKind::GroundedAnswer, corpora: [Corpus::Web])
         ->fallbacks(['deep-report'])
@@ -152,6 +191,7 @@ it('lets the Driver validate bounded options before execution', function (array 
     'provider token' => [['github_token' => 'do-not-store-this-here']],
     'unqualified token' => [['token' => 'do-not-store-this-here']],
     'object-nested credential' => [['provider' => (object) ['access_token' => 'do-not-store-this-here']]],
+    'oversized option tree' => [['provider' => ['mode' => str_repeat('x', 17_000)]]],
     'invalid known option' => [['temperature' => 9]],
 ]);
 
@@ -181,12 +221,23 @@ it('rejects malformed configured Profile IDs in derived groups', function (strin
         ->toThrow(ValidationException::class);
 })->with(['', '   ', 'not/a/profile']);
 
-it('requires complete estimates for a hard cost ceiling', function (): void {
+it('rejects incomplete and over-budget hard cost ceilings', function (): void {
     config()->set('librarium.profiles.gemini-grounded.estimated_cost', null);
 
     expect(fn () => Librarium::query('Research this.')
         ->using('gemini-grounded')
         ->maxCost('1.00')
+        ->preview())
+        ->toThrow(ValidationException::class);
+
+    config()->set('librarium.profiles.gemini-grounded.estimated_cost', [
+        'amount' => '0.05',
+        'currency' => 'USD',
+    ]);
+
+    expect(fn () => Librarium::query('Research this.')
+        ->using('gemini-grounded')
+        ->maxCost('0.04')
         ->preview())
         ->toThrow(ValidationException::class);
 });
@@ -236,6 +287,8 @@ function profileConfig(
     ResultKind $resultKind,
     bool $enabled = true,
     ?string $estimatedCost = null,
+    ObservationMode $observation = ObservationMode::ApiOutput,
+    RetrievalMethod $retrievalMethod = RetrievalMethod::ModelSearchTool,
 ): array {
     return [
         'driver' => FakeProfileDriver::class,
@@ -243,9 +296,9 @@ function profileConfig(
         'model' => 'test-model',
         'result_kind' => $resultKind->value,
         'grounding' => GroundingPolicy::Required->value,
-        'observation' => ObservationMode::ApiOutput->value,
+        'observation' => $observation->value,
         'corpora' => [Corpus::Web->value],
-        'retrieval_methods' => [RetrievalMethod::ModelSearchTool->value],
+        'retrieval_methods' => [$retrievalMethod->value],
         'prompt' => 'Research carefully: {{ query }}',
         'enabled' => $enabled,
         'options' => ['temperature' => 0.2],
