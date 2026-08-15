@@ -14,6 +14,21 @@ use stdClass;
 
 final class ResearchResult
 {
+    /** @var list<string> */
+    private const array UNSAFE_WRAPPER_SUFFIXES = [
+        'blob',
+        'body',
+        'data',
+        'jar',
+        'map',
+        'material',
+        'metadata',
+        'payload',
+        'pem',
+        'response',
+        'value',
+    ];
+
     private ?string $completedAtWire = null;
 
     /**
@@ -114,7 +129,7 @@ final class ResearchResult
     private static function validate(array $value): void
     {
         $validator = Validator::make($value, [
-            'id' => ['bail', 'required', 'string', 'min:1', 'max:255', 'regex:/^(?!\\s)(?!.*\\s$)[^\\x00-\\x1f\\x7f]+$/'],
+            'id' => ['bail', 'required', 'string', 'min:1', 'max:255', 'regex:/^(?!\\s)(?!.*\\s$)[^\\x00-\\x1f\\x7f]+$/u'],
             'content_format' => ['bail', 'required', 'string', 'in:markdown,text,json'],
             'content' => ['present'],
             'requested_profile' => ['required', 'string', 'min:1'],
@@ -309,7 +324,7 @@ final class ResearchResult
 
             foreach ($entries as $key => $nested) {
                 $keyString = (string) $key;
-                if ($inspectMetadataKeys && $isObject && self::isForbiddenMetadataKey($keyString)) {
+                if ($inspectMetadataKeys && $isObject && (self::isForbiddenMetadataKey($keyString) || self::isRawMetadataKey($keyString) || self::isCompleteRawContainer($keyString, $nested))) {
                     $validator->errors()->add($path.'.'.$keyString, 'must not include credentials or raw provider data.');
 
                     return;
@@ -324,20 +339,11 @@ final class ResearchResult
 
     private static function isForbiddenMetadataKey(string $key): bool
     {
-        $normalized = (string) preg_replace('/^_+|_+$/', '', strtolower((string) preg_replace(
-            ['/URLs/', '/([A-Z]+)([A-Z][a-z])/', '/([a-z\\d])([A-Z])/', '/[^a-z\\d]+/i'],
-            ['_urls', '$1_$2', '$1_$2', '_'],
-            $key,
-        )));
+        $normalized = self::normalizeMetadataKey($key);
         $candidates = [$normalized, (string) preg_replace('/_?\\d+$/', '', $normalized)];
         $namespaceSeparator = strrpos($key, ':');
         if ($namespaceSeparator !== false) {
-            $localName = substr($key, $namespaceSeparator + 1);
-            $localName = (string) preg_replace('/^_+|_+$/', '', strtolower((string) preg_replace(
-                ['/URLs/', '/([A-Z]+)([A-Z][a-z])/', '/([a-z\\d])([A-Z])/', '/[^a-z\\d]+/i'],
-                ['_urls', '$1_$2', '$1_$2', '_'],
-                $localName,
-            )));
+            $localName = self::normalizeMetadataKey(substr($key, $namespaceSeparator + 1));
             $candidates[] = $localName;
             $candidates[] = (string) preg_replace('/_?\\d+$/', '', $localName);
         }
@@ -357,42 +363,119 @@ final class ResearchResult
             'signed_polling_urls', 'connection_string', 'connection_strings', 'database_url', 'database_urls', 'dsn', 'dsns',
             'authorization', 'auth', 'bearer', 'cookie', 'cookies', 'credential', 'credentials', 'password', 'passwords',
             'passwd', 'passwds', 'secret', 'secrets', 'token', 'tokens', 'request_header', 'request_headers', 'response_header',
-            'response_headers', 'authorization_header', 'authorization_headers', 'header', 'headers', 'raw', 'raws', 'raw_body', 'raw_bodies',
-            'raw_provider', 'raw_providers', 'raw_response', 'raw_responses', 'provider_payload', 'provider_payloads', 'binary', 'binary_data', 'binary_material',
+            'response_headers', 'authorization_header', 'authorization_headers', 'header', 'headers', 'raw_body', 'raw_bodies',
+            'raw_provider', 'raw_providers', 'raw_response', 'raw_responses', 'binary', 'binary_data', 'binary_material',
             'binary_materials', 'binary_payload', 'binary_payloads', 'stack', 'stacks', 'stack_trace', 'stack_traces',
         ];
         $benignTokenQualifiers = ['accepted', 'cached', 'cache_creation', 'cache_read', 'completion', 'input', 'max', 'num', 'output', 'prompt', 'reasoning', 'rejected', 'total', 'thinking'];
-
         foreach ($forbidden as $name) {
-            if ($key === $name || (str_ends_with($key, '_'.$name) && ! in_array($name, ['token', 'tokens'], true))) {
+            if (in_array($name, ['token', 'tokens'], true)) {
+                continue;
+            }
+
+            if ($key === $name || str_ends_with($key, '_'.$name)) {
                 return true;
             }
-            if (in_array($name, ['token', 'tokens'], true) && str_ends_with($key, '_'.$name) && self::hasSensitiveTokenSuffix($key, $benignTokenQualifiers)) {
+
+            $prefix = $name.'_';
+            $interior = '_'.$name.'_';
+            $start = str_starts_with($key, $prefix) ? 0 : strpos($key, $interior);
+            if ($start === false) {
+                continue;
+            }
+
+            $suffix = substr($key, $start + strlen($name) + ($start === 0 ? 1 : 2));
+            if (array_any(explode('_', $suffix), static fn (string $part): bool => in_array($part, self::UNSAFE_WRAPPER_SUFFIXES, true))) {
                 return true;
             }
+        }
+
+        if (self::hasSensitiveTokenSegment($key, $benignTokenQualifiers)) {
+            return true;
         }
 
         $fused = str_replace('_', '', $key);
         $fusedNames = array_map(static fn (string $name): string => str_replace('_', '', $name), $forbidden);
-        $benignFusedSuffix = array_any($benignTokenQualifiers, static fn (string $qualifier): bool => str_ends_with($fused, str_replace('_', '', $qualifier).'token') || str_ends_with($fused, str_replace('_', '', $qualifier).'tokens'));
+        $benignFusedToken = array_any($benignTokenQualifiers, static fn (string $qualifier): bool => str_contains($fused, str_replace('_', '', $qualifier).'token'));
         $fusedSuffixes = array_filter($fusedNames, static fn (string $name): bool => strlen($name) >= 6 && $name !== 'tokens');
+        $hasFusedUnsafeTokenWrapper = array_any(self::UNSAFE_WRAPPER_SUFFIXES, static fn (string $suffix): bool => str_ends_with($fused, 'token'.$suffix)
+            || str_ends_with($fused, 'tokens'.$suffix));
 
         return in_array($fused, $fusedNames, true)
-            || (! $benignFusedSuffix && (str_ends_with($fused, 'token') || str_ends_with($fused, 'tokens')))
-            || array_any($fusedSuffixes, static fn (string $name): bool => str_ends_with($fused, $name));
+            || $hasFusedUnsafeTokenWrapper
+            || (! $benignFusedToken && (str_ends_with($fused, 'token') || str_ends_with($fused, 'tokens')))
+            || array_any($fusedSuffixes, static fn (string $name): bool => str_ends_with($fused, $name)
+                || array_any(self::UNSAFE_WRAPPER_SUFFIXES, static fn (string $suffix): bool => str_ends_with($fused, $name.$suffix)));
     }
 
     /** @param list<string> $benignTokenQualifiers */
-    private static function hasSensitiveTokenSuffix(string $key, array $benignTokenQualifiers): bool
+    private static function hasSensitiveTokenSegment(string $key, array $benignTokenQualifiers): bool
     {
         $words = explode('_', $key);
-        $suffix = array_pop($words);
-        if (! in_array($suffix, ['token', 'tokens'], true)) {
+
+        foreach ($words as $index => $word) {
+            if (! in_array($word, ['token', 'tokens'], true)) {
+                continue;
+            }
+
+            $suffix = array_slice($words, $index + 1);
+            if (array_any($suffix, static fn (string $part): bool => in_array($part, self::UNSAFE_WRAPPER_SUFFIXES, true))) {
+                return true;
+            }
+            if ($suffix !== []) {
+                continue;
+            }
+
+            $qualifier = implode('_', array_slice($words, 0, $index));
+            $isBenign = array_any($benignTokenQualifiers, static fn (string $benign): bool => $qualifier === $benign || str_ends_with($qualifier, '_'.$benign));
+
+            if (! $isBenign) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function normalizeMetadataKey(string $key): string
+    {
+        return (string) preg_replace('/^_+|_+$/', '', strtolower((string) preg_replace(
+            ['/URLs/', '/([A-Z]+)([A-Z][a-z])/', '/([a-z\\d])([A-Z])/', '/[^a-z\\d]+/i'],
+            ['_urls', '$1_$2', '$1_$2', '_'],
+            $key,
+        )));
+    }
+
+    private static function isRawMetadataKey(string $key): bool
+    {
+        $normalized = strtolower((string) preg_replace(
+            ['/([A-Z]+)([A-Z][a-z])/', '/([a-z\\d])([A-Z])/', '/[^a-z\\d]+/i'],
+            ['$1_$2', '$1_$2', '_'],
+            $key,
+        ));
+
+        return preg_match('/(?:^|_)raw(?:_|$)/', $normalized) === 1
+            || preg_match('/(?:^|_)provider_(?:response|payload|body)(?:_|$)/', $normalized) === 1;
+    }
+
+    private static function isCompleteRawContainer(string $key, mixed $value): bool
+    {
+        $normalized = strtolower((string) preg_replace(
+            ['/([A-Z]+)([A-Z][a-z])/', '/([a-z\\d])([A-Z])/'],
+            ['$1_$2', '$1_$2'],
+            $key,
+        ));
+
+        if (! in_array($normalized, ['response', 'payload', 'body'], true)) {
             return false;
         }
-        $qualifier = implode('_', $words);
 
-        return ! array_any($benignTokenQualifiers, static fn (string $benign): bool => $qualifier === $benign || str_ends_with($qualifier, '_'.$benign));
+        $fields = $value instanceof stdClass
+            ? array_keys(get_object_vars($value))
+            : (is_array($value) && ! array_is_list($value) ? array_keys($value) : []);
+
+        return in_array('headers', $fields, true)
+            && (in_array('status', $fields, true) || in_array('status_code', $fields, true));
     }
 
     /**

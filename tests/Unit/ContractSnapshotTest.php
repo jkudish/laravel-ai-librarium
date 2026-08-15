@@ -38,19 +38,19 @@ it('verifies the exact accepted upstream snapshot offline and reports machine-re
     expect($report)->toBe([
         'contract_version' => 'v1',
         'snapshot_version' => 1,
-        'upstream_commit' => 'b3fbacef70ff41975eba131756f3f59cfddf8bd2',
-        'manifest_sha256' => '32055999bc9a72cf9cc7a7fd5f14f1a40df36bd542dd1cb74d83da485b562404',
-        'checksums_sha256' => '0d1e11fdc7e3461d0f692a3cd2aa18c2fd713ff639289602664d20c69677129a',
+        'upstream_commit' => 'af696debe20490fa98197d45209379e74e189a15',
+        'manifest_sha256' => 'd06553f4bb56bc50598ae0ee98b1da6172120bcf47c7f837fc04a5b5b16709ce',
+        'checksums_sha256' => '32857dd761dde938e28b36477d6a7c7e10cd8bb06e8395ac19590413470e7724',
         'interchange_schema_sha256' => '637a0d93418bc742ecbcb07d84cecacd1f61168d8389645da349fdeebb6264cd',
         'totals' => [
             'schemas' => 1,
             'definitions' => 7,
             'valid_fixtures' => 17,
-            'invalid_fixtures' => 34,
+            'invalid_fixtures' => 39,
             'semantic_rules' => 5,
-            'manifest_entries' => 54,
-            'checksum_entries' => 54,
-            'snapshot_files' => 55,
+            'manifest_entries' => 59,
+            'checksum_entries' => 59,
+            'snapshot_files' => 60,
         ],
     ])->and(json_decode(json_encode($report, JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR))
         ->toBe($report);
@@ -195,6 +195,11 @@ it('covers provider metadata safety without the removed size and depth caps', fu
             'provider-meta-fused-raw-response',
             'provider-meta-raw',
             'provider-meta-secret',
+            'provider-meta-wrapped-api-key',
+            'provider-meta-wrapped-binary-payload',
+            'provider-meta-wrapped-credentials',
+            'provider-meta-wrapped-raw-response',
+            'provider-meta-wrapped-session-token',
         ]);
 });
 
@@ -206,10 +211,10 @@ it('pins all fixtures and semantic rules in the generated inventories', function
     $semanticRuleIds = array_column($manifest['semantic_rules'], 'rule_id');
     sort($semanticRuleIds);
 
-    expect($manifest['files'])->toHaveCount(54)
-        ->and($fixtureIndex['fixtures'])->toHaveCount(51)
+    expect($manifest['files'])->toHaveCount(59)
+        ->and($fixtureIndex['fixtures'])->toHaveCount(56)
         ->and($validFixtures)->toHaveCount(17)
-        ->and($invalidFixtures)->toHaveCount(34)
+        ->and($invalidFixtures)->toHaveCount(39)
         ->and($semanticRuleIds)->toBe(ContractSnapshot::SEMANTIC_RULE_IDS);
 });
 

@@ -64,7 +64,7 @@ final class Source
         $validator = Validator::make($value, [
             'kind' => ['bail', 'required', 'string', Rule::enum(SourceKind::class)],
             'url' => ['string', 'min:1'],
-            'provider_reference' => ['string', 'min:1', 'max:255', 'regex:/^(?!\\s)(?!.*\\s$)[^\\x00-\\x1f\\x7f]+$/'],
+            'provider_reference' => ['string', 'min:1', 'max:255', 'regex:/^(?!\\s)(?!.*\\s$)[^\\x00-\\x1f\\x7f]+$/u'],
             'title' => ['string', 'min:1'],
             'publisher' => ['string', 'min:1'],
             'published_at' => ['string', 'regex:/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$/'],

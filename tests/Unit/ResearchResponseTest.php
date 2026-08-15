@@ -80,6 +80,11 @@ it('rejects every invalid terminal response fixture through Laravel validation',
     'fused API key metadata' => ['provider-meta-fused-api-key.json'],
     'fused access token metadata' => ['provider-meta-fused-access-token.json'],
     'fused raw response metadata' => ['provider-meta-fused-raw-response.json'],
+    'wrapped API key metadata' => ['provider-meta-wrapped-api-key.json'],
+    'wrapped binary payload metadata' => ['provider-meta-wrapped-binary-payload.json'],
+    'wrapped credentials metadata' => ['provider-meta-wrapped-credentials.json'],
+    'wrapped raw response metadata' => ['provider-meta-wrapped-raw-response.json'],
+    'wrapped session token metadata' => ['provider-meta-wrapped-session-token.json'],
     'rich error' => ['error-rich.json'],
     'not namespaced error' => ['error-not-namespaced.json'],
     'rich usage' => ['usage-rich.json'],
@@ -247,9 +252,42 @@ it('rejects every provider metadata safety-policy branch', function (string $key
     'normalized suffix' => ['vendor_auth'],
     'numeric suffix stripped' => ['api_key_2'],
     'namespace-local candidate' => ['com.example:signedURL'],
-    'fused forbidden suffix' => ['vendorproviderpayload'],
     'sensitive token suffix' => ['custom_token'],
     'fused sensitive token suffix' => ['customtoken'],
+    'API key with trailing qualifier' => ['api_key_value'],
+    'credentials with trailing qualifier' => ['credentials_blob'],
+    'raw response with trailing qualifier' => ['raw_response_data'],
+    'request headers with trailing qualifier' => ['request_headers_map'],
+    'private key with trailing qualifier' => ['private_key_pem'],
+    'authorization with trailing qualifier' => ['authorization_value'],
+    'signed URL with trailing qualifier' => ['signed_url_value'],
+    'session token with trailing qualifier' => ['session_token_value'],
+    'binary payload with trailing qualifier' => ['binary_payload_data'],
+    'fused API key with trailing qualifier' => ['apikeyvalue'],
+    'fused raw response with trailing qualifier' => ['rawresponsedata'],
+    'prefixed fused API key with trailing qualifier' => ['openaiapikeyvalue'],
+    'prefixed fused raw response with trailing qualifier' => ['providerrawresponsedata'],
+    'prefixed fused authorization with trailing qualifier' => ['vendorauthorizationvalue'],
+    'prefixed fused session token with trailing qualifier' => ['vendorsessiontokenvalue'],
+    'benign token with unsafe wrapper' => ['prompttokenvalue'],
+    'multi-word token wrapper' => ['tokenResponseData'],
+    'cookie jar' => ['cookieJar'],
+    'namespaced wrapped API key' => ['com.example:openaiApiKeyValue'],
+]);
+
+it('rejects raw provider metadata containers defined by the shared contract', function (string $key, mixed $value): void {
+    $fixture = responseFixture('valid/json-object-success.json');
+    $fixture['results'][0]['provider_meta'] = (object) [$key => $value];
+
+    expect(fn (): ResearchResponse => ResearchResponse::fromArray($fixture))
+        ->toThrow(ValidationException::class);
+})->with([
+    'camel case raw data' => ['rawData', ['safe' => true]],
+    'provider response' => ['providerResponse', ['safe' => true]],
+    'provider body' => ['providerBody', ['safe' => true]],
+    'complete response container' => ['response', ['headers' => [], 'status' => 200]],
+    'complete payload container' => ['payload', ['headers' => [], 'status_code' => 200]],
+    'complete body container' => ['body', (object) ['headers' => [], 'status' => 200]],
 ]);
 
 it('accepts benign token accounting names', function (string $key): void {
@@ -263,6 +301,26 @@ it('accepts benign token accounting names', function (string $key): void {
     'qualified snake case' => ['vendor_completion_token'],
     'camel case' => ['completionToken'],
     'fused' => ['completiontoken'],
+    'session token count' => ['session_tokens_count'],
+    'secret count' => ['secret_count'],
+    'password policy' => ['password_policy'],
+    'credentials guide URL' => ['credentials_guide_url'],
+    'fused provider payload description' => ['providerpayloadvalue'],
+    'prefixed fused provider payload' => ['vendorproviderpayload'],
+    'numeric raw description' => ['raw2'],
+]);
+
+it('rejects Unicode edge whitespace in shared opaque identifiers', function (string $fixtureName, string $path): void {
+    $fixture = responseFixture("valid/{$fixtureName}");
+    data_set($fixture, $path, "\u{00A0}".data_get($fixture, $path));
+
+    expect(fn (): ResearchResponse => ResearchResponse::fromArray($fixture))
+        ->toThrow(ValidationException::class);
+})->with([
+    'request ID' => ['markdown-success.json', 'request_id'],
+    'result ID' => ['markdown-success.json', 'results.0.id'],
+    'citation ID' => ['markdown-success.json', 'results.0.citations.0.id'],
+    'provider reference' => ['provider-reference-source.json', 'results.0.citations.0.source.provider_reference'],
 ]);
 
 it('rejects explicit null for every optional property while allowing omission', function (string $fixtureName, string $path): void {

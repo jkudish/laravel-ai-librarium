@@ -2,24 +2,24 @@
 
 `v1/` is an exact, development-only copy of `contracts/v1` from
 [`jkudish/librarium`](https://github.com/jkudish/librarium) at commit
-`b3fbacef70ff41975eba131756f3f59cfddf8bd2`.
+`af696debe20490fa98197d45209379e74e189a15`.
 
 Pinned facts:
 
 - Contract directory: `v1`
 - Snapshot version: `1`
 - Contract scope: terminal interchange only
-- Manifest SHA-256: `32055999bc9a72cf9cc7a7fd5f14f1a40df36bd542dd1cb74d83da485b562404`
-- Checksum index SHA-256: `0d1e11fdc7e3461d0f692a3cd2aa18c2fd713ff639289602664d20c69677129a`
+- Manifest SHA-256: `d06553f4bb56bc50598ae0ee98b1da6172120bcf47c7f837fc04a5b5b16709ce`
+- Checksum index SHA-256: `32857dd761dde938e28b36477d6a7c7e10cd8bb06e8395ac19590413470e7724`
 - Interchange schema SHA-256: `637a0d93418bc742ecbcb07d84cecacd1f61168d8389645da349fdeebb6264cd`
 - Schemas: 1
 - Top-level schema definitions: 7
 - Valid fixtures: 17
-- Invalid fixtures: 34
+- Invalid fixtures: 39
 - Semantic rules: 5
-- Manifest entries: 54, including `manifest.json`
-- Checksum entries: 54, including `manifest.json`
-- Total snapshot files: 55, including `checksums.sha256`
+- Manifest entries: 59, including `manifest.json`
+- Checksum entries: 59, including `manifest.json`
+- Total snapshot files: 60, including `checksums.sha256`
 
 The source generator prunes execution, lifecycle, artifact, and other runtime
 contracts from this terminal snapshot. The PHP verifier runs offline. It does
