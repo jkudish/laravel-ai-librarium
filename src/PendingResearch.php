@@ -92,7 +92,7 @@ final class PendingResearch
         $this->validator->make(
             ['amount' => $amount, 'currency' => $currency],
             [
-                'amount' => ['required', 'decimal:0,6', 'gt:0'],
+                'amount' => ['required', 'decimal:0,6', 'gt:0', 'lte:1000000'],
                 'currency' => ['required', 'string', 'size:3', 'uppercase'],
             ],
         )->validate();

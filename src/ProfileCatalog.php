@@ -5,18 +5,15 @@ declare(strict_types=1);
 namespace Jkudish\LaravelAiLibrarium;
 
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
-use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Validation\Factory as ValidationFactory;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
-use Jkudish\LaravelAiLibrarium\Contracts\ValidatesProfileOptions;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
-use Throwable;
 
 final class ProfileCatalog
 {
@@ -44,8 +41,8 @@ final class ProfileCatalog
 
     public function __construct(
         private readonly ConfigRepository $config,
-        private readonly Container $container,
         private readonly ValidationFactory $validator,
+        private readonly ProfileOptionValidator $optionValidator,
     ) {}
 
     /** @return Collection<string, ProfileAvailability> */
@@ -61,6 +58,11 @@ final class ProfileCatalog
             if (! is_string($id) || ! is_array($value)) {
                 throw ValidationException::withMessages(['profiles' => 'Every Profile must have a string ID and array configuration.']);
             }
+
+            $this->validator->make(
+                ['id' => $id],
+                ['id' => ['required', 'string', 'max:255', 'regex:/^[a-z0-9][a-z0-9._-]*$/']],
+            )->validate();
 
             $profile = $this->profile($id, $this->associativeArray($value, "profiles.{$id}"));
             $items[$id] = new ProfileAvailability($profile, $this->reasons($profile));
@@ -163,7 +165,7 @@ final class ProfileCatalog
             'profile.options' => ['sometimes', 'array'],
             'profile.credential' => ['nullable', 'string', 'min:1'],
             'profile.estimated_cost' => ['nullable', 'array:amount,currency'],
-            'profile.estimated_cost.amount' => ['required_with:profile.estimated_cost', 'decimal:0,6', 'min:0'],
+            'profile.estimated_cost.amount' => ['required_with:profile.estimated_cost', 'decimal:0,6', 'min:0', 'lte:1000000'],
             'profile.estimated_cost.currency' => ['required_with:profile.estimated_cost', 'string', 'size:3', 'uppercase'],
         ])->validate();
 
@@ -222,51 +224,7 @@ final class ProfileCatalog
             $reasons[] = "Credential [{$profile->credential}] is not configured.";
         }
 
-        if (! class_exists($profile->driver)) {
-            $reasons[] = "Driver [{$profile->driver}] does not exist.";
-
-            return $reasons;
-        }
-
-        try {
-            $driver = $this->container->make($profile->driver);
-        } catch (Throwable $exception) {
-            $reasons[] = "Driver [{$profile->driver}] could not be resolved: {$exception->getMessage()}";
-
-            return $reasons;
-        }
-
-        if ($this->containsCredentialKey($profile->options)) {
-            $reasons[] = 'Profile options may not contain credentials or secrets.';
-        }
-
-        $encoded = json_encode($profile->options);
-        $configuredMaxBytes = $this->config->get('librarium.profile_options_max_bytes', 16384);
-        $maxBytes = is_int($configuredMaxBytes) ? $configuredMaxBytes : 16384;
-        if ($encoded === false || strlen($encoded) > $maxBytes) {
-            $reasons[] = "Profile options must be valid JSON and no larger than {$maxBytes} bytes.";
-        }
-
-        if ($driver instanceof ValidatesProfileOptions) {
-            $rules = $driver->profileOptionRules();
-            $allowed = [];
-            $prefixedRules = [];
-            foreach ($rules as $key => $rule) {
-                $allowed[] = str($key)->before('.')->toString();
-                $prefixedRules['options.'.$key] = $rule;
-            }
-            $allowed = array_values(array_unique($allowed));
-            $validator = $this->validator->make(
-                ['options' => $profile->options],
-                ['options' => ['array:'.implode(',', $allowed)], ...$prefixedRules],
-            );
-
-            if ($validator->fails()) {
-                $reasons[] = $validator->errors()->first();
-            }
-        } elseif ($profile->options !== []) {
-            $reasons[] = "Driver [{$profile->driver}] must implement ValidatesProfileOptions when options are configured.";
-        }
+        $reasons = [...$reasons, ...$this->optionValidator->errors($profile->driver, $profile->options)];
 
         return $reasons;
     }
@@ -286,39 +244,6 @@ final class ProfileCatalog
         }
 
         return $this->stringList($members, 'group');
-    }
-
-    /** @param array<array-key, mixed> $options */
-    private function containsCredentialKey(array $options): bool
-    {
-        $sensitiveKeys = [
-            'apikey',
-            'authorization',
-            'credential',
-            'credentials',
-            'password',
-            'secret',
-            'clientsecret',
-            'privatekey',
-            'accesstoken',
-            'authtoken',
-            'bearertoken',
-            'refreshtoken',
-            'sessiontoken',
-        ];
-
-        foreach ($options as $key => $value) {
-            $normalized = strtolower((string) preg_replace('/[^a-z0-9]/i', '', (string) $key));
-            if (in_array($normalized, $sensitiveKeys, true)) {
-                return true;
-            }
-
-            if (is_array($value) && $this->containsCredentialKey($value)) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private function micros(string $amount): int

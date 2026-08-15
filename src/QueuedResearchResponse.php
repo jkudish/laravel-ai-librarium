@@ -48,6 +48,8 @@ final class QueuedResearchResponse
     /** @param list<mixed> $arguments */
     public function __call(string $method, array $arguments): mixed
     {
-        return $this->dispatchable->{$method}(...$arguments);
+        $result = $this->dispatchable->{$method}(...$arguments);
+
+        return $result === $this->dispatchable ? $this : $result;
     }
 }

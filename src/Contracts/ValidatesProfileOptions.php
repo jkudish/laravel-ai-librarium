@@ -7,5 +7,5 @@ namespace Jkudish\LaravelAiLibrarium\Contracts;
 interface ValidatesProfileOptions
 {
     /** @return array<string, mixed> */
-    public function profileOptionRules(): array;
+    public static function profileOptionRules(): array;
 }

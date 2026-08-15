@@ -9,6 +9,7 @@ use Jkudish\LaravelAiLibrarium\Contracts\ResearchExecutor;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
+use Jkudish\LaravelAiLibrarium\QueuedResearchResponse;
 use Jkudish\LaravelAiLibrarium\ResearchState;
 use Jkudish\LaravelAiLibrarium\ResearchStatus;
 use Jkudish\LaravelAiLibrarium\ResearchStatusStore;
@@ -19,7 +20,8 @@ use Jkudish\LaravelAiLibrarium\Tests\Support\FakeProfileDriver;
 use Jkudish\LaravelAiLibrarium\Tests\Support\FakeResearchExecutor;
 
 beforeEach(function (): void {
-    FakeProfileDriver::$researchCalls = 0;
+    FakeProfileDriver::$constructorCalls = 0;
+    FakeProfileDriver::$validationCalls = 0;
     config()->set('librarium.profiles', [
         'gemini-grounded' => profileConfig(
             provider: 'gemini',
@@ -60,7 +62,9 @@ it('uses quick by default and exposes unavailable curated members', function ():
         ->and($preview->maximumEstimatedCost)->toBe('0.15')
         ->and($preview->currency)->toBe('USD')
         ->and($preview->costEstimateComplete)->toBeTrue()
-        ->and(FakeProfileDriver::$researchCalls)->toBe(0);
+        ->and(FakeProfileDriver::$constructorCalls)->toBe(0)
+        ->and(FakeProfileDriver::$validationCalls)->toBeGreaterThan(0)
+        ->and(app(ResearchExecutor::class)->plans)->toBe([]);
 });
 
 it('resolves curated derived and custom groups', function (string $group, array $expected): void {
@@ -101,7 +105,8 @@ it('rejects unavailable explicit Profiles before execution', function (): void {
     expect(fn () => Librarium::query('Research this.')->using('disabled-report')->preview())
         ->toThrow(ValidationException::class);
 
-    expect(FakeProfileDriver::$researchCalls)->toBe(0);
+    expect(FakeProfileDriver::$constructorCalls)->toBe(0)
+        ->and(app(ResearchExecutor::class)->plans)->toBe([]);
 });
 
 it('lets the Driver validate bounded options before execution', function (array $options): void {
@@ -110,10 +115,15 @@ it('lets the Driver validate bounded options before execution', function (array 
     expect(fn () => Librarium::query('Research this.')->using('gemini-grounded')->preview())
         ->toThrow(ValidationException::class);
 
-    expect(FakeProfileDriver::$researchCalls)->toBe(0);
+    expect(FakeProfileDriver::$constructorCalls)->toBe(0)
+        ->and(app(ResearchExecutor::class)->plans)->toBe([]);
 })->with([
     'unknown option' => [['unexpected' => true]],
     'credential option' => [['access_token' => 'do-not-store-this-here']],
+    'provider-prefixed credential' => [['openai_api_key' => 'do-not-store-this-here']],
+    'wrapped credential' => [['client_secret_value' => 'do-not-store-this-here']],
+    'authorization header' => [['authorization_header' => 'do-not-store-this-here']],
+    'nested credential' => [['provider' => ['access_token' => 'do-not-store-this-here']]],
     'invalid known option' => [['temperature' => 9]],
 ]);
 
@@ -123,6 +133,25 @@ it('allows legitimate token controls in Profile options', function (): void {
     expect(Librarium::query('Research this.')->using('gemini-grounded')->preview()->profiles)
         ->toHaveCount(1);
 });
+
+it('rejects Drivers that do not publish Profile option rules', function (): void {
+    config()->set('librarium.profiles.gemini-grounded.driver', stdClass::class);
+    config()->set('librarium.profiles.gemini-grounded.options', []);
+
+    expect(fn () => Librarium::query('Research this.')->using('gemini-grounded')->preview())
+        ->toThrow(ValidationException::class);
+
+    expect(app(ResearchExecutor::class)->plans)->toBe([]);
+});
+
+it('rejects malformed configured Profile IDs in derived groups', function (string $id): void {
+    $profiles = config('librarium.profiles');
+    $profiles[$id] = profileConfig('invalid', ResultKind::ResearchReport);
+    config()->set('librarium.profiles', $profiles);
+
+    expect(fn () => Librarium::query('Research this.')->group('all')->preview())
+        ->toThrow(ValidationException::class);
+})->with(['', '   ', 'not/a/profile']);
 
 it('requires complete estimates for a hard cost ceiling', function (): void {
     config()->set('librarium.profiles.gemini-grounded.estimated_cost', null);
@@ -141,10 +170,11 @@ it('hands the same compiled plan shape to run and queue', function (): void {
     $run = Librarium::query('Research this.')->using('gemini-grounded')->timeout(500);
     $runResponse = $run->run();
     $queued = Librarium::query('Research this.')->using('gemini-grounded')->timeout(500);
-    $queuedResponse = $queued->queue()->onQueue('research')->afterCommit();
+    $queuedResponse = $queued->queue()->onQueue('research')->onConnection('redis')->delay(5)->afterCommit();
 
     expect($runResponse->requestId)->toBe($run->requestId)
-        ->and($queuedResponse)->not->toBeNull()
+        ->and($queuedResponse)->toBeInstanceOf(QueuedResearchResponse::class)
+        ->and($queuedResponse->requestId)->toBe($queued->requestId)
         ->and($executor->plans)->toHaveCount(2)
         ->and($executor->plans[0]->preview->prompts->all())->toBe($executor->plans[1]->preview->prompts->all())
         ->and($executor->plans[0]->timeout)->toBe(500)
