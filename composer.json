@@ -52,6 +52,11 @@
             "@php -r \"if (! is_string(getenv('GEMINI_API_KEY')) || trim((string) getenv('GEMINI_API_KEY')) === '') { fwrite(STDERR, 'GEMINI_API_KEY is required for the live Gemini canary.'.PHP_EOL); exit(1); }\"",
             "vendor/bin/pest tests/Live/LaravelAiProfilesLiveTest.php --filter='Gemini grounded' --fail-on-skipped"
         ],
+        "test:live:searchapi": [
+            "@php -r \"if (getenv('LIBRARIUM_LIVE_TESTS') !== '1') { fwrite(STDERR, 'LIBRARIUM_LIVE_TESTS=1 is required to opt in to live provider tests.'.PHP_EOL); exit(1); }\"",
+            "@php -r \"if (! is_string(getenv('SEARCHAPI_KEY')) || trim((string) getenv('SEARCHAPI_KEY')) === '') { fwrite(STDERR, 'SEARCHAPI_KEY is required for the live SearchAPI canary.'.PHP_EOL); exit(1); }\"",
+            "vendor/bin/pest tests/Live/SearchApiProfilesLiveTest.php --fail-on-skipped"
+        ],
         "test:live:sdk": [
             "@php -r \"if (getenv('LIBRARIUM_LIVE_TESTS') !== '1') { fwrite(STDERR, 'LIBRARIUM_LIVE_TESTS=1 is required to opt in to live provider tests.'.PHP_EOL); exit(1); }\"",
             "@php -r \"foreach (['GEMINI_API_KEY', 'OPENROUTER_API_KEY', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY'] as \\$key) { if (! is_string(getenv(\\$key)) || trim((string) getenv(\\$key)) === '') { fwrite(STDERR, \\$key.' is required for the live SDK canaries.'.PHP_EOL); exit(1); } }\"",

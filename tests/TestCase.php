@@ -47,6 +47,10 @@ abstract class TestCase extends Orchestra
                 $app['config']->set("ai.providers.{$provider}.key", "testing-{$provider}-key");
             }
         }
+
+        if (blank($app['config']->get('services.searchapi.key'))) {
+            $app['config']->set('services.searchapi.key', 'testing-searchapi-key');
+        }
     }
 
     protected function preventsExternalRequests(): bool
