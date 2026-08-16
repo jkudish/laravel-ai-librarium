@@ -7,7 +7,7 @@ namespace Jkudish\LaravelAiLibrarium;
 use Illuminate\Support\ServiceProvider;
 use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
 use Jkudish\LaravelAiLibrarium\Contracts\Librarium;
-use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\LaravelAiGroundedDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\LaravelAiDriver;
 use Jkudish\LaravelAiLibrarium\Execution\ProfileCompatibility;
 use Jkudish\LaravelAiLibrarium\Execution\ResearchRuntime;
 use Jkudish\LaravelAiLibrarium\Webhooks\WebhookSignalStore;
@@ -54,7 +54,7 @@ final class LaravelAiLibrariumServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        $this->resolveGeminiCredential();
+        $this->resolveLaravelAiCredentials();
 
         if (! $this->app->runningInConsole()) {
             return;
@@ -65,20 +65,34 @@ final class LaravelAiLibrariumServiceProvider extends ServiceProvider
         ], 'librarium-config');
     }
 
-    private function resolveGeminiCredential(): void
+    private function resolveLaravelAiCredentials(): void
     {
-        $profile = config('librarium.profiles.gemini-grounded');
-
-        if (! is_array($profile)
-            || data_get($profile, 'driver') !== LaravelAiGroundedDriver::class
-            || ! array_key_exists('credential', $profile)
-            || filled(data_get($profile, 'credential'))) {
+        $profiles = config('librarium.profiles', []);
+        if (! is_array($profiles)) {
             return;
         }
 
-        config()->set(
-            'librarium.profiles.gemini-grounded.credential',
-            config('ai.providers.gemini.key'),
-        );
+        $changed = false;
+
+        foreach ($profiles as $id => $profile) {
+            if (! is_string($id)
+                || ! is_array($profile)
+                || data_get($profile, 'driver') !== LaravelAiDriver::class
+                || ! array_key_exists('credential', $profile)
+                || filled(data_get($profile, 'credential'))) {
+                continue;
+            }
+
+            $provider = data_get($profile, 'provider');
+            if (is_string($provider) && $provider !== '') {
+                $profile['credential'] = config("ai.providers.{$provider}.key");
+                $profiles[$id] = $profile;
+                $changed = true;
+            }
+        }
+
+        if ($changed) {
+            config()->set('librarium.profiles', $profiles);
+        }
     }
 }

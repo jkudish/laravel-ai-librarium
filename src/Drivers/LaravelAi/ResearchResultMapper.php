@@ -10,6 +10,8 @@ use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Responses\Citation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ContentFormat;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\SourceKind;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 use Jkudish\LaravelAiLibrarium\Responses\ResultProvenance;
@@ -23,11 +25,13 @@ use stdClass;
 /** @internal */
 final readonly class ResearchResultMapper
 {
-    public function map(AgentResponse $response, DriverRequest $request): ResearchResult
+    public function map(AgentResponse $response, DriverRequest $request, bool $usesWebSearch = true): ResearchResult
     {
         $text = data_get($response, 'text');
         $provider = data_get($response, 'meta.provider');
         $model = data_get($response, 'meta.model');
+        $citations = $this->citations($response);
+        $isGrounded = $usesWebSearch && $citations->isNotEmpty();
 
         return ResearchResult::make(
             contentFormat: ContentFormat::Markdown,
@@ -36,17 +40,29 @@ final readonly class ResearchResultMapper
             provider: is_string($provider) && $provider !== '' ? $provider : $request->profile->provider,
             profile: $request->profile->id,
             provenance: new ResultProvenance(
-                resultKind: $request->profile->resultKind,
-                retrievalMethods: $request->profile->retrievalMethods,
-                corpora: $request->profile->corpora,
+                resultKind: $isGrounded ? $request->profile->resultKind : ResultKind::ModelAnswer,
+                retrievalMethods: $isGrounded ? $request->profile->retrievalMethods : $this->modelOnlyRetrievalMethods(),
+                corpora: $isGrounded ? $request->profile->corpora : collect(),
                 observedAt: CarbonImmutable::now(),
             ),
-            citations: $this->citations($response),
+            citations: $citations,
             completedAt: CarbonImmutable::now(),
             model: is_string($model) && $model !== '' ? $model : $request->profile->model,
             usage: $this->usage($response),
             providerMeta: $this->providerMeta($response),
         );
+    }
+
+    /** @return Collection<int, RetrievalMethod> */
+    private function modelOnlyRetrievalMethods(): Collection
+    {
+        return collect($this->modelOnlyRetrievalMethodValues());
+    }
+
+    /** @return list<RetrievalMethod> */
+    private function modelOnlyRetrievalMethodValues(): array
+    {
+        return [RetrievalMethod::ModelOnly];
     }
 
     /** @return Collection<int, Citation> */

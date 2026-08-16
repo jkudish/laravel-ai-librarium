@@ -10,18 +10,22 @@ use Laravel\Ai\Promptable;
 use Laravel\Ai\Providers\Tools\WebSearch;
 
 /** @internal */
-final class GroundedResearchAgent implements Agent, HasTools
+final readonly class ResearchAgent implements Agent, HasTools
 {
     use Promptable;
 
+    public function __construct(private bool $usesWebSearch = true) {}
+
     public function instructions(): string
     {
-        return 'Use web search to answer the user with current, grounded information. Cite the sources that support the answer.';
+        return $this->usesWebSearch
+            ? 'Use web search to answer the user with current information. Cite the sources that support the answer.'
+            : 'Answer the user directly and accurately.';
     }
 
     /** @return list<WebSearch> */
     public function tools(): iterable
     {
-        return [new WebSearch];
+        return $this->usesWebSearch ? [new WebSearch] : [];
     }
 }

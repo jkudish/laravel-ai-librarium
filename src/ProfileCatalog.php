@@ -9,6 +9,7 @@ use Illuminate\Contracts\Validation\Factory as ValidationFactory;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\LaravelAiDriver;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
@@ -199,16 +200,30 @@ final class ProfileCatalog
             throw ValidationException::withMessages(['estimated_cost.currency' => 'The currency must be a string.']);
         }
 
+        $resultKindValue = ResultKind::from($resultKind);
+        $groundingPolicy = GroundingPolicy::from($grounding);
+        $corpusValues = collect($corpora)->map(fn (string $corpus): Corpus => Corpus::from($corpus));
+        $retrievalMethodValues = collect($retrievalMethods)->map(fn (string $method): RetrievalMethod => RetrievalMethod::from($method));
+
+        if ($driver === LaravelAiDriver::class
+            && $groundingPolicy === GroundingPolicy::Optional
+            && data_get($options, 'web_search', true) === false) {
+            $resultKindValue = ResultKind::ModelAnswer;
+            $groundingPolicy = GroundingPolicy::None;
+            $corpusValues = collect();
+            $retrievalMethodValues = $this->modelOnlyRetrievalMethods();
+        }
+
         return new Profile(
             id: $id,
             driver: $driver,
             provider: $provider,
             model: $model,
-            resultKind: ResultKind::from($resultKind),
-            grounding: GroundingPolicy::from($grounding),
+            resultKind: $resultKindValue,
+            grounding: $groundingPolicy,
             observation: ObservationMode::from($observation),
-            corpora: collect($corpora)->map(fn (string $corpus): Corpus => Corpus::from($corpus)),
-            retrievalMethods: collect($retrievalMethods)->map(fn (string $method): RetrievalMethod => RetrievalMethod::from($method)),
+            corpora: $corpusValues,
+            retrievalMethods: $retrievalMethodValues,
             prompt: $prompt,
             enabled: $enabled,
             options: $options,
@@ -229,6 +244,12 @@ final class ProfileCatalog
 
         if ($requiresCredential && blank($profile->credential)) {
             $reasons[] = 'Credential is not configured.';
+        }
+
+        if ($profile->driver === LaravelAiDriver::class
+            && $profile->grounding === GroundingPolicy::Required
+            && data_get($profile->options, 'web_search', true) === false) {
+            $reasons[] = 'Required-grounding Profiles must enable web search.';
         }
 
         $reasons = [...$reasons, ...$this->optionValidator->errors($profile->driver, $profile->options)];
@@ -258,6 +279,18 @@ final class ProfileCatalog
         [$whole, $fraction] = array_pad(explode('.', $amount, 2), 2, '');
 
         return ((int) $whole * 1_000_000) + (int) str_pad(substr($fraction, 0, 6), 6, '0');
+    }
+
+    /** @return Collection<int, RetrievalMethod> */
+    private function modelOnlyRetrievalMethods(): Collection
+    {
+        return collect($this->modelOnlyRetrievalMethodValues());
+    }
+
+    /** @return list<RetrievalMethod> */
+    private function modelOnlyRetrievalMethodValues(): array
+    {
+        return [RetrievalMethod::ModelOnly];
     }
 
     /** @param array<string, mixed> $value */

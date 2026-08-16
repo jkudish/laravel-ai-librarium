@@ -9,6 +9,7 @@ use Jkudish\LaravelAiLibrarium\Profile;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 
@@ -31,6 +32,17 @@ final readonly class ProfileCompatibility
     public function acceptsResult(Profile $profile, ResearchResult $result): bool
     {
         $provenance = $result->provenance;
+
+        if ($profile->grounding === GroundingPolicy::Optional
+            && $profile->resultKind === ResultKind::GroundedAnswer
+            && $profile->observation === ObservationMode::ApiOutput
+            && $provenance->resultKind === ResultKind::ModelAnswer) {
+            return $result->citations->isEmpty()
+                && $provenance->corpora->isEmpty()
+                && $provenance->retrievalMethods->count() === 1
+                && $provenance->retrievalMethods->containsStrict(RetrievalMethod::ModelOnly)
+                && $provenance->surface === null;
+        }
 
         return $provenance->resultKind === $profile->resultKind
             && $this->sameValues($profile->corpora, $provenance->corpora)

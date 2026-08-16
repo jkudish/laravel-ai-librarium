@@ -8,8 +8,8 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Validation\ValidationException;
-use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\GroundedResearchAgent;
-use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\LaravelAiGroundedDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\LaravelAiDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\ResearchAgent;
 use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\ResearchResultMapper;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
@@ -43,31 +43,95 @@ afterEach(function (): void {
     CarbonImmutable::setTestNow();
 });
 
-it('runs the configured Gemini Profile through the public API', function (): void {
-    config()->set('librarium.profiles.gemini-grounded.credential', 'configured-test-credential');
-    GroundedResearchAgent::fake([
+it('runs each configured Laravel AI Profile through one exact SDK provider and model', function (string $profile, string $provider, string $model): void {
+    ResearchAgent::fake([
         new TextResponse(
-            'Laravel 13 is the current major release.',
+            'A grounded answer.',
             new AiUsage(promptTokens: 10, completionTokens: 6),
-            new Meta('gemini', 'gemini-3.6-flash', collect([
-                new UrlCitation('https://laravel.com/docs/13.x/releases', 'Laravel releases'),
+            new Meta($provider, $model, collect([
+                new UrlCitation('https://example.com/source', 'Example source'),
             ])),
         ),
     ])->preventStrayPrompts();
 
-    $response = Librarium::query('What is the current Laravel major version?')
-        ->using('gemini-grounded')
+    $response = Librarium::query('Research this question.')
+        ->using($profile)
         ->timeout(120)
         ->run();
 
-    GroundedResearchAgent::assertPrompted(fn (AgentPrompt $prompt): bool => $prompt->provider()->name() === 'gemini'
-        && $prompt->model === 'gemini-3.6-flash'
-        && $prompt->prompt === 'What is the current Laravel major version?');
+    ResearchAgent::assertPrompted(fn (AgentPrompt $prompt): bool => $prompt->provider()->name() === $provider
+        && $prompt->model === $model
+        && $prompt->prompt === 'Research this question.'
+        && collect($prompt->agent instanceof ResearchAgent ? $prompt->agent->tools() : [])->sole() instanceof WebSearch);
 
     expect($response->status)->toBe(ResponseStatus::Succeeded)
         ->and($response->results)->toHaveCount(1)
-        ->and($response->results->sole()->model)->toBe('gemini-3.6-flash')
+        ->and($response->results->sole()->provider)->toBe($provider)
+        ->and($response->results->sole()->profile)->toBe($profile)
+        ->and($response->results->sole()->model)->toBe($model)
         ->and($response->results->sole()->citations)->toHaveCount(1);
+})->with([
+    'Gemini grounded' => ['gemini-grounded', 'gemini', 'gemini-3.6-flash'],
+    'OpenRouter grounded' => ['openrouter-grounded', 'openrouter', 'openai/gpt-5.6-luna'],
+    'OpenRouter chat' => ['openrouter-chat', 'openrouter', 'openai/gpt-5.6-terra'],
+    'Claude chat' => ['claude-chat', 'anthropic', 'claude-sonnet-5'],
+    'OpenAI chat' => ['openai-chat', 'openai', 'gpt-5.6-luna'],
+    'Gemini chat' => ['gemini-chat', 'gemini', 'gemini-3.7-flash'],
+]);
+
+it('returns an honest model answer when optional web search is disabled', function (): void {
+    config()->set('librarium.profiles.gemini-chat.options.web_search', false);
+    ResearchAgent::fake([
+        new TextResponse(
+            'A direct model answer.',
+            new AiUsage(promptTokens: 5, completionTokens: 4),
+            new Meta('gemini', 'gemini-3.7-flash'),
+        ),
+    ])->preventStrayPrompts();
+
+    $preview = Librarium::query('Answer without web search.')
+        ->using('gemini-chat')
+        ->preview();
+    $profile = $preview->profiles->sole();
+    $matching = Librarium::query('Answer without web search.')
+        ->matching(
+            resultKind: ResultKind::ModelAnswer,
+            grounding: GroundingPolicy::None,
+            observation: ObservationMode::ApiOutput,
+            retrievalMethods: [RetrievalMethod::ModelOnly],
+        )
+        ->preview();
+    $response = Librarium::query('Answer without web search.')
+        ->using('gemini-chat')
+        ->run();
+
+    ResearchAgent::assertPrompted(fn (AgentPrompt $prompt): bool => $prompt->agent instanceof ResearchAgent
+        && collect($prompt->agent->tools())->isEmpty());
+
+    $result = $response->results->sole();
+
+    expect($profile->resultKind)->toBe(ResultKind::ModelAnswer)
+        ->and($profile->grounding)->toBe(GroundingPolicy::None)
+        ->and($profile->corpora)->toBeEmpty()
+        ->and($profile->retrievalMethods->all())->toBe([RetrievalMethod::ModelOnly])
+        ->and($matching->profiles->pluck('id')->all())->toContain('gemini-chat')
+        ->and($response->status)->toBe(ResponseStatus::Succeeded)
+        ->and($result->provenance->resultKind)->toBe(ResultKind::ModelAnswer)
+        ->and($result->provenance->corpora)->toBeEmpty()
+        ->and($result->provenance->retrievalMethods->all())->toBe([RetrievalMethod::ModelOnly])
+        ->and($result->citations)->toBeEmpty();
+});
+
+it('rejects required grounding with web search disabled before execution', function (): void {
+    config()->set('librarium.profiles.gemini-grounded.options.web_search', false);
+    ResearchAgent::fake()->preventStrayPrompts();
+
+    expect(fn () => Librarium::query('Research this question.')
+        ->using('gemini-grounded')
+        ->preview())
+        ->toThrow(ValidationException::class, 'Required-grounding Profiles must enable web search.');
+
+    ResearchAgent::assertNeverPrompted();
 });
 
 it('prompts one exact SDK provider and model with native web search and the remaining deadline', function (): void {
@@ -76,7 +140,7 @@ it('prompts one exact SDK provider and model with native web search and the rema
         ['Authorization' => 'Bearer should-not-leak'],
         '{"api_key":"should-not-leak","id":"provider-response-id"}',
     ));
-    GroundedResearchAgent::fake([
+    ResearchAgent::fake([
         (new TextResponse(
             'A grounded answer.',
             new AiUsage(promptTokens: 12, completionTokens: 8, cacheReadInputTokens: 3, reasoningTokens: 2),
@@ -89,8 +153,8 @@ it('prompts one exact SDK provider and model with native web search and the rema
 
     $result = groundedDriver()->run($request);
 
-    GroundedResearchAgent::assertPrompted(function (AgentPrompt $prompt): bool {
-        $tools = collect($prompt->agent instanceof GroundedResearchAgent ? $prompt->agent->tools() : []);
+    ResearchAgent::assertPrompted(function (AgentPrompt $prompt): bool {
+        $tools = collect($prompt->agent instanceof ResearchAgent ? $prompt->agent->tools() : []);
         $search = $tools->sole();
 
         return $prompt->prompt === 'Research Laravel AI.'
@@ -158,7 +222,7 @@ it('maps citations from every SDK response step and the aggregate usage', functi
 });
 
 it('rejects a required-grounding response without provider-reported evidence', function (): void {
-    GroundedResearchAgent::fake([
+    ResearchAgent::fake([
         new TextResponse(
             'An unsupported answer.',
             new AiUsage(promptTokens: 5, completionTokens: 3),
@@ -177,7 +241,7 @@ it('rejects a required-grounding response without provider-reported evidence', f
 });
 
 it('rejects an expired deadline before prompting the SDK', function (): void {
-    GroundedResearchAgent::fake()->preventStrayPrompts();
+    ResearchAgent::fake()->preventStrayPrompts();
 
     try {
         groundedDriver()->run(groundedDriverRequest(deadline: CarbonImmutable::now()->subSecond()));
@@ -188,11 +252,11 @@ it('rejects an expired deadline before prompting the SDK', function (): void {
             ->and($exception->getMessage())->toBe('The shared research deadline was reached.');
     }
 
-    GroundedResearchAgent::assertNeverPrompted();
+    ResearchAgent::assertNeverPrompted();
 });
 
 it('requires an exact model before prompting the SDK', function (): void {
-    GroundedResearchAgent::fake()->preventStrayPrompts();
+    ResearchAgent::fake()->preventStrayPrompts();
 
     try {
         groundedDriver()->run(groundedDriverRequest(model: null));
@@ -202,11 +266,11 @@ it('requires an exact model before prompting the SDK', function (): void {
             ->and($exception->fallbackAllowed)->toBeFalse();
     }
 
-    GroundedResearchAgent::assertNeverPrompted();
+    ResearchAgent::assertNeverPrompted();
 });
 
 it('maps expected SDK and HTTP failures without exposing provider details', function (string $failure, string $code, bool $fallbackAllowed): void {
-    GroundedResearchAgent::fake([
+    ResearchAgent::fake([
         fn (): never => throw expectedDriverFailure($failure),
     ])->preventStrayPrompts();
 
@@ -235,7 +299,7 @@ it('maps expected SDK and HTTP failures without exposing provider details', func
 ]);
 
 it('does not hide unexpected programming failures', function (): void {
-    GroundedResearchAgent::fake([
+    ResearchAgent::fake([
         fn (): never => throw new RuntimeException('Unexpected mapper bug.'),
     ])->preventStrayPrompts();
 
@@ -243,16 +307,16 @@ it('does not hide unexpected programming failures', function (): void {
         ->toThrow(RuntimeException::class, 'Unexpected mapper bug.');
 });
 
-function groundedDriver(): LaravelAiGroundedDriver
+function groundedDriver(): LaravelAiDriver
 {
-    return new LaravelAiGroundedDriver(new ResearchResultMapper);
+    return new LaravelAiDriver(new ResearchResultMapper);
 }
 
 function groundedDriverRequest(?CarbonImmutable $deadline = null, ?string $model = 'gemini-2.5-pro'): DriverRequest
 {
     $profile = new Profile(
         id: 'gemini-grounded',
-        driver: LaravelAiGroundedDriver::class,
+        driver: LaravelAiDriver::class,
         provider: 'gemini',
         model: $model,
         resultKind: ResultKind::GroundedAnswer,

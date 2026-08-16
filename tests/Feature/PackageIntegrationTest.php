@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Contracts\Librarium as LibrariumContract;
-use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\LaravelAiGroundedDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\LaravelAiDriver;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
+use Jkudish\LaravelAiLibrarium\LaravelAiLibrariumServiceProvider;
 use Jkudish\LaravelAiLibrarium\LibrariumManager;
 use Jkudish\LaravelAiLibrarium\PendingResearch;
 use Jkudish\LaravelAiLibrarium\Webhooks\WebhookSignalStore;
@@ -28,16 +29,39 @@ it('merges the package configuration', function (): void {
         ->and(app(WebhookSignalStore::class))->toBe(app(WebhookSignalStore::class));
 });
 
-it('resolves the Gemini credential after Laravel AI registers later', function (): void {
-    $profile = config('librarium.profiles.gemini-grounded');
+it('resolves Laravel AI credentials after Laravel AI registers later', function (string $profileId, string $provider, string $model): void {
+    $profile = config("librarium.profiles.{$profileId}");
 
     expect($profile)->toBeArray()
-        ->and(data_get($profile, 'driver'))->toBe(LaravelAiGroundedDriver::class)
-        ->and(data_get($profile, 'provider'))->toBe('gemini')
-        ->and(data_get($profile, 'model'))->toBe('gemini-3.6-flash')
-        ->and(config('ai.providers.gemini.key'))->toBeString()->not->toBeEmpty()
-        ->and(data_get($profile, 'credential'))->toBe(config('ai.providers.gemini.key'))
-        ->and(data_get($profile, 'credential'))->not->toBe('ai.providers.gemini.key');
+        ->and(data_get($profile, 'driver'))->toBe(LaravelAiDriver::class)
+        ->and(data_get($profile, 'provider'))->toBe($provider)
+        ->and(data_get($profile, 'model'))->toBe($model)
+        ->and(config("ai.providers.{$provider}.key"))->toBeString()->not->toBeEmpty()
+        ->and(data_get($profile, 'credential'))->toBe(config("ai.providers.{$provider}.key"))
+        ->and(data_get($profile, 'credential'))->not->toBe("ai.providers.{$provider}.key");
+})->with([
+    'Gemini grounded' => ['gemini-grounded', 'gemini', 'gemini-3.6-flash'],
+    'OpenRouter grounded' => ['openrouter-grounded', 'openrouter', 'openai/gpt-5.6-luna'],
+    'OpenRouter chat' => ['openrouter-chat', 'openrouter', 'openai/gpt-5.6-terra'],
+    'Claude chat' => ['claude-chat', 'anthropic', 'claude-sonnet-5'],
+    'OpenAI chat' => ['openai-chat', 'openai', 'gpt-5.6-luna'],
+    'Gemini chat' => ['gemini-chat', 'gemini', 'gemini-3.7-flash'],
+]);
+
+it('resolves Laravel AI credentials for Profile IDs containing dots', function (): void {
+    $profiles = config('librarium.profiles');
+    $profiles['custom.chat'] = [
+        ...$profiles['gemini-chat'],
+        'credential' => null,
+    ];
+    config()->set('librarium.profiles', $profiles);
+
+    (new LaravelAiLibrariumServiceProvider(app()))->boot();
+
+    $resolved = config('librarium.profiles');
+
+    expect($resolved['custom.chat']['credential'])->toBe(config('ai.providers.gemini.key'))
+        ->and($resolved)->not->toHaveKey('custom');
 });
 
 it('starts a research query through the facade', function (): void {
