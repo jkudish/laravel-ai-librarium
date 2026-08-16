@@ -72,6 +72,7 @@ final readonly class ResearchResultMapper
 
         return $citations
             ->filter(static fn (mixed $citation): bool => $citation instanceof UrlCitation && filled(data_get($citation, 'url')))
+            ->unique(static fn (UrlCitation $citation): mixed => data_get($citation, 'url'))
             ->map(function (UrlCitation $citation): Citation {
                 $url = data_get($citation, 'url');
                 $title = data_get($citation, 'title');

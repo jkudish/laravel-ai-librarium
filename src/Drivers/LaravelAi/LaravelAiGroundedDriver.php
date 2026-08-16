@@ -11,6 +11,7 @@ use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
+use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 use Laravel\Ai\Exceptions\AiException;
 use Laravel\Ai\Exceptions\InsufficientCreditsException;
@@ -68,7 +69,16 @@ final readonly class LaravelAiGroundedDriver implements Driver
             throw new DriverException('laravel_ai.provider', 'The AI provider could not complete the research request.');
         }
 
-        return $this->mapper->map($response, $request);
+        $result = $this->mapper->map($response, $request);
+
+        if ($request->profile->grounding === GroundingPolicy::Required && $result->citations->isEmpty()) {
+            throw new DriverException(
+                'laravel_ai.ungrounded_response',
+                'The AI provider returned no evidence for the grounded response.',
+            );
+        }
+
+        return $result;
     }
 
     private function remainingSeconds(DriverRequest $request): int

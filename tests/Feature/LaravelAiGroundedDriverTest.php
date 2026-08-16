@@ -20,6 +20,7 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 use Laravel\Ai\AiServiceProvider;
+use Laravel\Ai\Exceptions\AiException;
 use Laravel\Ai\Exceptions\InsufficientCreditsException;
 use Laravel\Ai\Exceptions\ProviderOverloadedException;
 use Laravel\Ai\Exceptions\RateLimitedException;
@@ -102,7 +103,10 @@ it('maps citations from every SDK response step and the aggregate usage', functi
             usage: new AiUsage(10, 4),
         ),
         sdkStep(
-            citations: [new UrlCitation('https://example.com/second', 'Second source', 30, 45)],
+            citations: [
+                new UrlCitation('https://example.com/first', 'Repeated source', 10, 20),
+                new UrlCitation('https://example.com/second', 'Second source', 30, 45),
+            ],
             usage: new AiUsage(20, 16, 4, 5, 6),
         ),
     ]));
@@ -124,6 +128,22 @@ it('maps citations from every SDK response step and the aggregate usage', functi
             'invocation_id' => 'invocation-123',
             'step_count' => 2,
         ]);
+});
+
+it('rejects a required-grounding response without provider-reported evidence', function (): void {
+    GroundedResearchAgent::fake([
+        new TextResponse(
+            'An unsupported answer.',
+            new AiUsage(promptTokens: 5, completionTokens: 3),
+            new Meta('gemini', 'gemini-2.5-pro'),
+        ),
+    ])->preventStrayPrompts();
+
+    expect(fn () => groundedDriver()->run(groundedDriverRequest()))
+        ->toThrow(
+            DriverException::class,
+            'The AI provider returned no evidence for the grounded response.',
+        );
 });
 
 it('rejects an expired deadline before prompting the SDK', function (): void {
@@ -173,10 +193,15 @@ it('maps expected SDK and HTTP failures without exposing provider details', func
     'provider overload' => ['provider overload', 'laravel_ai.provider_unavailable', true],
     'insufficient credits' => ['insufficient credits', 'laravel_ai.insufficient_credits', true],
     'authentication' => ['authentication', 'laravel_ai.authentication', true],
+    'authorization' => ['authorization', 'laravel_ai.authorization', true],
     'invalid provider request' => ['invalid provider request', 'laravel_ai.invalid_request', false],
+    'HTTP timeout' => ['HTTP timeout', 'laravel_ai.timeout', true],
+    'HTTP rate limit' => ['HTTP rate limit', 'laravel_ai.rate_limited', true],
+    'server failure' => ['server failure', 'laravel_ai.provider_unavailable', true],
     'provider timeout' => ['provider timeout', 'librarium.timeout', false],
     'network failure' => ['network failure', 'laravel_ai.network', true],
     'validation failure' => ['validation failure', 'laravel_ai.validation', false],
+    'generic AI failure' => ['generic AI failure', 'laravel_ai.provider', true],
 ]);
 
 it('does not hide unexpected programming failures', function (): void {
@@ -245,12 +270,17 @@ function expectedDriverFailure(string $failure): Throwable
         'provider overload' => ProviderOverloadedException::forProvider('gemini'),
         'insufficient credits' => InsufficientCreditsException::forProvider('gemini'),
         'authentication' => requestException(401, '{"secret":"provider-secret"}'),
+        'authorization' => requestException(403, '{"secret":"provider-secret"}'),
         'invalid provider request' => requestException(400, '{"secret":"provider-secret"}'),
+        'HTTP timeout' => requestException(408, '{"secret":"provider-secret"}'),
+        'HTTP rate limit' => requestException(429, '{"secret":"provider-secret"}'),
+        'server failure' => requestException(503, '{"secret":"provider-secret"}'),
         'provider timeout' => tap(new ConnectionException('cURL error 28: provider-secret timed out'), static function (): void {
             CarbonImmutable::setTestNow(CarbonImmutable::now()->addSeconds(42));
         }),
         'network failure' => new ConnectionException('Could not resolve provider-secret'),
         'validation failure' => ValidationException::withMessages(['provider' => 'provider-secret']),
+        'generic AI failure' => new AiException('provider-secret'),
         default => throw new LogicException("Unknown failure fixture [{$failure}]."),
     };
 }
