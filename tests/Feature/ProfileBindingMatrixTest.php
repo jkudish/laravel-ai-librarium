@@ -111,4 +111,10 @@ it('locks the accepted TypeScript Profile inventory and its PHP classifications'
             "Holdback row {$key} needs an explicit reason.",
         );
     }
+
+    expect(array_filter($rows, fn (string $row): bool => str_contains($row, '**PHP path:** explicit holdback; #2841')))->toHaveCount(5)
+        ->and(array_filter($rows, fn (string $row): bool => str_contains($row, '**PHP path:** explicit holdback; #2842')))->toHaveCount(4)
+        ->and(array_filter($rows, fn (string $row): bool => str_contains($row, '**PHP path:** explicit holdback; #2843')))->toHaveCount(2)
+        ->and(array_filter($rows, fn (string $row): bool => str_contains($row, '**PHP path:** explicit holdback; #2844')))->toHaveCount(3)
+        ->and(array_filter($rows, fn (string $row): bool => str_contains($row, '**PHP path:** explicit holdback; #2845')))->toHaveCount(2);
 });

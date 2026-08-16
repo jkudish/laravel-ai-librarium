@@ -386,7 +386,7 @@ maintainer checkpoint may move a row into #2591 later.
 - **Workflow:** none
 - **Semantics:** search_results; none; api_output; web; search_endpoint/direct; brave
 - **Target:** not applicable
-- **PHP path:** explicit holdback; future #2591 core HTTP
+- **PHP path:** explicit holdback; #2841
 - **Binding:** Brave Web Search API
 - **Execution:** inline
 - **Terminal:** HTTP search
@@ -399,7 +399,7 @@ maintainer checkpoint may move a row into #2591 later.
 - **Workflow:** deep
 - **Semantics:** research_report; required; api_output; web; research_agent/direct; exa
 - **Target:** provider-managed agent
-- **PHP path:** explicit holdback; future #2591 core HTTP
+- **PHP path:** explicit holdback; #2842
 - **Binding:** Exa Agent runs API
 - **Execution:** background/durable; poll then retrieve
 - **Terminal:** HTTP report
@@ -412,7 +412,7 @@ maintainer checkpoint may move a row into #2591 later.
 - **Workflow:** none
 - **Semantics:** search_results; none; api_output; web; search_endpoint/direct; tavily
 - **Target:** not applicable
-- **PHP path:** explicit holdback; future #2591 core HTTP
+- **PHP path:** explicit holdback; #2841
 - **Binding:** Tavily Search API
 - **Execution:** inline
 - **Terminal:** HTTP search
@@ -425,7 +425,7 @@ maintainer checkpoint may move a row into #2591 later.
 - **Workflow:** deep
 - **Semantics:** research_report; required; api_output; web; research_agent/direct; tavily
 - **Target:** provider-managed agent
-- **PHP path:** explicit holdback; future #2591 core HTTP
+- **PHP path:** explicit holdback; #2842
 - **Binding:** Tavily Research API
 - **Execution:** background/durable; poll then retrieve
 - **Terminal:** HTTP report
@@ -438,7 +438,7 @@ maintainer checkpoint may move a row into #2591 later.
 - **Workflow:** deep
 - **Semantics:** research_report; required; api_output; web; research_agent/direct; google
 - **Target:** configurable agent `deep-research-preview-04-2026`
-- **PHP path:** explicit holdback; future #2591 core HTTP
+- **PHP path:** explicit holdback; #2842
 - **Binding:** Gemini Interactions background agent; Laravel AI v0.10.3 has no provider-durable research abstraction
 - **Execution:** background/durable; poll then retrieve
 - **Terminal:** HTTP report
@@ -451,7 +451,7 @@ maintainer checkpoint may move a row into #2591 later.
 - **Workflow:** deep
 - **Semantics:** research_report; required; api_output; web; research_agent/direct; perplexity
 - **Target:** fixed preset `medium` with provider-managed underlying model
-- **PHP path:** explicit holdback; future #2591 core HTTP
+- **PHP path:** explicit holdback; #2842
 - **Binding:** Perplexity Agent API medium effort
 - **Execution:** background/durable; poll then retrieve
 - **Terminal:** HTTP report
@@ -464,7 +464,7 @@ maintainer checkpoint may move a row into #2591 later.
 - **Workflow:** none
 - **Semantics:** search_results; none; api_output; web; search_endpoint/direct; perplexity
 - **Target:** not applicable
-- **PHP path:** explicit holdback; future #2591 core HTTP
+- **PHP path:** explicit holdback; #2841
 - **Binding:** Perplexity Search API, not Agent or chat completion
 - **Execution:** inline
 - **Terminal:** HTTP search
@@ -477,7 +477,7 @@ maintainer checkpoint may move a row into #2591 later.
 - **Workflow:** none
 - **Semantics:** grounded_answer; required; api_output; x; model_search_tool/direct; xai
 - **Target:** configurable model `grok-4.5`
-- **PHP path:** explicit holdback; future #2591 core HTTP
+- **PHP path:** explicit holdback; #2843
 - **Binding:** xAI Responses API with X-only search tool
 - **Execution:** inline
 - **Terminal:** HTTP answer; `x_post` only when provider facts support it
@@ -490,7 +490,7 @@ maintainer checkpoint may move a row into #2591 later.
 - **Workflow:** none
 - **Semantics:** grounded_answer; required; api_output; web+x; model_search_tool/direct; xai
 - **Target:** configurable model `grok-4.5`
-- **PHP path:** explicit holdback; future #2591 core HTTP
+- **PHP path:** explicit holdback; #2843
 - **Binding:** one xAI Responses attempt with both web and X tools
 - **Execution:** inline; one origin, never two independent confirmations
 - **Terminal:** HTTP answer with per-citation source kinds when supported
@@ -503,7 +503,7 @@ maintainer checkpoint may move a row into #2591 later.
 - **Workflow:** none
 - **Semantics:** search_results; none; api_output; web; search_endpoint/direct; jina
 - **Target:** not applicable
-- **PHP path:** explicit holdback; future #2591 core HTTP
+- **PHP path:** explicit holdback; #2841
 - **Binding:** Jina Search Foundation; Laravel AI Jina support is embeddings/reranking, not this API
 - **Execution:** inline
 - **Terminal:** HTTP search
@@ -516,7 +516,7 @@ maintainer checkpoint may move a row into #2591 later.
 - **Workflow:** none
 - **Semantics:** search_results; none; api_output; web; search_endpoint/brokered; google
 - **Target:** not applicable
-- **PHP path:** explicit holdback; future #2591 core HTTP
+- **PHP path:** explicit holdback; #2841
 - **Binding:** SerpAPI Google engine
 - **Execution:** inline
 - **Terminal:** HTTP search
@@ -529,7 +529,7 @@ maintainer checkpoint may move a row into #2591 later.
 - **Workflow:** none
 - **Semantics:** search_results; none; api_output; web; search_endpoint/direct; parallel
 - **Target:** not applicable
-- **PHP path:** explicit holdback; future #2591 core HTTP
+- **PHP path:** explicit holdback; #2844
 - **Binding:** Parallel Search API
 - **Execution:** inline
 - **Terminal:** HTTP search
@@ -542,7 +542,7 @@ maintainer checkpoint may move a row into #2591 later.
 - **Workflow:** none
 - **Semantics:** grounded_answer; optional; api_output; web; model_search_tool/direct; parallel
 - **Target:** configurable processor/model `base`
-- **PHP path:** explicit holdback; future #2591 core HTTP
+- **PHP path:** explicit holdback; #2844
 - **Binding:** Parallel chat-completions with web retrieval and structured output
 - **Execution:** inline
 - **Terminal:** HTTP answer
@@ -555,7 +555,7 @@ maintainer checkpoint may move a row into #2591 later.
 - **Workflow:** deep
 - **Semantics:** research_report; required; api_output; web; research_agent/direct; parallel
 - **Target:** configurable preset `pro`
-- **PHP path:** explicit holdback; future #2591 core HTTP
+- **PHP path:** explicit holdback; #2844
 - **Binding:** Parallel task-run submit, poll, and result APIs
 - **Execution:** background/durable; poll then retrieve
 - **Terminal:** HTTP report
@@ -568,7 +568,7 @@ maintainer checkpoint may move a row into #2591 later.
 - **Workflow:** none
 - **Semantics:** search_results; none; api_output; web+specialized; search_endpoint/direct; valyu
 - **Target:** not applicable
-- **PHP path:** explicit holdback; future #2591 core HTTP
+- **PHP path:** explicit holdback; #2845
 - **Binding:** Valyu Search API
 - **Execution:** inline
 - **Terminal:** HTTP search; specialized categories are metadata, not independent evidence
@@ -581,7 +581,7 @@ maintainer checkpoint may move a row into #2591 later.
 - **Workflow:** deep
 - **Semantics:** research_report; required; api_output; web+specialized; research_agent/direct; valyu
 - **Target:** configurable preset `standard`
-- **PHP path:** explicit holdback; future #2591 core HTTP
+- **PHP path:** explicit holdback; #2845
 - **Binding:** Valyu deep-research tasks API
 - **Execution:** background/durable; only accepted Profile advertising exact-profile remote cancellation
 - **Terminal:** HTTP report
