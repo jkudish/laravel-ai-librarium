@@ -25,12 +25,26 @@ $research = Librarium::query('Compare current agent memory architectures.')
     ->catch(fn ($exception) => /* report the infrastructure failure */);
 ```
 
-The package ships `gemini-grounded` as its first built-in Profile. It uses the
-Laravel AI SDK's Gemini provider, the exact `gemini-3.6-flash` model, and native
-`WebSearch`. Configure `GEMINI_API_KEY` through Laravel AI's normal provider
-configuration. Librarium resolves `config('ai.providers.gemini.key')`; it never
-stores a configuration path or exposes the credential through previews and
-terminal results.
+The package ships these Laravel AI SDK Profiles:
+
+| Profile | Provider | Model | Web search |
+| --- | --- | --- | --- |
+| `gemini-grounded` | Gemini | `gemini-3.6-flash` | Required |
+| `openrouter-grounded` | OpenRouter | `openai/gpt-4o-mini` | Required |
+| `openrouter-chat` | OpenRouter | `openai/gpt-5.6-terra` | Optional, on by default |
+| `claude-chat` | Anthropic | `claude-sonnet-5` | Optional, on by default |
+| `openai-chat` | OpenAI | `gpt-5-mini` | Optional, on by default |
+| `gemini-chat` | Gemini | `gemini-3.6-flash` | Optional, on by default |
+
+The Profiles use Laravel AI's native `WebSearch`. Applications may disable it
+for an optional-search Profile by setting its `options.web_search` value to
+`false`; the terminal result then reports an ungrounded `model_answer` without
+invented retrieval facts.
+
+Configure provider credentials through Laravel AI's normal provider
+configuration. Librarium resolves values such as
+`config('ai.providers.gemini.key')`; it never stores configuration paths or
+exposes credentials through previews and terminal results.
 
 To run the opt-in live canary, make `GEMINI_API_KEY` available to the process
 without committing it, then run:

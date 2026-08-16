@@ -6,7 +6,7 @@ namespace Jkudish\LaravelAiLibrarium\Tests;
 
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Http;
-use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\GroundedResearchAgent;
+use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\ResearchAgent;
 use Jkudish\LaravelAiLibrarium\LaravelAiLibrariumServiceProvider;
 use Laravel\Ai\AiServiceProvider;
 use Orchestra\Testbench\TestCase as Orchestra;
@@ -19,7 +19,7 @@ abstract class TestCase extends Orchestra
 
         if ($this->preventsExternalRequests()) {
             Http::preventStrayRequests();
-            GroundedResearchAgent::fake()->preventStrayPrompts();
+            ResearchAgent::fake()->preventStrayPrompts();
         }
     }
 
@@ -40,6 +40,12 @@ abstract class TestCase extends Orchestra
     {
         if (blank($app['config']->get('ai.providers.gemini.key'))) {
             $app['config']->set('ai.providers.gemini.key', 'testing-gemini-key');
+        }
+
+        foreach (['anthropic', 'openai', 'openrouter'] as $provider) {
+            if (blank($app['config']->get("ai.providers.{$provider}.key"))) {
+                $app['config']->set("ai.providers.{$provider}.key", "testing-{$provider}-key");
+            }
         }
     }
 

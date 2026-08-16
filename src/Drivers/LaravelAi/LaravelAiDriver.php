@@ -18,14 +18,16 @@ use Laravel\Ai\Exceptions\InsufficientCreditsException;
 use Laravel\Ai\Exceptions\ProviderOverloadedException;
 use Laravel\Ai\Exceptions\RateLimitedException;
 
-final readonly class LaravelAiGroundedDriver implements Driver
+final readonly class LaravelAiDriver implements Driver
 {
     public function __construct(private ResearchResultMapper $mapper) {}
 
     /** @return array<string, mixed> */
     public static function profileOptionRules(): array
     {
-        return [];
+        return [
+            'web_search' => ['sometimes', 'boolean'],
+        ];
     }
 
     public function run(DriverRequest $request): ResearchResult
@@ -34,13 +36,30 @@ final readonly class LaravelAiGroundedDriver implements Driver
         if ($model === null) {
             throw new DriverException(
                 errorCode: 'laravel_ai.model_required',
-                message: 'The Laravel AI grounded Driver requires an exact model.',
+                message: 'The Laravel AI Driver requires an exact model.',
+                fallbackAllowed: false,
+            );
+        }
+
+        $usesWebSearch = data_get($request->profile->options, 'web_search', true);
+        if (! is_bool($usesWebSearch)) {
+            throw new DriverException(
+                errorCode: 'laravel_ai.invalid_options',
+                message: 'The Laravel AI Driver received invalid Profile options.',
+                fallbackAllowed: false,
+            );
+        }
+
+        if ($request->profile->grounding === GroundingPolicy::Required && ! $usesWebSearch) {
+            throw new DriverException(
+                errorCode: 'laravel_ai.web_search_required',
+                message: 'Required-grounding Profiles must enable web search.',
                 fallbackAllowed: false,
             );
         }
 
         $timeout = $this->remainingSeconds($request);
-        $agent = new GroundedResearchAgent;
+        $agent = new ResearchAgent($usesWebSearch);
 
         try {
             $response = $agent->prompt(
@@ -69,7 +88,7 @@ final readonly class LaravelAiGroundedDriver implements Driver
             throw new DriverException('laravel_ai.provider', 'The AI provider could not complete the research request.');
         }
 
-        $result = $this->mapper->map($response, $request);
+        $result = $this->mapper->map($response, $request, $usesWebSearch);
 
         if ($request->profile->grounding === GroundingPolicy::Required && $result->citations->isEmpty()) {
             throw new DriverException(
