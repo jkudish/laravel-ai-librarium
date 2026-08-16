@@ -139,11 +139,14 @@ it('rejects a required-grounding response without provider-reported evidence', f
         ),
     ])->preventStrayPrompts();
 
-    expect(fn () => groundedDriver()->run(groundedDriverRequest()))
-        ->toThrow(
-            DriverException::class,
-            'The AI provider returned no evidence for the grounded response.',
-        );
+    try {
+        groundedDriver()->run(groundedDriverRequest());
+        $this->fail('A required-grounding response without evidence should be rejected.');
+    } catch (DriverException $exception) {
+        expect($exception->errorCode)->toBe('laravel_ai.ungrounded_response')
+            ->and($exception->fallbackAllowed)->toBeTrue()
+            ->and($exception->getMessage())->toBe('The AI provider returned no evidence for the grounded response.');
+    }
 });
 
 it('rejects an expired deadline before prompting the SDK', function (): void {
