@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Jkudish\LaravelAiLibrarium;
 
+use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Support\ServiceProvider;
 use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
 use Jkudish\LaravelAiLibrarium\Contracts\Librarium;
+use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\LaravelAiGroundedDriver;
 use Jkudish\LaravelAiLibrarium\Execution\ProfileCompatibility;
 use Jkudish\LaravelAiLibrarium\Execution\ResearchRuntime;
 use Jkudish\LaravelAiLibrarium\Webhooks\WebhookSignalStore;
@@ -16,6 +18,22 @@ final class LaravelAiLibrariumServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__.'/../config/librarium.php', 'librarium');
+        $this->app->booting(function (): void {
+            $config = $this->app->make(ConfigRepository::class);
+            $profile = $config->get('librarium.profiles.gemini-grounded');
+
+            if (! is_array($profile)
+                || data_get($profile, 'driver') !== LaravelAiGroundedDriver::class
+                || ! array_key_exists('credential', $profile)
+                || filled(data_get($profile, 'credential'))) {
+                return;
+            }
+
+            $config->set(
+                'librarium.profiles.gemini-grounded.credential',
+                $config->get('ai.providers.gemini.key'),
+            );
+        });
 
         $this->app->singleton(LibrariumManager::class);
         $this->app->singleton(ProfileCatalog::class);

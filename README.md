@@ -39,7 +39,8 @@ without committing it, then run:
 composer test:live:gemini
 ```
 
-The ordinary test suite skips the live canary when the credential is absent.
+The ordinary test suite always excludes live provider calls. The dedicated
+command fails when the credential is absent or the canary is skipped.
 
 Queued research uses the dedicated `research` queue by default. Configure its connection through `librarium.queue.connection`, or use normal pending-dispatch methods such as `onConnection()` and `onQueue()` on the queued response.
 

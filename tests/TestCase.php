@@ -18,8 +18,16 @@ abstract class TestCase extends Orchestra
     protected function getPackageProviders($app): array
     {
         return [
-            AiServiceProvider::class,
             LaravelAiLibrariumServiceProvider::class,
+            AiServiceProvider::class,
         ];
+    }
+
+    /** @param Application $app */
+    protected function defineEnvironment($app): void
+    {
+        if (blank($app['config']->get('ai.providers.gemini.key'))) {
+            $app['config']->set('ai.providers.gemini.key', 'testing-gemini-key');
+        }
     }
 }
