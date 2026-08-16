@@ -86,13 +86,13 @@ cost. Missing provider-reported cost remains `null`, never zero.
 
 - **Workflow:** quick, visibility
 - **Semantics:** grounded_answer; required; api_output; web; model_search_tool/direct; google
-- **Target:** configurable model `gemini-2.5-flash`
+- **Target:** configurable model `gemini-3.6-flash`
 - **PHP path:** #2591 core SDK
 - **Binding:** Laravel AI Gemini, exact model, native `WebSearch`
 - **Execution:** inline; no provider-durable handle
 - **Terminal:** SDK answer
 - **Pricing:** native tokens; USD unknown unless authoritative pricing is supplied
-- **Test and proof:** SDK fake; D + L; Wave 1 exemplar under #2833
+- **Test and proof:** SDK fake; D + L; Wave 1 exemplar under #2833; target refreshed to the installed Laravel AI SDK v0.10.3 default during #2834
 
 ### `openrouter/grounded`
 

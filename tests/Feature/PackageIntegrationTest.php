@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Contracts\Librarium as LibrariumContract;
+use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\LaravelAiGroundedDriver;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\LibrariumManager;
 use Jkudish\LaravelAiLibrarium\PendingResearch;
@@ -25,6 +26,18 @@ it('merges the package configuration', function (): void {
         ->and(config('librarium.webhook_signal_ttl'))->toBe(10800)
         ->and(config('librarium.queue.name'))->toBe('research')
         ->and(app(WebhookSignalStore::class))->toBe(app(WebhookSignalStore::class));
+});
+
+it('resolves the Gemini credential after Laravel AI registers later', function (): void {
+    $profile = config('librarium.profiles.gemini-grounded');
+
+    expect($profile)->toBeArray()
+        ->and(data_get($profile, 'driver'))->toBe(LaravelAiGroundedDriver::class)
+        ->and(data_get($profile, 'provider'))->toBe('gemini')
+        ->and(data_get($profile, 'model'))->toBe('gemini-3.6-flash')
+        ->and(config('ai.providers.gemini.key'))->toBeString()->not->toBeEmpty()
+        ->and(data_get($profile, 'credential'))->toBe(config('ai.providers.gemini.key'))
+        ->and(data_get($profile, 'credential'))->not->toBe('ai.providers.gemini.key');
 });
 
 it('starts a research query through the facade', function (): void {

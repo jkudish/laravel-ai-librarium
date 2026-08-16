@@ -25,6 +25,23 @@ $research = Librarium::query('Compare current agent memory architectures.')
     ->catch(fn ($exception) => /* report the infrastructure failure */);
 ```
 
+The package ships `gemini-grounded` as its first built-in Profile. It uses the
+Laravel AI SDK's Gemini provider, the exact `gemini-3.6-flash` model, and native
+`WebSearch`. Configure `GEMINI_API_KEY` through Laravel AI's normal provider
+configuration. Librarium resolves `config('ai.providers.gemini.key')`; it never
+stores a configuration path or exposes the credential through previews and
+terminal results.
+
+To run the opt-in live canary, make `GEMINI_API_KEY` available to the process
+without committing it, then run:
+
+```bash
+composer test:live:gemini
+```
+
+The ordinary test suite always excludes live provider calls. The dedicated
+command fails when the credential is absent or the canary is skipped.
+
 Queued research uses the dedicated `research` queue by default. Configure its connection through `librarium.queue.connection`, or use normal pending-dispatch methods such as `onConnection()` and `onQueue()` on the queued response.
 
 The default research deadline is 6,900 seconds inside a 7,200-second queue timeout. This leaves five minutes for normalization, events, callbacks, and worker cleanup. Multiple Profiles execute sequentially in 1.0 and share that research deadline, so a slow earlier Profile can leave less time for later fan-out slots.
