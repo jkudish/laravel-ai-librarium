@@ -72,11 +72,11 @@ it('runs each configured Laravel AI Profile through one exact SDK provider and m
         ->and($response->results->sole()->citations)->toHaveCount(1);
 })->with([
     'Gemini grounded' => ['gemini-grounded', 'gemini', 'gemini-3.6-flash'],
-    'OpenRouter grounded' => ['openrouter-grounded', 'openrouter', 'openai/gpt-4o-mini'],
+    'OpenRouter grounded' => ['openrouter-grounded', 'openrouter', 'openai/gpt-5.6-luna'],
     'OpenRouter chat' => ['openrouter-chat', 'openrouter', 'openai/gpt-5.6-terra'],
     'Claude chat' => ['claude-chat', 'anthropic', 'claude-sonnet-5'],
-    'OpenAI chat' => ['openai-chat', 'openai', 'gpt-5-mini'],
-    'Gemini chat' => ['gemini-chat', 'gemini', 'gemini-3.6-flash'],
+    'OpenAI chat' => ['openai-chat', 'openai', 'gpt-5.6-luna'],
+    'Gemini chat' => ['gemini-chat', 'gemini', 'gemini-3.7-flash'],
 ]);
 
 it('returns an honest model answer when optional web search is disabled', function (): void {
@@ -85,7 +85,7 @@ it('returns an honest model answer when optional web search is disabled', functi
         new TextResponse(
             'A direct model answer.',
             new AiUsage(promptTokens: 5, completionTokens: 4),
-            new Meta('gemini', 'gemini-3.6-flash'),
+            new Meta('gemini', 'gemini-3.7-flash'),
         ),
     ])->preventStrayPrompts();
 

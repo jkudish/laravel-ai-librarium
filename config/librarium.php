@@ -35,7 +35,7 @@ return [
         'openrouter-grounded' => [
             'driver' => LaravelAiDriver::class,
             'provider' => 'openrouter',
-            'model' => 'openai/gpt-4o-mini',
+            'model' => 'openai/gpt-5.6-luna',
             'result_kind' => 'grounded_answer',
             'grounding' => 'required',
             'observation' => 'api_output',
@@ -77,7 +77,7 @@ return [
         'openai-chat' => [
             'driver' => LaravelAiDriver::class,
             'provider' => 'openai',
-            'model' => 'gpt-5-mini',
+            'model' => 'gpt-5.6-luna',
             'result_kind' => 'grounded_answer',
             'grounding' => 'optional',
             'observation' => 'api_output',
@@ -91,7 +91,7 @@ return [
         'gemini-chat' => [
             'driver' => LaravelAiDriver::class,
             'provider' => 'gemini',
-            'model' => 'gemini-3.6-flash',
+            'model' => 'gemini-3.7-flash',
             'result_kind' => 'grounded_answer',
             'grounding' => 'optional',
             'observation' => 'api_output',

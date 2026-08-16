@@ -30,11 +30,11 @@ The package ships these Laravel AI SDK Profiles:
 | Profile | Provider | Model | Web search |
 | --- | --- | --- | --- |
 | `gemini-grounded` | Gemini | `gemini-3.6-flash` | Required |
-| `openrouter-grounded` | OpenRouter | `openai/gpt-4o-mini` | Required |
+| `openrouter-grounded` | OpenRouter | `openai/gpt-5.6-luna` | Required |
 | `openrouter-chat` | OpenRouter | `openai/gpt-5.6-terra` | Optional, on by default |
 | `claude-chat` | Anthropic | `claude-sonnet-5` | Optional, on by default |
-| `openai-chat` | OpenAI | `gpt-5-mini` | Optional, on by default |
-| `gemini-chat` | Gemini | `gemini-3.6-flash` | Optional, on by default |
+| `openai-chat` | OpenAI | `gpt-5.6-luna` | Optional, on by default |
+| `gemini-chat` | Gemini | `gemini-3.7-flash` | Optional, on by default |
 
 The Profiles use Laravel AI's native `WebSearch`. Applications may disable it
 for an optional-search Profile by setting its `options.web_search` value to
@@ -57,6 +57,13 @@ Every live test requires the explicit `LIBRARIUM_LIVE_TESTS=1` opt-in, even when
 a provider credential is present. The ordinary test suite therefore cannot make
 a live provider call. The dedicated command fails when the opt-in or credential
 is absent, or when the canary is skipped.
+
+To validate every SDK-backed Profile, configure the Gemini, OpenRouter,
+Anthropic, and OpenAI credentials, then run:
+
+```bash
+LIBRARIUM_LIVE_TESTS=1 composer test:live:sdk
+```
 
 Queued research uses the dedicated `research` queue by default. Configure its connection through `librarium.queue.connection`, or use normal pending-dispatch methods such as `onConnection()` and `onQueue()` on the queued response.
 

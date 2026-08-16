@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Jkudish\LaravelAiLibrarium\Tests;
 
+use Illuminate\Foundation\Application;
+
 abstract class LiveTestCase extends TestCase
 {
     protected function setUp(): void
@@ -19,4 +21,7 @@ abstract class LiveTestCase extends TestCase
     {
         return false;
     }
+
+    /** @param Application $app */
+    protected function defineEnvironment($app): void {}
 }

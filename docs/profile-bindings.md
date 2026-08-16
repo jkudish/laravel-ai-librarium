@@ -98,7 +98,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 
 - **Workflow:** quick
 - **Semantics:** grounded_answer; required; api_output; web; model_search_tool/brokered; openrouter
-- **Target:** configurable model `openai/gpt-4o-mini`
+- **Target:** configurable model `openai/gpt-5.6-luna`
 - **PHP path:** #2591 core SDK
 - **Binding:** Laravel AI OpenRouter, exact model, native `WebSearch`
 - **Execution:** inline; no provider-durable handle
@@ -134,7 +134,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 
 - **Workflow:** none
 - **Semantics:** grounded_answer; optional; api_output; web; model_search_tool/direct; openai
-- **Target:** configurable model `gpt-5-mini`
+- **Target:** configurable model `gpt-5.6-luna`
 - **PHP path:** #2591 core SDK
 - **Binding:** Laravel AI OpenAI and native `WebSearch`, on by default; search-off becomes `model_answer`
 - **Execution:** inline; no provider-durable handle
@@ -146,7 +146,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 
 - **Workflow:** none
 - **Semantics:** grounded_answer; optional; api_output; web; model_search_tool/direct; google
-- **Target:** configurable model `gemini-3.6-flash`
+- **Target:** configurable model `gemini-3.7-flash`
 - **PHP path:** #2591 core SDK
 - **Binding:** Laravel AI Gemini and native `WebSearch`, on by default; search-off becomes `model_answer`
 - **Execution:** inline; no provider-durable handle

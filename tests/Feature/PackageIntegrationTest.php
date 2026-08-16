@@ -41,11 +41,11 @@ it('resolves Laravel AI credentials after Laravel AI registers later', function 
         ->and(data_get($profile, 'credential'))->not->toBe("ai.providers.{$provider}.key");
 })->with([
     'Gemini grounded' => ['gemini-grounded', 'gemini', 'gemini-3.6-flash'],
-    'OpenRouter grounded' => ['openrouter-grounded', 'openrouter', 'openai/gpt-4o-mini'],
+    'OpenRouter grounded' => ['openrouter-grounded', 'openrouter', 'openai/gpt-5.6-luna'],
     'OpenRouter chat' => ['openrouter-chat', 'openrouter', 'openai/gpt-5.6-terra'],
     'Claude chat' => ['claude-chat', 'anthropic', 'claude-sonnet-5'],
-    'OpenAI chat' => ['openai-chat', 'openai', 'gpt-5-mini'],
-    'Gemini chat' => ['gemini-chat', 'gemini', 'gemini-3.6-flash'],
+    'OpenAI chat' => ['openai-chat', 'openai', 'gpt-5.6-luna'],
+    'Gemini chat' => ['gemini-chat', 'gemini', 'gemini-3.7-flash'],
 ]);
 
 it('resolves Laravel AI credentials for Profile IDs containing dots', function (): void {
