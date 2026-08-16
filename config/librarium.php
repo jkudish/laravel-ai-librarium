@@ -116,6 +116,7 @@ return [
             'enabled' => true,
             'options' => [],
             'credential' => config('services.searchapi.key'),
+            'estimated_cost' => ['amount' => '0.004', 'currency' => 'USD'],
         ],
         'searchapi-chatgpt' => [
             'driver' => SearchApiDriver::class,
@@ -130,6 +131,7 @@ return [
             'enabled' => true,
             'options' => [],
             'credential' => config('services.searchapi.key'),
+            'estimated_cost' => ['amount' => '0.004', 'currency' => 'USD'],
         ],
         'searchapi-gemini' => [
             'driver' => SearchApiDriver::class,
@@ -144,6 +146,7 @@ return [
             'enabled' => true,
             'options' => [],
             'credential' => config('services.searchapi.key'),
+            'estimated_cost' => ['amount' => '0.004', 'currency' => 'USD'],
         ],
         'searchapi-perplexity' => [
             'driver' => SearchApiDriver::class,
@@ -158,6 +161,7 @@ return [
             'enabled' => true,
             'options' => [],
             'credential' => config('services.searchapi.key'),
+            'estimated_cost' => ['amount' => '0.004', 'currency' => 'USD'],
         ],
         'searchapi-google-ai-mode' => [
             'driver' => SearchApiDriver::class,
@@ -172,6 +176,7 @@ return [
             'enabled' => true,
             'options' => [],
             'credential' => config('services.searchapi.key'),
+            'estimated_cost' => ['amount' => '0.004', 'currency' => 'USD'],
         ],
         'searchapi-bing-copilot' => [
             'driver' => SearchApiDriver::class,
@@ -186,6 +191,7 @@ return [
             'enabled' => true,
             'options' => [],
             'credential' => config('services.searchapi.key'),
+            'estimated_cost' => ['amount' => '0.004', 'currency' => 'USD'],
         ],
         'searchapi-google-ai-overview' => [
             'driver' => SearchApiDriver::class,
@@ -200,6 +206,7 @@ return [
             'enabled' => true,
             'options' => [],
             'credential' => config('services.searchapi.key'),
+            'estimated_cost' => ['amount' => '0.008', 'currency' => 'USD'],
         ],
     ],
 

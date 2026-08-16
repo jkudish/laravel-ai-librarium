@@ -27,6 +27,25 @@ afterEach(function (): void {
     CarbonImmutable::setTestNow();
 });
 
+it('registers the seven SearchAPI Profiles with complete network-free estimates', function (): void {
+    $profiles = app(ProfileCatalog::class)->all()
+        ->filter(fn ($item): bool => $item->profile->driver === SearchApiDriver::class)
+        ->mapWithKeys(fn ($item, string $id): array => [$id => [
+            $item->profile->estimatedCostMicros,
+            $item->profile->currency,
+        ]]);
+
+    expect($profiles->all())->toBe([
+        'searchapi' => [4_000, 'USD'],
+        'searchapi-chatgpt' => [4_000, 'USD'],
+        'searchapi-gemini' => [4_000, 'USD'],
+        'searchapi-perplexity' => [4_000, 'USD'],
+        'searchapi-google-ai-mode' => [4_000, 'USD'],
+        'searchapi-bing-copilot' => [4_000, 'USD'],
+        'searchapi-google-ai-overview' => [8_000, 'USD'],
+    ]);
+});
+
 it('sends one bearer-authenticated GET with the built-in engine and query and no URL credential', function (string $profile, string $engine): void {
     Http::fake(['https://www.searchapi.io/*' => Http::response([
         'organic_results' => [['title' => 'T', 'link' => 'https://example.com/a', 'snippet' => 'S']],
@@ -139,11 +158,11 @@ it('falls back to typed text blocks when the surface Markdown is incomplete and 
     Http::fake(['https://www.searchapi.io/*' => Http::response([
         'markdown' => 'See [broken](https://example.com/x',
         'text_blocks' => [
-            ['type' => 'heading', 'level' => 2, 'text' => 'Overview'],
-            ['type' => 'paragraph', 'text' => 'A concise answer.'],
+            ['type' => 'header', 'answer' => 'Overview'],
+            ['type' => 'future_block', 'answer' => 'A concise answer.'],
             ['type' => 'unordered_list', 'items' => [
-                ['type' => 'list_item', 'text' => 'Point one'],
-                ['type' => 'list_item', 'text' => 'Point two'],
+                ['answer' => 'Point one'],
+                ['answer' => 'Point two'],
             ]],
         ],
         'reference_links' => [],
@@ -151,7 +170,7 @@ it('falls back to typed text blocks when the surface Markdown is incomplete and 
 
     $result = searchApiDriver()->run(searchApiRequest('searchapi-gemini'));
 
-    expect($result->content)->toContain('## Overview')
+    expect($result->content)->toContain('### Overview')
         ->toContain('A concise answer.')
         ->toContain('- Point one')
         ->toContain('- Point two')

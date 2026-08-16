@@ -305,116 +305,36 @@ final readonly class SearchApiResultMapper
 
     private function renderSurfaceBlocks(mixed $blocks): string
     {
-        if (! is_array($blocks) || ! array_is_list($blocks)) {
-            return '';
-        }
-
-        $rendered = [];
-        foreach ($blocks as $block) {
-            $rendered = [...$rendered, ...$this->renderSurfaceBlock($block, 0)];
-        }
-
-        return trim(implode("\n\n", array_filter($rendered, static fn (string $line): bool => $line !== '')));
+        return collect($this->records($blocks))
+            ->map(fn (array $block): ?string => $this->renderSurfaceBlock($block))
+            ->filter()
+            ->implode("\n\n");
     }
 
-    /** @return list<string> */
-    private function renderSurfaceBlock(mixed $block, int $depth): array
+    /** @param array<array-key, mixed> $block */
+    private function renderSurfaceBlock(array $block): ?string
     {
-        $record = $this->record($block);
-        $type = $record === null ? null : $this->str(data_get($record, 'type'));
-        if ($record === null || $type === null) {
-            return [];
+        $answer = $this->str(data_get($block, 'answer'));
+        $type = $this->str(data_get($block, 'type'));
+
+        if ($type === 'header' && $answer !== null) {
+            return "### {$answer}";
         }
 
-        $body = $this->str(data_get($record, 'text')) ?? $this->str(data_get($record, 'content')) ?? $this->str(data_get($record, 'answer'));
-        $children = $this->childBlocks($record);
+        if (in_array($type, ['unordered_list', 'ordered_list'], true)) {
+            $items = collect($this->records(data_get($block, 'items')))
+                ->map(fn (array $item): ?string => $this->renderSurfaceBlock($item))
+                ->filter()
+                ->values()
+                ->map(fn (string $item, int $index): string => $type === 'ordered_list'
+                    ? ($index + 1).". {$item}"
+                    : "- {$item}")
+                ->implode("\n");
 
-        return match ($type) {
-            'text', 'paragraph' => $this->appendChildren($body === null ? [] : [$body], $children, $depth),
-            'heading' => $this->appendChildren($body === null ? [] : [str_repeat('#', $this->headingLevel(data_get($record, 'level')))." {$body}"], $children, $depth),
-            'header' => $this->appendChildren($body === null ? [] : ["## {$body}"], $children, $depth),
-            'quote' => $this->appendChildren($body === null ? [] : ["> {$body}"], $children, $depth),
-            'code', 'code_block', 'code_blocks' => $this->appendChildren($this->renderCode($record, $body), $children, $depth),
-            'list', 'unordered_list', 'ordered_list' => $this->renderListItems($children, $depth, $type === 'ordered_list'),
-            'list_item', 'item' => $this->renderListItem($record, $depth, null),
-            default => [],
-        };
-    }
-
-    /**
-     * @param  list<string>  $rendered
-     * @param  list<mixed>  $children
-     * @return list<string>
-     */
-    private function appendChildren(array $rendered, array $children, int $depth): array
-    {
-        foreach ($children as $child) {
-            $rendered = [...$rendered, ...$this->renderSurfaceBlock($child, $depth + 1)];
+            return $items === '' ? $answer : $items;
         }
 
-        return $rendered;
-    }
-
-    /**
-     * @param  list<mixed>  $children
-     * @return list<string>
-     */
-    private function renderListItems(array $children, int $depth, bool $ordered): array
-    {
-        $items = [];
-        $index = 1;
-        foreach ($children as $child) {
-            $items = [...$items, ...$this->renderListItem($child, $depth, $ordered ? $index++ : null)];
-        }
-
-        return $items;
-    }
-
-    /** @return list<string> */
-    private function renderListItem(mixed $item, int $depth, ?int $index): array
-    {
-        $record = $this->record($item);
-        if ($record === null) {
-            return [];
-        }
-
-        $body = $this->str(data_get($record, 'text')) ?? $this->str(data_get($record, 'content')) ?? $this->str(data_get($record, 'answer'));
-        $prefix = str_repeat('  ', $depth).($index === null ? '-' : "{$index}.").' ';
-        $rendered = $body === null ? [] : ["{$prefix}{$body}"];
-
-        return $this->appendChildren($rendered, $this->childBlocks($record), $depth + 1);
-    }
-
-    /**
-     * @param  array<array-key, mixed>  $record
-     * @return list<string>
-     */
-    private function renderCode(array $record, ?string $body): array
-    {
-        $code = $this->str(data_get($record, 'code')) ?? $body;
-        if ($code === null) {
-            return [];
-        }
-
-        $language = $this->str(data_get($record, 'language')) ?? '';
-
-        return ["```{$language}\n{$code}\n```"];
-    }
-
-    /**
-     * @param  array<array-key, mixed>  $record
-     * @return list<mixed>
-     */
-    private function childBlocks(array $record): array
-    {
-        $children = data_get($record, 'children') ?? data_get($record, 'blocks') ?? data_get($record, 'items');
-
-        return is_array($children) && array_is_list($children) ? $children : [];
-    }
-
-    private function headingLevel(mixed $level): int
-    {
-        return is_int($level) ? max(1, min(6, $level)) : 2;
+        return $answer;
     }
 
     private function evidenceUrl(mixed $value): ?string
