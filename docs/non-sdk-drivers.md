@@ -89,11 +89,6 @@ final class ExampleSearchDriver implements Driver
             ->acceptJson()
             ->connectTimeout(min(3, $remainingSeconds))
             ->timeout(min(20, $remainingSeconds))
-            ->retry(
-                [100, 500],
-                when: fn (Throwable $exception): bool => $this->isTransient($exception),
-                throw: false,
-            )
             ->get('/search', [
                 'query' => $request->prompt,
                 'country' => data_get($request->profile->options, 'country'),
