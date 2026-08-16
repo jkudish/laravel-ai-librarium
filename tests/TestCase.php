@@ -6,6 +6,7 @@ namespace Jkudish\LaravelAiLibrarium\Tests;
 
 use Illuminate\Foundation\Application;
 use Jkudish\LaravelAiLibrarium\LaravelAiLibrariumServiceProvider;
+use Laravel\Ai\AiServiceProvider;
 use Orchestra\Testbench\TestCase as Orchestra;
 
 abstract class TestCase extends Orchestra
@@ -16,6 +17,9 @@ abstract class TestCase extends Orchestra
      */
     protected function getPackageProviders($app): array
     {
-        return [LaravelAiLibrariumServiceProvider::class];
+        return [
+            AiServiceProvider::class,
+            LaravelAiLibrariumServiceProvider::class,
+        ];
     }
 }

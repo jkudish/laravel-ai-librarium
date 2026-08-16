@@ -13,13 +13,14 @@ use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\LaravelAiGroundedDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\ResearchResultMapper;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
+use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\Profile;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\ResponseStatus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
-use Laravel\Ai\AiServiceProvider;
 use Laravel\Ai\Exceptions\AiException;
 use Laravel\Ai\Exceptions\InsufficientCreditsException;
 use Laravel\Ai\Exceptions\ProviderOverloadedException;
@@ -35,12 +36,38 @@ use Laravel\Ai\Responses\Data\Usage as AiUsage;
 use Laravel\Ai\Responses\TextResponse;
 
 beforeEach(function (): void {
-    $this->app->register(AiServiceProvider::class);
     CarbonImmutable::setTestNow('2026-08-15T12:00:00Z');
 });
 
 afterEach(function (): void {
     CarbonImmutable::setTestNow();
+});
+
+it('runs the configured Gemini Profile through the public API', function (): void {
+    config()->set('librarium.profiles.gemini-grounded.credential', 'configured-test-credential');
+    GroundedResearchAgent::fake([
+        new TextResponse(
+            'Laravel 13 is the current major release.',
+            new AiUsage(promptTokens: 10, completionTokens: 6),
+            new Meta('gemini', 'gemini-3.6-flash', collect([
+                new UrlCitation('https://laravel.com/docs/13.x/releases', 'Laravel releases'),
+            ])),
+        ),
+    ])->preventStrayPrompts();
+
+    $response = Librarium::query('What is the current Laravel major version?')
+        ->using('gemini-grounded')
+        ->timeout(120)
+        ->run();
+
+    GroundedResearchAgent::assertPrompted(fn (AgentPrompt $prompt): bool => $prompt->provider()->name() === 'gemini'
+        && $prompt->model === 'gemini-3.6-flash'
+        && $prompt->prompt === 'What is the current Laravel major version?');
+
+    expect($response->status)->toBe(ResponseStatus::Succeeded)
+        ->and($response->results)->toHaveCount(1)
+        ->and($response->results->sole()->model)->toBe('gemini-3.6-flash')
+        ->and($response->results->sole()->citations)->toHaveCount(1);
 });
 
 it('prompts one exact SDK provider and model with native web search and the remaining deadline', function (): void {

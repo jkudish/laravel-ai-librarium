@@ -47,6 +47,7 @@
         "prepare": "@php vendor/bin/testbench package:discover --ansi",
         "analyse": "vendor/bin/phpstan analyse --memory-limit=1G",
         "test": "vendor/bin/pest",
+        "test:live:gemini": "vendor/bin/pest --group=live",
         "format": "vendor/bin/pint --format agent",
         "check": [
             "@composer format",
