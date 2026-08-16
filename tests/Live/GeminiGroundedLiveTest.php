@@ -26,4 +26,4 @@ it('runs a live Gemini grounded query through the public API', function (): void
         ->and($result->model)->toBe('gemini-3.6-flash')
         ->and($result->content)->toBeString()->not->toBeEmpty()
         ->and($result->citations)->not->toBeEmpty();
-})->group('live');
+});

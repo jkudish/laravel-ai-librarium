@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Jkudish\LaravelAiLibrarium;
 
-use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Support\ServiceProvider;
 use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
 use Jkudish\LaravelAiLibrarium\Contracts\Librarium;
@@ -18,22 +17,6 @@ final class LaravelAiLibrariumServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__.'/../config/librarium.php', 'librarium');
-        $this->app->booting(function (): void {
-            $config = $this->app->make(ConfigRepository::class);
-            $profile = $config->get('librarium.profiles.gemini-grounded');
-
-            if (! is_array($profile)
-                || data_get($profile, 'driver') !== LaravelAiGroundedDriver::class
-                || ! array_key_exists('credential', $profile)
-                || filled(data_get($profile, 'credential'))) {
-                return;
-            }
-
-            $config->set(
-                'librarium.profiles.gemini-grounded.credential',
-                $config->get('ai.providers.gemini.key'),
-            );
-        });
 
         $this->app->singleton(LibrariumManager::class);
         $this->app->singleton(ProfileCatalog::class);
@@ -71,6 +54,8 @@ final class LaravelAiLibrariumServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        $this->resolveGeminiCredential();
+
         if (! $this->app->runningInConsole()) {
             return;
         }
@@ -78,5 +63,22 @@ final class LaravelAiLibrariumServiceProvider extends ServiceProvider
         $this->publishes([
             __DIR__.'/../config/librarium.php' => config_path('librarium.php'),
         ], 'librarium-config');
+    }
+
+    private function resolveGeminiCredential(): void
+    {
+        $profile = config('librarium.profiles.gemini-grounded');
+
+        if (! is_array($profile)
+            || data_get($profile, 'driver') !== LaravelAiGroundedDriver::class
+            || ! array_key_exists('credential', $profile)
+            || filled(data_get($profile, 'credential'))) {
+            return;
+        }
+
+        config()->set(
+            'librarium.profiles.gemini-grounded.credential',
+            config('ai.providers.gemini.key'),
+        );
     }
 }
