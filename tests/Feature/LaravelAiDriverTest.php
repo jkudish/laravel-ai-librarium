@@ -89,6 +89,18 @@ it('returns an honest model answer when optional web search is disabled', functi
         ),
     ])->preventStrayPrompts();
 
+    $preview = Librarium::query('Answer without web search.')
+        ->using('gemini-chat')
+        ->preview();
+    $profile = $preview->profiles->sole();
+    $matching = Librarium::query('Answer without web search.')
+        ->matching(
+            resultKind: ResultKind::ModelAnswer,
+            grounding: GroundingPolicy::None,
+            observation: ObservationMode::ApiOutput,
+            retrievalMethods: [RetrievalMethod::ModelOnly],
+        )
+        ->preview();
     $response = Librarium::query('Answer without web search.')
         ->using('gemini-chat')
         ->run();
@@ -98,27 +110,28 @@ it('returns an honest model answer when optional web search is disabled', functi
 
     $result = $response->results->sole();
 
-    expect($response->status)->toBe(ResponseStatus::Succeeded)
+    expect($profile->resultKind)->toBe(ResultKind::ModelAnswer)
+        ->and($profile->grounding)->toBe(GroundingPolicy::None)
+        ->and($profile->corpora)->toBeEmpty()
+        ->and($profile->retrievalMethods->all())->toBe([RetrievalMethod::ModelOnly])
+        ->and($matching->profiles->pluck('id')->all())->toContain('gemini-chat')
+        ->and($response->status)->toBe(ResponseStatus::Succeeded)
         ->and($result->provenance->resultKind)->toBe(ResultKind::ModelAnswer)
         ->and($result->provenance->corpora)->toBeEmpty()
-        ->and($result->provenance->retrievalMethods)->toBeEmpty()
+        ->and($result->provenance->retrievalMethods->all())->toBe([RetrievalMethod::ModelOnly])
         ->and($result->citations)->toBeEmpty();
 });
 
-it('never prompts when required grounding disables web search', function (): void {
+it('rejects required grounding with web search disabled before execution', function (): void {
     config()->set('librarium.profiles.gemini-grounded.options.web_search', false);
     ResearchAgent::fake()->preventStrayPrompts();
 
-    $response = Librarium::query('Research this question.')
+    expect(fn () => Librarium::query('Research this question.')
         ->using('gemini-grounded')
-        ->run();
+        ->preview())
+        ->toThrow(ValidationException::class, 'Required-grounding Profiles must enable web search.');
 
     ResearchAgent::assertNeverPrompted();
-
-    expect($response->status)->toBe(ResponseStatus::Failed)
-        ->and($response->results)->toBeEmpty()
-        ->and($response->errors)->toHaveCount(1)
-        ->and($response->errors->sole()->code)->toBe('laravel_ai.web_search_required');
 });
 
 it('prompts one exact SDK provider and model with native web search and the remaining deadline', function (): void {

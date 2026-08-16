@@ -34,10 +34,13 @@ final readonly class ProfileCompatibility
         $provenance = $result->provenance;
 
         if ($profile->grounding === GroundingPolicy::Optional
+            && $profile->resultKind === ResultKind::GroundedAnswer
+            && $profile->observation === ObservationMode::ApiOutput
             && $provenance->resultKind === ResultKind::ModelAnswer) {
             return $result->citations->isEmpty()
                 && $provenance->corpora->isEmpty()
-                && $provenance->retrievalMethods->isEmpty()
+                && $provenance->retrievalMethods->count() === 1
+                && $provenance->retrievalMethods->containsStrict(RetrievalMethod::ModelOnly)
                 && $provenance->surface === null;
         }
 

@@ -6,6 +6,7 @@ use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Contracts\Librarium as LibrariumContract;
 use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\LaravelAiDriver;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
+use Jkudish\LaravelAiLibrarium\LaravelAiLibrariumServiceProvider;
 use Jkudish\LaravelAiLibrarium\LibrariumManager;
 use Jkudish\LaravelAiLibrarium\PendingResearch;
 use Jkudish\LaravelAiLibrarium\Webhooks\WebhookSignalStore;
@@ -46,6 +47,22 @@ it('resolves Laravel AI credentials after Laravel AI registers later', function 
     'OpenAI chat' => ['openai-chat', 'openai', 'gpt-5-mini'],
     'Gemini chat' => ['gemini-chat', 'gemini', 'gemini-3.6-flash'],
 ]);
+
+it('resolves Laravel AI credentials for Profile IDs containing dots', function (): void {
+    $profiles = config('librarium.profiles');
+    $profiles['custom.chat'] = [
+        ...$profiles['gemini-chat'],
+        'credential' => null,
+    ];
+    config()->set('librarium.profiles', $profiles);
+
+    (new LaravelAiLibrariumServiceProvider(app()))->boot();
+
+    $resolved = config('librarium.profiles');
+
+    expect($resolved['custom.chat']['credential'])->toBe(config('ai.providers.gemini.key'))
+        ->and($resolved)->not->toHaveKey('custom');
+});
 
 it('starts a research query through the facade', function (): void {
     $research = Librarium::query('Compare current agent memory architectures.');

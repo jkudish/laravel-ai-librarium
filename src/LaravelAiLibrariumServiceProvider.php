@@ -72,6 +72,8 @@ final class LaravelAiLibrariumServiceProvider extends ServiceProvider
             return;
         }
 
+        $changed = false;
+
         foreach ($profiles as $id => $profile) {
             if (! is_string($id)
                 || ! is_array($profile)
@@ -83,11 +85,14 @@ final class LaravelAiLibrariumServiceProvider extends ServiceProvider
 
             $provider = data_get($profile, 'provider');
             if (is_string($provider) && $provider !== '') {
-                config()->set(
-                    "librarium.profiles.{$id}.credential",
-                    config("ai.providers.{$provider}.key"),
-                );
+                $profile['credential'] = config("ai.providers.{$provider}.key");
+                $profiles[$id] = $profile;
+                $changed = true;
             }
+        }
+
+        if ($changed) {
+            config()->set('librarium.profiles', $profiles);
         }
     }
 }

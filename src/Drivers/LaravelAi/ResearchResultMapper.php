@@ -11,6 +11,7 @@ use Jkudish\LaravelAiLibrarium\Responses\Citation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ContentFormat;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\SourceKind;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 use Jkudish\LaravelAiLibrarium\Responses\ResultProvenance;
@@ -40,7 +41,7 @@ final readonly class ResearchResultMapper
             profile: $request->profile->id,
             provenance: new ResultProvenance(
                 resultKind: $isGrounded ? $request->profile->resultKind : ResultKind::ModelAnswer,
-                retrievalMethods: $isGrounded ? $request->profile->retrievalMethods : collect(),
+                retrievalMethods: $isGrounded ? $request->profile->retrievalMethods : $this->modelOnlyRetrievalMethods(),
                 corpora: $isGrounded ? $request->profile->corpora : collect(),
                 observedAt: CarbonImmutable::now(),
             ),
@@ -50,6 +51,18 @@ final readonly class ResearchResultMapper
             usage: $this->usage($response),
             providerMeta: $this->providerMeta($response),
         );
+    }
+
+    /** @return Collection<int, RetrievalMethod> */
+    private function modelOnlyRetrievalMethods(): Collection
+    {
+        return collect($this->modelOnlyRetrievalMethodValues());
+    }
+
+    /** @return list<RetrievalMethod> */
+    private function modelOnlyRetrievalMethodValues(): array
+    {
+        return [RetrievalMethod::ModelOnly];
     }
 
     /** @return Collection<int, Citation> */

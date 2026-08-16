@@ -50,11 +50,13 @@ To run the opt-in live canary, make `GEMINI_API_KEY` available to the process
 without committing it, then run:
 
 ```bash
-composer test:live:gemini
+LIBRARIUM_LIVE_TESTS=1 composer test:live:gemini
 ```
 
-The ordinary test suite always excludes live provider calls. The dedicated
-command fails when the credential is absent or the canary is skipped.
+Every live test requires the explicit `LIBRARIUM_LIVE_TESTS=1` opt-in, even when
+a provider credential is present. The ordinary test suite therefore cannot make
+a live provider call. The dedicated command fails when the opt-in or credential
+is absent, or when the canary is skipped.
 
 Queued research uses the dedicated `research` queue by default. Configure its connection through `librarium.queue.connection`, or use normal pending-dispatch methods such as `onConnection()` and `onQueue()` on the queued response.
 
