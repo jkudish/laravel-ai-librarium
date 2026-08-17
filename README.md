@@ -41,6 +41,27 @@ for an optional-search Profile by setting its `options.web_search` value to
 `false`; the terminal result then reports an ungrounded `model_answer` without
 invented retrieval facts.
 
+The package also ships SearchAPI.io Profiles served by a small Laravel HTTP
+Driver. `searchapi` returns raw Google search results; the surface Profiles
+observe a cited answer rendered on a consumer AI product:
+
+| Profile | Engine | Result | Collector / surface |
+| --- | --- | --- | --- |
+| `searchapi` | `google` | Raw search results | none |
+| `searchapi-chatgpt` | `chatgpt` (web search on) | Surface observation | `searchapi` / `chatgpt` |
+| `searchapi-gemini` | `gemini` | Surface observation | `searchapi` / `gemini` |
+| `searchapi-perplexity` | `perplexity` | Surface observation | `searchapi` / `perplexity` |
+| `searchapi-google-ai-mode` | `google_ai_mode` | Surface observation | `searchapi` / `google_ai_mode` |
+| `searchapi-bing-copilot` | `bing_copilot` | Surface observation | `searchapi` / `bing_copilot` |
+| `searchapi-google-ai-overview` | `google` then `google_ai_overview` | Surface observation | `searchapi` / `google_ai_overview` |
+
+Each SearchAPI Profile resolves its bearer credential from
+`config('services.searchapi.key')`. The credential travels in the
+`Authorization` header only and never enters the URL, progress, errors,
+provider metadata, or results. Set an optional `options.zero_retention` boolean
+to require SearchAPI zero retention; the request fails closed with a clear error
+when the account does not support it.
+
 Configure provider credentials through Laravel AI's normal provider
 configuration. Librarium resolves values such as
 `config('ai.providers.gemini.key')`; it never stores configuration paths or
@@ -63,6 +84,13 @@ Anthropic, and OpenAI credentials, then run:
 
 ```bash
 LIBRARIUM_LIVE_TESTS=1 composer test:live:sdk
+```
+
+To exercise the SearchAPI Profiles against the live endpoint, make
+`SEARCHAPI_KEY` available to the process, then run:
+
+```bash
+LIBRARIUM_LIVE_TESTS=1 SEARCHAPI_KEY=... composer test:live:searchapi
 ```
 
 Queued research uses the dedicated `research` queue by default. Configure its connection through `librarium.queue.connection`, or use normal pending-dispatch methods such as `onConnection()` and `onQueue()` on the queued response.
