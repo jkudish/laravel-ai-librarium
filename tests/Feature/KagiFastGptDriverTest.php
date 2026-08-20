@@ -47,6 +47,7 @@ it('sends exactly one Bot-authenticated POST with only the rendered query', func
 it('maps a grounded answer, validated provider references, provenance, and output-token usage', function (): void {
     Http::fake(['https://kagi.com/api/v0/fastgpt' => Http::response([
         'meta' => ['id' => 'kagi-request-1', 'node' => 'provider-secret-node'],
+        'credential' => 'testing-kagi-key',
         'data' => [
             'output' => '  PHP 8.4 adds property hooks. [1]  ',
             'tokens' => 757,
@@ -90,7 +91,8 @@ it('maps a grounded answer, validated provider references, provenance, and outpu
     expect($wire)->not->toContain('provider-secret-node')
         ->not->toContain('provider-secret-raw-body')
         ->not->toContain('raw_body')
-        ->not->toContain('kagi-request-1');
+        ->not->toContain('kagi-request-1')
+        ->not->toContain('testing-kagi-key');
 });
 
 it('omits usage when Kagi does not report tokens', function (): void {
@@ -179,7 +181,7 @@ it('does not send a request without a credential or before an expired deadline',
     'expired deadline' => ['deadline', 'kagi.deadline_exceeded'],
 ]);
 
-it('bounds request and connection timeouts to the exact remaining deadline', function (): void {
+it('bounds request and connection timeouts to the exact remaining deadline', function (float $remaining, float $connectTimeout): void {
     $options = null;
     Http::globalMiddleware(function (callable $handler) use (&$options): Closure {
         return function ($request, array $requestOptions) use ($handler, &$options) {
@@ -190,12 +192,15 @@ it('bounds request and connection timeouts to the exact remaining deadline', fun
     });
     Http::fake(['https://kagi.com/api/v0/fastgpt' => kagiSuccessResponse()]);
 
-    kagiDriver()->run(kagiRequest(deadline: CarbonImmutable::now()->addMilliseconds(12_345)));
+    kagiDriver()->run(kagiRequest(deadline: CarbonImmutable::now()->addMilliseconds((int) ($remaining * 1000))));
 
     expect($options)->toBeArray()
-        ->and($options['timeout'] ?? null)->toBe(12.345)
-        ->and($options['connect_timeout'] ?? null)->toBe(3.0);
-});
+        ->and($options['timeout'] ?? null)->toBe($remaining)
+        ->and($options['connect_timeout'] ?? null)->toBe($connectTimeout);
+})->with([
+    'longer than the connection cap' => [12.345, 3.0],
+    'shorter than the connection cap' => [2.5, 2.5],
+]);
 
 it('maps connection failures safely and recognizes a connection that exhausts the deadline', function (bool $exhaustDeadline, string $code): void {
     Http::fake(function () use ($exhaustDeadline): never {
