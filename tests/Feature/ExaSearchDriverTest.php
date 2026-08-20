@@ -55,9 +55,9 @@ it('normalizes Exa results into Markdown and provider-reported URL citations', f
         'requestId' => 'exa-request-1',
         'results' => [
             [
-                'title' => 'First result',
+                'title' => 'First [result] <script>',
                 'url' => 'https://example.com/first',
-                'publishedDate' => '2026-08-19T10:20:30.000Z',
+                'publishedDate' => "2026-08-19T10:20:30.000Z\n[injected](javascript:alert(1))",
                 'text' => str_repeat('A', 205),
             ],
             [
@@ -71,8 +71,8 @@ it('normalizes Exa results into Markdown and provider-reported URL citations', f
 
     expect($result->contentFormat)->toBe(ContentFormat::Markdown)
         ->and($result->content)->toBe(
-            "### [First result](https://example.com/first)\n"
-            ."*Published: 2026-08-19T10:20:30.000Z*\n\n"
+            "### [First \\[result\\] &lt;script&gt;](https://example.com/first)\n"
+            ."*Published: 2026-08-19T10:20:30.000Z \\[injected\\](javascript:alert(1))*\n\n"
             .str_repeat('A', 205)."\n\n"
             ."### [Untitled](https://example.org/untitled)\n\n"
             ."Second result text.\n",
@@ -89,11 +89,9 @@ it('normalizes Exa results into Markdown and provider-reported URL citations', f
             'https://example.org/untitled',
         ])
         ->and($result->citations->pluck('derivation')->unique()->all())->toBe([CitationDerivation::ProviderReported])
+        ->and($result->citations->first()->source->title)->toBe('First [result] <script>')
         ->and($result->citations->first()->excerpt)->toBe(str_repeat('A', 200))
-        ->and((array) $result->providerMeta)->toBe([
-            'request_id' => 'exa-request-1',
-            'result_count' => 2,
-        ]);
+        ->and((array) $result->providerMeta)->toBe(['result_count' => 2]);
 });
 
 it('maps an empty result list without inventing citations or usage', function (): void {
@@ -207,6 +205,19 @@ it('allows a request with a subsecond deadline so its timeouts can use the exact
     Http::assertSentCount(1);
 });
 
+it('rejects a deadline below the HTTP transport millisecond resolution before making a request', function (): void {
+    Http::fake();
+
+    try {
+        exaSearchDriver()->run(exaSearchRequest(deadline: CarbonImmutable::now()->addMicroseconds(999)));
+        $this->fail('A timeout below the transport resolution should not start.');
+    } catch (DriverException $exception) {
+        expect($exception->errorCode)->toBe('exa.deadline_exceeded');
+    }
+
+    Http::assertNothingSent();
+});
+
 it('maps connection and deadline-exhausting failures without exposing transport details', function (bool $deadlineExpires, string $code): void {
     Http::fake(function () use ($deadlineExpires): never {
         if ($deadlineExpires) {
@@ -254,7 +265,7 @@ it('maps provider failures to bounded body-free terminal exceptions', function (
 
 it('allowlists terminal metadata and excludes credentials and raw provider fields', function (): void {
     Http::fake(['https://api.exa.ai/search' => Http::response([
-        'requestId' => 'exa-request-safe',
+        'requestId' => 'testing-exa-key provider-secret',
         'results' => [],
         'headers' => ['x-api-key' => 'provider-secret'],
         'rawBody' => 'provider-secret raw body',
@@ -263,8 +274,7 @@ it('allowlists terminal metadata and excludes credentials and raw provider field
 
     $wire = json_encode(exaSearchDriver()->run(exaSearchRequest())->toArray(), JSON_THROW_ON_ERROR);
 
-    expect($wire)->toContain('exa-request-safe')
-        ->not->toContain('testing-exa-key')
+    expect($wire)->not->toContain('testing-exa-key')
         ->not->toContain('provider-secret')
         ->not->toContain('rawBody')
         ->not->toContain('headers')

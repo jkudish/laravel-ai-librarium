@@ -20,7 +20,6 @@ use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 use Jkudish\LaravelAiLibrarium\Responses\ResultProvenance;
 use Jkudish\LaravelAiLibrarium\Responses\Source;
 use Jkudish\LaravelAiLibrarium\Responses\Usage;
-use stdClass;
 
 /**
  * A focused Laravel HTTP Driver for the Exa Search API.
@@ -59,13 +58,14 @@ final readonly class ExaSearchDriver implements Driver
             }
 
             $seen[$url] = true;
-            $title = $this->str(data_get($result, 'title')) ?? 'Untitled';
+            $reportedTitle = $this->str(data_get($result, 'title'));
+            $title = $this->markdownInline($reportedTitle ?? 'Untitled');
             $text = $this->str(data_get($result, 'text'));
             $publishedDate = $this->str(data_get($result, 'publishedDate'));
 
             $parts[] = "### [{$title}]({$url})";
             if ($publishedDate !== null) {
-                $parts[] = "*Published: {$publishedDate}*";
+                $parts[] = '*Published: '.$this->markdownInline($publishedDate).'*';
             }
             if ($text !== null) {
                 $parts[] = '';
@@ -78,7 +78,7 @@ final readonly class ExaSearchDriver implements Driver
                 source: new Source(
                     kind: SourceKind::WebPage,
                     url: $url,
-                    title: $this->str(data_get($result, 'title')),
+                    title: $reportedTitle,
                 ),
                 excerpt: $text === null ? null : mb_substr($text, 0, 200),
             ));
@@ -101,7 +101,7 @@ final readonly class ExaSearchDriver implements Driver
             citations: $citations,
             completedAt: $now,
             usage: $this->usage(data_get($json, 'costDollars.total')),
-            providerMeta: $this->providerMeta($json, count($results)),
+            providerMeta: (object) ['result_count' => count($results)],
         );
     }
 
@@ -174,7 +174,7 @@ final readonly class ExaSearchDriver implements Driver
     private function remainingSeconds(DriverRequest $request): float
     {
         $seconds = CarbonImmutable::now()->diffInSeconds($request->deadline, false);
-        if ($seconds <= 0) {
+        if ($seconds < 0.001) {
             throw new DriverException('exa.deadline_exceeded', 'The Exa request could not start before the research deadline.');
         }
 
@@ -262,16 +262,15 @@ final readonly class ExaSearchDriver implements Driver
         return substr($digits, 0, $decimalPosition).'.'.substr($digits, $decimalPosition);
     }
 
-    /** @param array<array-key, mixed> $json */
-    private function providerMeta(array $json, int $resultCount): stdClass
+    private function markdownInline(string $value): string
     {
-        $meta = ['result_count' => $resultCount];
-        $requestId = $this->str(data_get($json, 'requestId'));
-        if ($requestId !== null) {
-            $meta = ['request_id' => $requestId, ...$meta];
-        }
+        $escaped = htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 
-        return (object) $meta;
+        return str_replace(
+            ['\\', '[', ']', "\r", "\n"],
+            ['\\\\', '\\[', '\\]', ' ', ' '],
+            $escaped,
+        );
     }
 
     private function str(mixed $value): ?string
