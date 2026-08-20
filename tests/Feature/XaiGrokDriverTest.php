@@ -117,16 +117,22 @@ it('normalizes output text, strict deduplicated citations, usage, total tokens, 
         ->not->toContain('raw');
 });
 
-it('accepts output text without citations and does not invent sources', function (): void {
+it('rejects required-grounding output without valid citations', function (array $annotations): void {
     $response = xaiGrokResponse();
-    data_set($response, 'output.0.content.0.annotations', []);
+    data_set($response, 'output.0.content.0.annotations', $annotations);
     Http::fake(['https://api.x.ai/v1/responses' => Http::response($response)]);
 
-    $result = xaiGrokDriver()->run(xaiGrokRequest());
-
-    expect($result->content)->toContain('grounded claim')
-        ->and($result->citations)->toHaveCount(0);
-});
+    expect(fn () => xaiGrokDriver()->run(xaiGrokRequest()))
+        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'xai.invalid_response'
+            && ! str_contains($exception->getMessage(), 'provider-secret'));
+})->with([
+    'no annotations' => [[]],
+    'all annotations invalid' => [[
+        ['type' => 'url_citation', 'url' => 'javascript:provider-secret'],
+        ['type' => 'url_citation', 'url' => 'https://user:provider-secret@example.com/source'],
+        ['type' => 'file_citation', 'file_id' => 'provider-secret'],
+    ]],
+]);
 
 it('rejects invalid Profile options during preflight', function (array $options): void {
     $errors = app(ProfileOptionValidator::class)->errors(XaiGrokDriver::class, $options);

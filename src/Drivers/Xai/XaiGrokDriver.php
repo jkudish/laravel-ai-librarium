@@ -206,6 +206,11 @@ final readonly class XaiGrokDriver implements Driver
             throw new DriverException('xai.invalid_response', 'xAI returned a response without output text.');
         }
 
+        $citations = $this->citations($json);
+        if ($citations->isEmpty()) {
+            throw new DriverException('xai.invalid_response', 'xAI returned a grounded response without valid citations.');
+        }
+
         $usage = $this->usage(data_get($json, 'usage'));
         $model = $this->str(data_get($json, 'model')) ?? $request->profile->model;
         $completedAt = $this->completedAt($json);
@@ -222,7 +227,7 @@ final readonly class XaiGrokDriver implements Driver
                 corpora: $request->profile->corpora,
                 observedAt: $completedAt,
             ),
-            citations: $this->citations($json),
+            citations: $citations,
             completedAt: $completedAt,
             model: $model,
             usage: $usage,
