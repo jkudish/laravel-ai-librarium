@@ -47,7 +47,7 @@ it('runs the low preset inline with one exact POST and strictly normalizes repor
         ->and($result->citations->first()->source->providerReference)->toBe('1')
         ->and($result->citations->first()->excerpt)->toBe('First snippet')
         ->and($result->citations->last()->source->kind)->toBe(SourceKind::NewsArticle)
-        ->and($result->usage?->promptTokens)->toBe(100)
+        ->and($result->usage?->promptTokens)->toBe(80)
         ->and($result->usage?->completionTokens)->toBe(40)
         ->and($result->usage?->cacheReadInputTokens)->toBe(20)
         ->and($result->usage?->cacheWriteInputTokens)->toBe(5)
@@ -374,6 +374,18 @@ it('strictly validates referenced search evidence and keeps only cited results',
     'no cited evidence' => ['output.1.content.0.text', 'An answer without markers.'],
 ]);
 
+it('normalizes empty optional search result text to absent citation fields', function (): void {
+    $response = perplexityCompletedResponse();
+    data_set($response, 'output.0.results.0.title', '');
+    data_set($response, 'output.0.results.0.snippet', '');
+    Http::fake(['https://api.perplexity.ai/v1/agent' => Http::response($response)]);
+
+    $result = perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-sonar-pro'));
+
+    expect($result->citations->first()->source->title)->toBeNull()
+        ->and($result->citations->first()->excerpt)->toBeNull();
+});
+
 it('strictly validates usage, cache, reasoning, and reported USD cost', function (string $path, mixed $value): void {
     $response = perplexityCompletedResponse();
     data_set($response, $path, $value);
@@ -394,6 +406,19 @@ it('strictly validates usage, cache, reasoning, and reported USD cost', function
     'negative total cost' => ['usage.cost.total_cost', -0.01],
     'non-USD cost' => ['usage.cost.currency', 'EUR'],
 ]);
+
+it('floors uncached prompt usage when reported cache reads exceed input tokens', function (): void {
+    $response = perplexityCompletedResponse();
+    data_set($response, 'usage.input_tokens', 10);
+    data_set($response, 'usage.total_tokens', 50);
+    data_set($response, 'usage.input_tokens_details.cache_read_input_tokens', 20);
+    Http::fake(['https://api.perplexity.ai/v1/agent' => Http::response($response)]);
+
+    $result = perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-sonar-pro'));
+
+    expect($result->usage?->promptTokens)->toBe(0)
+        ->and($result->usage?->cacheReadInputTokens)->toBe(20);
+});
 
 it('preserves reported USD cost precision supported by the interchange contract', function (): void {
     $response = perplexityCompletedResponse();

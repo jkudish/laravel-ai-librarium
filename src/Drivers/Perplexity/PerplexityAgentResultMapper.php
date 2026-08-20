@@ -285,7 +285,7 @@ final readonly class PerplexityAgentResultMapper
         }
 
         return new Usage(
-            promptTokens: $promptTokens,
+            promptTokens: $promptTokens === null ? null : max(0, $promptTokens - ($cacheRead ?? 0)),
             completionTokens: $completionTokens,
             cacheWriteInputTokens: $cacheCreation ?? $cacheWrite,
             cacheReadInputTokens: $cacheRead,
@@ -398,11 +398,11 @@ final readonly class PerplexityAgentResultMapper
             return null;
         }
 
-        if (! is_string($value) || trim($value) !== $value || $value === '' || strlen($value) > 10_000) {
+        if (! is_string($value) || trim($value) !== $value || strlen($value) > 10_000) {
             throw $this->invalidResponse();
         }
 
-        return $value;
+        return $value === '' ? null : $value;
     }
 
     private function evidenceUrl(mixed $value): ?string
