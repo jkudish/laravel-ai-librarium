@@ -19,9 +19,12 @@
     "require": {
         "php": "^8.4",
         "illuminate/contracts": "^13.0",
+        "illuminate/http": "^13.0",
+        "illuminate/routing": "^13.0",
         "illuminate/support": "^13.0",
         "illuminate/validation": "^13.0",
-        "laravel/ai": "^0.10.3"
+        "laravel/ai": "^0.10.3",
+        "standard-webhooks/standard-webhooks": "^1.0.2"
     },
     "require-dev": {
         "laravel/pint": "^1.26",
@@ -51,6 +54,11 @@
             "@php -r \"if (getenv('LIBRARIUM_LIVE_TESTS') !== '1') { fwrite(STDERR, 'LIBRARIUM_LIVE_TESTS=1 is required to opt in to live provider tests.'.PHP_EOL); exit(1); }\"",
             "@php -r \"if (! is_string(getenv('GEMINI_API_KEY')) || trim((string) getenv('GEMINI_API_KEY')) === '') { fwrite(STDERR, 'GEMINI_API_KEY is required for the live Gemini canary.'.PHP_EOL); exit(1); }\"",
             "vendor/bin/pest tests/Live/LaravelAiProfilesLiveTest.php --filter='Gemini grounded' --fail-on-skipped"
+        ],
+        "test:live:openai-research": [
+            "@php -r \"if (getenv('LIBRARIUM_LIVE_TESTS') !== '1') { fwrite(STDERR, 'LIBRARIUM_LIVE_TESTS=1 is required to opt in to live provider tests.'.PHP_EOL); exit(1); }\"",
+            "@php -r \"if (! is_string(getenv('OPENAI_API_KEY')) || trim((string) getenv('OPENAI_API_KEY')) === '') { fwrite(STDERR, 'OPENAI_API_KEY is required for the live OpenAI research canary.'.PHP_EOL); exit(1); }\"",
+            "vendor/bin/pest tests/Live/OpenAiResearchDriverLiveTest.php --fail-on-skipped"
         ],
         "test:live:searchapi": [
             "@php -r \"if (getenv('LIBRARIUM_LIVE_TESTS') !== '1') { fwrite(STDERR, 'LIBRARIUM_LIVE_TESTS=1 is required to opt in to live provider tests.'.PHP_EOL); exit(1); }\"",

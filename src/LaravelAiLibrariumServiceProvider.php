@@ -55,6 +55,7 @@ final class LaravelAiLibrariumServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->resolveLaravelAiCredentials();
+        $this->loadRoutesFrom(__DIR__.'/../routes/webhooks.php');
 
         if (! $this->app->runningInConsole()) {
             return;
