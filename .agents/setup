@@ -29,9 +29,18 @@ if [[ ${php_ready} != true ]]; then
     "${SUDO[@]}" apt-get install -y --no-install-recommends ca-certificates curl lsb-release
 
     if ! apt-cache show php8.5-cli >/dev/null 2>&1; then
-        curl -fsSL https://packages.sury.org/php/apt.gpg -o /tmp/debsuryorg-archive-keyring.gpg
-        "${SUDO[@]}" install -m 0644 /tmp/debsuryorg-archive-keyring.gpg /usr/share/keyrings/debsuryorg-archive-keyring.gpg
-        rm -f /tmp/debsuryorg-archive-keyring.gpg
+        keyring=/tmp/debsuryorg-archive-keyring.gpg
+        expected_keyring_checksum='b486fd5488185c4c46467960fa69c53d5085fec492cf76b9eaf3db33561c9d7c'
+        curl -fsSL https://packages.sury.org/php/apt.gpg -o "${keyring}"
+        actual_keyring_checksum="$(sha256sum "${keyring}" | cut -d ' ' -f 1)"
+        if [[ ${actual_keyring_checksum} != "${expected_keyring_checksum}" ]]; then
+            rm -f "${keyring}"
+            echo 'PHP repository key checksum verification failed.' >&2
+            exit 1
+        fi
+
+        "${SUDO[@]}" install -m 0644 "${keyring}" /usr/share/keyrings/debsuryorg-archive-keyring.gpg
+        rm -f "${keyring}"
         printf 'deb [signed-by=/usr/share/keyrings/debsuryorg-archive-keyring.gpg] https://packages.sury.org/php/ %s main\n' "$(lsb_release -sc)" \
             | "${SUDO[@]}" tee /etc/apt/sources.list.d/php.list >/dev/null
         "${SUDO[@]}" apt-get update

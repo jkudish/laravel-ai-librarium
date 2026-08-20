@@ -53,6 +53,19 @@ it('rejects missing or invalid webhook signatures', function (): void {
         ->and(app(OpenAiWebhookController::class)($invalid)->getStatusCode())->toBe(400);
 });
 
+it('rejects signed webhook timestamps outside the verification window', function (int $timestamp): void {
+    $request = signedOpenAiWebhookBody(
+        '{"type":"response.completed","data":{"id":"resp_test"}}',
+        'delivery-expired',
+        $timestamp,
+    );
+
+    expect(app(OpenAiWebhookController::class)($request)->getStatusCode())->toBe(400);
+})->with([
+    'stale' => fn (): int => time() - 301,
+    'future' => fn (): int => time() + 301,
+]);
+
 it('ignores signed webhook events that are not terminal research hints', function (): void {
     $response = app(OpenAiWebhookController::class)(signedOpenAiWebhook([
         'type' => 'response.in_progress',
@@ -158,9 +171,9 @@ function signedOpenAiWebhook(array $event, string $deliveryId): Request
     return signedOpenAiWebhookBody($body, $deliveryId);
 }
 
-function signedOpenAiWebhookBody(string $body, string $deliveryId): Request
+function signedOpenAiWebhookBody(string $body, string $deliveryId, ?int $signedAt = null): Request
 {
-    $timestamp = (string) time();
+    $timestamp = (string) ($signedAt ?? time());
     $signature = base64_encode(hash_hmac(
         'sha256',
         $deliveryId.'.'.$timestamp.'.'.$body,

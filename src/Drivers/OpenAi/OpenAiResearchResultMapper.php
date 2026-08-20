@@ -37,7 +37,7 @@ final readonly class OpenAiResearchResultMapper
         $parts = $this->outputTextParts($response);
         $citations = $this->citations($response);
 
-        if (! $this->hasWebSearchCall($response) || $parts === [] || $citations->isEmpty()) {
+        if (! $this->hasWebSearchEvidence($response) || $parts === [] || $citations->isEmpty()) {
             throw new DriverException(
                 'openai.invalid_response',
                 'OpenAI returned an incomplete grounded research report.',
@@ -129,11 +129,17 @@ final readonly class OpenAiResearchResultMapper
     }
 
     /** @param array<array-key, mixed> $response */
-    private function hasWebSearchCall(array $response): bool
+    private function hasWebSearchEvidence(array $response): bool
     {
         foreach ($this->records(data_get($response, 'output')) as $item) {
-            if (data_get($item, 'type') === 'web_search_call') {
-                return true;
+            if (data_get($item, 'type') !== 'web_search_call') {
+                continue;
+            }
+
+            foreach ($this->records(data_get($item, 'action.sources')) as $source) {
+                if (data_get($source, 'type') === 'url' && $this->evidenceUrl(data_get($source, 'url')) !== null) {
+                    return true;
+                }
             }
         }
 
@@ -180,6 +186,10 @@ final readonly class OpenAiResearchResultMapper
     private function evidenceUrl(mixed $value): ?string
     {
         if (! is_string($value) || trim($value) !== $value || $value === '') {
+            return null;
+        }
+
+        if (filter_var($value, FILTER_VALIDATE_URL) === false) {
             return null;
         }
 

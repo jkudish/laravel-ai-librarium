@@ -308,8 +308,17 @@ it('requires a web search call, output text, and provider-reported web citations
     }
 })->with([
     'no web search call' => [['path' => 'output.0.type', 'value' => 'reasoning']],
+    'web search call without sources' => [['path' => 'output.0.action', 'value' => []]],
+    'web search call with malformed source' => [[
+        'path' => 'output.0.action.sources',
+        'value' => [['type' => 'url', 'url' => 'https://bad host/source']],
+    ]],
     'no output text' => [['path' => 'output.1.content.0.text', 'value' => '   ']],
     'no citations' => [['path' => 'output.1.content.0.annotations', 'value' => []]],
+    'malformed citation' => [[
+        'path' => 'output.1.content.0.annotations',
+        'value' => [['type' => 'url_citation', 'url' => 'https://bad host/source']],
+    ]],
 ]);
 
 it('rejects a retrieval response for a different background request', function (): void {
