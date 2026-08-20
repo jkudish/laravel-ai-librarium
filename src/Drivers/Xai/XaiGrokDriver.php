@@ -39,6 +39,8 @@ final readonly class XaiGrokDriver implements Driver
 
     private const int MAX_SAFE_INTEGER = 9_007_199_254_740_991;
 
+    private const int MAX_UNIX_TIMESTAMP = 253_402_300_799;
+
     private const int USD_TICKS_PER_DOLLAR = 10_000_000_000;
 
     /** @return array<string, mixed> */
@@ -79,6 +81,13 @@ final readonly class XaiGrokDriver implements Driver
                 ->timeout(min(self::REQUEST_TIMEOUT_SECONDS, $remaining))
                 ->post(self::ENDPOINT, $this->payload($request));
         } catch (ConnectionException) {
+            if (CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
+                throw new DriverException(
+                    'xai.deadline_exceeded',
+                    'The xAI request did not complete before the research deadline.',
+                );
+            }
+
             throw new DriverException(
                 'xai.connection',
                 'The xAI request did not return a response.',
@@ -399,7 +408,7 @@ final readonly class XaiGrokDriver implements Driver
             return CarbonImmutable::now();
         }
 
-        if (! is_int($timestamp) || $timestamp < 0) {
+        if (! is_int($timestamp) || $timestamp < 0 || $timestamp > self::MAX_UNIX_TIMESTAMP) {
             throw new DriverException('xai.invalid_response', 'xAI returned an invalid completion timestamp.');
         }
 

@@ -220,6 +220,10 @@ it('maps malformed successful responses to safe errors', function (array $respon
         'completed_at' => 'provider-secret',
         'output' => [['type' => 'output_text', 'text' => 'Answer']],
     ]],
+    'oversized completion timestamp' => [[
+        'completed_at' => PHP_INT_MAX,
+        'output' => [['type' => 'output_text', 'text' => 'Answer']],
+    ]],
 ]);
 
 it('rejects a non-JSON successful response', function (): void {
@@ -257,6 +261,18 @@ it('maps connection failures safely', function (): void {
 
     expect(fn () => xaiGrokDriver()->run(xaiGrokRequest()))
         ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'xai.connection'
+            && ! str_contains($exception->getMessage(), 'provider-secret'));
+});
+
+it('maps a connection timeout at the shared deadline to deadline exceeded', function (): void {
+    Http::fake(function (): never {
+        CarbonImmutable::setTestNow(CarbonImmutable::now()->addSeconds(2));
+
+        throw new ConnectionException('provider-secret');
+    });
+
+    expect(fn () => xaiGrokDriver()->run(xaiGrokRequest(deadline: CarbonImmutable::now()->addSeconds(2))))
+        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'xai.deadline_exceeded'
             && ! str_contains($exception->getMessage(), 'provider-secret'));
 });
 
