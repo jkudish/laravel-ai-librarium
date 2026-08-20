@@ -72,10 +72,10 @@ it('normalizes Exa results into Markdown and provider-reported URL citations', f
     expect($result->contentFormat)->toBe(ContentFormat::Markdown)
         ->and($result->content)->toBe(
             "### [First \\[result\\] &lt;script&gt;](https://example.com/first)\n"
-            ."*Published: 2026-08-19T10:20:30.000Z \\[injected\\](javascript:alert(1))*\n\n"
+            ."*Published: 2026\\-08\\-19T10:20:30\\.000Z \\[injected\\]\\(javascript:alert\\(1\\)\\)*\n\n"
             .str_repeat('A', 205)."\n\n"
             ."### [Untitled](https://example.org/untitled)\n\n"
-            ."Second result text.\n",
+            ."Second result text\\.\n",
         )
         ->and($result->requestedProfile)->toBe('exa')
         ->and($result->provider)->toBe('exa')
@@ -92,6 +92,40 @@ it('normalizes Exa results into Markdown and provider-reported URL citations', f
         ->and($result->citations->first()->source->title)->toBe('First [result] <script>')
         ->and($result->citations->first()->excerpt)->toBe(str_repeat('A', 200))
         ->and((array) $result->providerMeta)->toBe(['result_count' => 2]);
+});
+
+it('renders provider result text as readable plain text without active Markdown or HTML structures', function (): void {
+    Http::fake(['https://api.exa.ai/search' => Http::response([
+        'results' => [[
+            'title' => 'Untrusted result',
+            'url' => 'https://example.com/result',
+            'text' => "<img src=\"https://tracker.example/pixel\">\n![pixel](https://tracker.example/pixel)\n[link](https://evil.example)\n# Heading\n*emphasis*, ~~strike~~, ==mark==, and `code`",
+        ]],
+    ])]);
+
+    $result = exaSearchDriver()->run(exaSearchRequest());
+
+    expect($result->content)
+        ->toContain('&lt;img src\\=&quot;https://tracker\\.example/pixel&quot;&gt;')
+        ->toContain('\\!\\[pixel\\]\\(https://tracker\\.example/pixel\\)')
+        ->toContain('\\[link\\]\\(https://evil\\.example\\)')
+        ->toContain('\\# Heading')
+        ->toContain('\\*emphasis\\*, \\~\\~strike\\~\\~, \\=\\=mark\\=\\=, and \\`code\\`')
+        ->not->toContain('<img')
+        ->not->toContain('![pixel]')
+        ->not->toContain('[link](https://evil.example)');
+});
+
+it('escapes Markdown-significant link destinations while preserving the canonical citation URL', function (): void {
+    $url = 'https://example.com/path_(one)?next=a(b)';
+    Http::fake(['https://api.exa.ai/search' => Http::response([
+        'results' => [['title' => 'Parentheses', 'url' => $url]],
+    ])]);
+
+    $result = exaSearchDriver()->run(exaSearchRequest());
+
+    expect($result->content)->toBe("### [Parentheses](https://example.com/path_%28one%29?next=a%28b%29)\n")
+        ->and($result->citations->sole()->source->url)->toBe($url);
 });
 
 it('maps an empty result list without inventing citations or usage', function (): void {
@@ -254,6 +288,7 @@ it('maps provider failures to bounded body-free terminal exceptions', function (
             ->and(strlen($exception->getMessage()))->toBeLessThanOrEqual(128);
     }
 })->with([
+    'provider timeout' => [fn () => Http::response(['error' => 'provider-secret raw body'], 408), 'exa.timeout', true],
     'authentication' => [fn () => Http::response(['error' => 'provider-secret raw body'], 401), 'exa.authentication', true],
     'insufficient credits' => [fn () => Http::response(['error' => 'provider-secret raw body'], 402), 'exa.insufficient_credits', true],
     'authorization' => [fn () => Http::response(['error' => 'provider-secret raw body'], 403), 'exa.authorization', true],

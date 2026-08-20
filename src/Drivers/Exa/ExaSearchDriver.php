@@ -63,13 +63,13 @@ final readonly class ExaSearchDriver implements Driver
             $text = $this->str(data_get($result, 'text'));
             $publishedDate = $this->str(data_get($result, 'publishedDate'));
 
-            $parts[] = "### [{$title}]({$url})";
+            $parts[] = "### [{$title}]({$this->markdownUrl($url)})";
             if ($publishedDate !== null) {
                 $parts[] = '*Published: '.$this->markdownInline($publishedDate).'*';
             }
             if ($text !== null) {
                 $parts[] = '';
-                $parts[] = $text;
+                $parts[] = $this->markdownText($text);
             }
             $parts[] = '';
 
@@ -155,6 +155,7 @@ final readonly class ExaSearchDriver implements Driver
     private function httpFailure(Response $response): DriverException
     {
         return match (true) {
+            $response->status() === 408 => new DriverException('exa.timeout', 'Exa timed out before completing this request.'),
             $response->status() === 401 => new DriverException('exa.authentication', 'Exa rejected the configured credential.'),
             $response->status() === 402 => new DriverException('exa.insufficient_credits', 'The Exa account has insufficient credits.'),
             $response->status() === 403 => new DriverException('exa.authorization', 'Exa denied this request.'),
@@ -264,13 +265,23 @@ final readonly class ExaSearchDriver implements Driver
 
     private function markdownInline(string $value): string
     {
+        return $this->markdownText(str_replace(["\r", "\n"], ' ', $value));
+    }
+
+    private function markdownText(string $value): string
+    {
         $escaped = htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 
         return str_replace(
-            ['\\', '[', ']', "\r", "\n"],
-            ['\\\\', '\\[', '\\]', ' ', ' '],
+            ['\\', '`', '*', '_', '{', '}', '[', ']', '(', ')', '#', '+', '-', '.', '!', '|', '~', '=', '^', '$'],
+            ['\\\\', '\\`', '\\*', '\\_', '\\{', '\\}', '\\[', '\\]', '\\(', '\\)', '\\#', '\\+', '\\-', '\\.', '\\!', '\\|', '\\~', '\\=', '\\^', '\\$'],
             $escaped,
         );
+    }
+
+    private function markdownUrl(string $url): string
+    {
+        return str_replace(['\\', '(', ')'], ['%5C', '%28', '%29'], $url);
     }
 
     private function str(mixed $value): ?string
