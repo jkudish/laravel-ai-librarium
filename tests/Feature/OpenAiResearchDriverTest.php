@@ -308,11 +308,8 @@ it('requires a web search call, output text, and provider-reported web citations
     }
 })->with([
     'no web search call' => [['path' => 'output.0.type', 'value' => 'reasoning']],
-    'web search call without sources' => [['path' => 'output.0.action', 'value' => []]],
-    'web search call with malformed source' => [[
-        'path' => 'output.0.action.sources',
-        'value' => [['type' => 'url', 'url' => 'https://bad host/source']],
-    ]],
+    'failed web search call' => [['path' => 'output.0.status', 'value' => 'failed']],
+    'unrecognized web search action' => [['path' => 'output.0.action.type', 'value' => 'unknown']],
     'no output text' => [['path' => 'output.1.content.0.text', 'value' => '   ']],
     'no citations' => [['path' => 'output.1.content.0.annotations', 'value' => []]],
     'malformed citation' => [[
@@ -428,6 +425,7 @@ function openAiCompletedResponse(): array
         'output' => [
             [
                 'type' => 'web_search_call',
+                'status' => 'completed',
                 'action' => [
                     'type' => 'search',
                     'sources' => [

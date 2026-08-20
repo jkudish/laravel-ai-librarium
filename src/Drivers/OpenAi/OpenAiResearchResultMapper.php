@@ -37,7 +37,7 @@ final readonly class OpenAiResearchResultMapper
         $parts = $this->outputTextParts($response);
         $citations = $this->citations($response);
 
-        if (! $this->hasWebSearchEvidence($response) || $parts === [] || $citations->isEmpty()) {
+        if (! $this->hasCompletedWebSearchCall($response) || $parts === [] || $citations->isEmpty()) {
             throw new DriverException(
                 'openai.invalid_response',
                 'OpenAI returned an incomplete grounded research report.',
@@ -129,17 +129,15 @@ final readonly class OpenAiResearchResultMapper
     }
 
     /** @param array<array-key, mixed> $response */
-    private function hasWebSearchEvidence(array $response): bool
+    private function hasCompletedWebSearchCall(array $response): bool
     {
         foreach ($this->records(data_get($response, 'output')) as $item) {
-            if (data_get($item, 'type') !== 'web_search_call') {
-                continue;
-            }
-
-            foreach ($this->records(data_get($item, 'action.sources')) as $source) {
-                if (data_get($source, 'type') === 'url' && $this->evidenceUrl(data_get($source, 'url')) !== null) {
-                    return true;
-                }
+            if (
+                data_get($item, 'type') === 'web_search_call'
+                && data_get($item, 'status') === 'completed'
+                && in_array(data_get($item, 'action.type'), ['search', 'open_page', 'find_in_page'], true)
+            ) {
+                return true;
             }
         }
 
