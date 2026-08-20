@@ -37,7 +37,7 @@ final readonly class OpenAiResearchResultMapper
         $parts = $this->outputTextParts($response);
         $citations = $this->citations($response);
 
-        if ($parts === [] || $citations->isEmpty()) {
+        if (! $this->hasWebSearchCall($response) || $parts === [] || $citations->isEmpty()) {
             throw new DriverException(
                 'openai.invalid_response',
                 'OpenAI returned an incomplete grounded research report.',
@@ -126,6 +126,18 @@ final readonly class OpenAiResearchResultMapper
         }
 
         return collect($citations);
+    }
+
+    /** @param array<array-key, mixed> $response */
+    private function hasWebSearchCall(array $response): bool
+    {
+        foreach ($this->records(data_get($response, 'output')) as $item) {
+            if (data_get($item, 'type') === 'web_search_call') {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function usage(mixed $value): Usage

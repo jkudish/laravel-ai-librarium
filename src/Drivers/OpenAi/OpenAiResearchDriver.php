@@ -67,15 +67,30 @@ final readonly class OpenAiResearchDriver implements Driver
 
         $request->progress('OpenAI is researching in the background.');
         $usedWebhookSignal = false;
+        $isSubmissionResponse = true;
 
         while (true) {
             $status = $this->status($response);
 
-            if ($status === 'completed') {
-                return $this->mapper->map($response, $request);
-            }
+            if (in_array($status, ['completed', 'failed', 'cancelled', 'incomplete'], true)) {
+                if ($isSubmissionResponse) {
+                    $retrieved = $this->retrieve($request, $responseId);
+                    if ($retrieved === null) {
+                        $this->waitBeforePolling($request);
 
-            if (in_array($status, ['failed', 'cancelled', 'incomplete'], true)) {
+                        continue;
+                    }
+
+                    $response = $retrieved;
+                    $isSubmissionResponse = false;
+
+                    continue;
+                }
+
+                if ($status === 'completed') {
+                    return $this->mapper->map($response, $request);
+                }
+
                 throw $this->terminalFailure($status);
             }
 
@@ -91,6 +106,7 @@ final readonly class OpenAiResearchDriver implements Driver
                 $retrieved = $this->retrieve($request, $responseId);
                 if ($retrieved !== null) {
                     $response = $retrieved;
+                    $isSubmissionResponse = false;
                 }
 
                 continue;
@@ -100,6 +116,7 @@ final readonly class OpenAiResearchDriver implements Driver
             $retrieved = $this->retrieve($request, $responseId);
             if ($retrieved !== null) {
                 $response = $retrieved;
+                $isSubmissionResponse = false;
             }
         }
     }

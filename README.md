@@ -72,6 +72,9 @@ polling remains the source of truth. Configure the OpenAI dashboard endpoint as
 `POST /librarium/webhooks/openai` and set its signing secret at
 `config('services.openai.webhook_secret')`. Without a secret, the endpoint
 returns 404 and background research continues by polling.
+Apply application or edge rate limits appropriate for your expected webhook
+volume. The package does not impose a universal request limit; dropped webhook
+deliveries do not affect correctness because polling remains authoritative.
 
 The background lifecycle uses Laravel's HTTP client because Laravel AI does not
 currently expose Responses API retrieval. Once OpenAI returns a completed

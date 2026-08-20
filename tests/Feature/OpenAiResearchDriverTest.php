@@ -127,6 +127,22 @@ it('uses a verified webhook signal as a wake hint and still retrieves the canoni
     Sleep::assertNeverSlept();
 });
 
+it('retrieves the canonical response even when submission reports completion', function (): void {
+    $submission = openAiCompletedResponse();
+    data_set($submission, 'output.1.content.0.text', 'Untrusted submission content.');
+    Http::fakeSequence()
+        ->push($submission)
+        ->push(openAiCompletedResponse());
+
+    $result = openAiResearchDriver()->run(openAiResearchRequest());
+
+    expect($result->content)->toBe('A researched report with a cited claim.');
+    Http::assertSentCount(2);
+    Http::assertSent(fn (Request $request): bool => $request->method() === 'GET'
+        && $request->url() === 'https://api.openai.com/v1/responses/resp_research_1');
+    Sleep::assertNeverSlept();
+});
+
 it('reconciles transient retrieval failures until the response is available', function (): void {
     Http::fakeSequence()
         ->push(['id' => 'resp_research_1', 'status' => 'queued'])
@@ -157,11 +173,14 @@ it('continues polling when the optional webhook signal store is unavailable', fu
 });
 
 it('maps every non-success terminal state without exposing provider errors', function (string $status, string $code): void {
-    Http::fakeSequence()->push([
+    $terminal = [
         'id' => 'resp_research_1',
         'status' => $status,
         'error' => ['message' => 'provider-secret'],
-    ]);
+    ];
+    Http::fakeSequence()
+        ->push($terminal)
+        ->push($terminal);
 
     try {
         openAiResearchDriver()->run(openAiResearchRequest());
@@ -274,10 +293,12 @@ it('rejects a retrieval response that arrives after the shared deadline', functi
     Http::assertSentCount(2);
 });
 
-it('requires output text and provider-reported web citations for a grounded report', function (array $mutation): void {
+it('requires a web search call, output text, and provider-reported web citations for a grounded report', function (array $mutation): void {
     $response = openAiCompletedResponse();
     data_set($response, $mutation['path'], $mutation['value']);
-    Http::fakeSequence()->push($response);
+    Http::fakeSequence()
+        ->push(['id' => 'resp_research_1', 'status' => 'queued'])
+        ->push($response);
 
     try {
         openAiResearchDriver()->run(openAiResearchRequest());
@@ -286,6 +307,7 @@ it('requires output text and provider-reported web citations for a grounded repo
         expect($exception->errorCode)->toBe('openai.invalid_response');
     }
 })->with([
+    'no web search call' => [['path' => 'output.0.type', 'value' => 'reasoning']],
     'no output text' => [['path' => 'output.1.content.0.text', 'value' => '   ']],
     'no citations' => [['path' => 'output.1.content.0.annotations', 'value' => []]],
 ]);
@@ -308,7 +330,9 @@ it('rejects a retrieval response for a different background request', function (
 it('rejects a malformed completion timestamp', function (): void {
     $response = openAiCompletedResponse();
     $response['completed_at'] = 'not-a-timestamp';
-    Http::fakeSequence()->push($response);
+    Http::fakeSequence()
+        ->push(['id' => 'resp_research_1', 'status' => 'queued'])
+        ->push($response);
 
     try {
         openAiResearchDriver()->run(openAiResearchRequest());
