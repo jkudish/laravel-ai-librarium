@@ -111,6 +111,19 @@ it('normalizes completed research into a Laravel AI AgentResponse before interch
         ->and($response->meta->citations->sole()->endIndex)->toBe(39);
 });
 
+it('accepts completed web search calls when optional source expansion is absent', function (): void {
+    $completed = openAiCompletedResponse();
+    unset($completed['output'][0]['action']['sources']);
+
+    $response = app(OpenAiResearchResultMapper::class)->toAgentResponse(
+        $completed,
+        openAiResearchRequest(),
+    );
+
+    expect($response->text)->toBe('A researched report with a cited claim.')
+        ->and($response->meta->citations)->toHaveCount(1);
+});
+
 it('uses a verified webhook signal as a wake hint and still retrieves the canonical response', function (): void {
     $webhooks = app(WebhookSignalStore::class);
     $webhooks->bind('openai', 'request-1', 'openai-research', 'resp_research_1');
