@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "${repository_root}"
+
+if ! command -v php >/dev/null 2>&1; then
+    echo 'Orb resume requires PHP 8.5.x, but PHP is not installed. Run .agents/setup.' >&2
+    exit 1
+fi
+
+php_version="$(php -r 'echo PHP_VERSION;')"
+if ! php -r 'exit(PHP_VERSION_ID >= 80500 && PHP_VERSION_ID < 80600 ? 0 : 1);'; then
+    printf 'Orb resume requires PHP 8.5.x; found PHP %s. Run .agents/setup.\n' "${php_version}" >&2
+    exit 1
+fi
+
+missing_extensions="$(php -r '$missing = array_values(array_filter(["curl", "dom", "fileinfo", "mbstring", "xml", "xmlwriter", "zip"], static fn (string $extension): bool => ! extension_loaded($extension))); echo implode(", ", $missing);')"
+if [[ -n ${missing_extensions} ]]; then
+    printf 'Orb resume is missing required PHP extensions: %s. Run .agents/setup.\n' "${missing_extensions}" >&2
+    exit 1
+fi
+
+if ! command -v composer >/dev/null 2>&1; then
+    echo 'Orb resume requires Composer 2.x, but Composer is not installed. Run .agents/setup.' >&2
+    exit 1
+fi
+
+composer_version="$(composer --version --no-ansi 2>/dev/null || true)"
+if ! grep -Eq '^Composer version 2\.' <<< "${composer_version}"; then
+    printf 'Orb resume requires Composer 2.x; found %s. Run .agents/setup.\n' "${composer_version:-an unreadable Composer installation}" >&2
+    exit 1
+fi
+
+composer_hash="$(sha256sum composer.json | cut -d ' ' -f 1)"
+stored_composer_hash="$(cat vendor/.librarium-composer-json.sha256 2>/dev/null || true)"
+
+if [[ ! -f vendor/autoload.php || ${composer_hash} != "${stored_composer_hash}" ]]; then
+    echo 'Refreshing orb Composer dependencies.'
+    composer update --no-interaction --prefer-dist --no-progress
+    printf '%s\n' "${composer_hash}" > vendor/.librarium-composer-json.sha256
+fi
+
+composer check-platform-reqs --no-ansi >/dev/null
+
+echo 'Orb PHP and Composer dependencies are ready.'

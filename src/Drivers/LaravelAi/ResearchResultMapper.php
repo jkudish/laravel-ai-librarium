@@ -25,13 +25,18 @@ use stdClass;
 /** @internal */
 final readonly class ResearchResultMapper
 {
-    public function map(AgentResponse $response, DriverRequest $request, bool $usesWebSearch = true): ResearchResult
-    {
+    public function map(
+        AgentResponse $response,
+        DriverRequest $request,
+        bool $usesWebSearch = true,
+        ?CarbonImmutable $completedAt = null,
+    ): ResearchResult {
         $text = data_get($response, 'text');
         $provider = data_get($response, 'meta.provider');
         $model = data_get($response, 'meta.model');
         $citations = $this->citations($response);
         $isGrounded = $usesWebSearch && $citations->isNotEmpty();
+        $completedAt ??= CarbonImmutable::now();
 
         return ResearchResult::make(
             contentFormat: ContentFormat::Markdown,
@@ -43,10 +48,10 @@ final readonly class ResearchResultMapper
                 resultKind: $isGrounded ? $request->profile->resultKind : ResultKind::ModelAnswer,
                 retrievalMethods: $isGrounded ? $request->profile->retrievalMethods : $this->modelOnlyRetrievalMethods(),
                 corpora: $isGrounded ? $request->profile->corpora : collect(),
-                observedAt: CarbonImmutable::now(),
+                observedAt: $completedAt,
             ),
             citations: $citations,
-            completedAt: CarbonImmutable::now(),
+            completedAt: $completedAt,
             model: is_string($model) && $model !== '' ? $model : $request->profile->model,
             usage: $this->usage($response),
             providerMeta: $this->providerMeta($response),

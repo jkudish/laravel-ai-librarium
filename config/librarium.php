@@ -12,6 +12,12 @@ return [
     'webhook_signal_ttl' => 10800,
     'profile_options_max_bytes' => 16384,
 
+    'webhooks' => [
+        'openai' => [
+            'secret' => config('services.openai.webhook_secret'),
+        ],
+    ],
+
     'queue' => [
         'connection' => null,
         'name' => 'research',

@@ -24,6 +24,12 @@ jobs:
 
       - uses: ramsey/composer-install@26d8a556604053a9612623447203a691f406fbe6 # v4
 
+      - name: Validate orb lifecycle scripts
+        run: |
+          bash -n .agents/setup .agents/resume
+          test -x .agents/setup
+          test -x .agents/resume
+
       - name: Validate Composer metadata
         run: composer validate --strict
 
@@ -35,6 +41,9 @@ jobs:
 
       - name: Run PHPStan and Larastan
         run: vendor/bin/phpstan analyse --memory-limit=1G --error-format=github
+
+      - name: Run test suite
+        run: composer test
 
       - name: Run architecture tests
         run: vendor/bin/pest tests/ArchTest.php --ci

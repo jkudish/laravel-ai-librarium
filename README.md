@@ -67,6 +67,34 @@ configuration. Librarium resolves values such as
 `config('ai.providers.gemini.key')`; it never stores configuration paths or
 exposes credentials through previews and terminal results.
 
+OpenAI background research can use signed webhooks as wake-up hints while
+polling remains the source of truth. Configure the OpenAI dashboard endpoint as
+`POST /librarium/webhooks/openai` and set its signing secret at
+`config('services.openai.webhook_secret')`. Without a secret, the endpoint
+returns 404 and background research continues by polling.
+Apply application or edge rate limits appropriate for your expected webhook
+volume. The package does not impose a universal request limit; dropped webhook
+deliveries do not affect correctness because polling remains authoritative.
+
+The background lifecycle uses Laravel's HTTP client because Laravel AI does not
+currently expose Responses API retrieval. Once OpenAI returns a completed
+response, Librarium normalizes it into Laravel AI's public `AgentResponse`,
+`Usage`, `Meta`, and `UrlCitation` value objects before mapping it into the
+terminal `ResearchResult`. This preserves SDK response-shape compatibility; it
+does not imply that Laravel AI manages the background request, dispatches its
+prompt events, or runs its middleware and conversation lifecycle.
+
+To exercise the background research Driver against OpenAI, make
+`OPENAI_API_KEY` available to the process, then run:
+
+```bash
+LIBRARIUM_LIVE_TESTS=1 composer test:live:openai-research
+```
+
+The canary uses `gpt-5.6-sol` by default. Set `OPENAI_RESEARCH_MODEL` to test
+another Responses API model that supports background execution, `xhigh`
+reasoning, and web search.
+
 To run the opt-in live canary, make `GEMINI_API_KEY` available to the process
 without committing it, then run:
 
