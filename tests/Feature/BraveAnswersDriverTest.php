@@ -100,7 +100,7 @@ it('uses inline usage before final SSE usage and legacy headers', function (): v
     $usage = '<usage>'.json_encode([
         'x-request-tokens-in' => 12,
         'X-REQUEST-TOKENS-OUT' => 4,
-        'X-Request-Total-Cost' => 0.001,
+        'X-Request-Total-Cost' => 0.058585,
     ], JSON_THROW_ON_ERROR).'</usage>';
     $body = braveSse([
         'Answer.',
@@ -117,7 +117,7 @@ it('uses inline usage before final SSE usage and legacy headers', function (): v
 
     expect($usage?->promptTokens)->toBe(12)
         ->and($usage?->completionTokens)->toBe(4)
-        ->and($usage?->actualCost)->toBe('0.001')
+        ->and($usage?->actualCost)->toBe('0.058585')
         ->and($usage?->currency)->toBe('USD');
 });
 
@@ -128,6 +128,7 @@ it('falls back from final SSE tokens to safe legacy usage headers and nested cos
         [
             'X-Request-Tokens-In' => '91',
             'X-Request-Tokens-Out' => '8',
+            'X-Request-Cost-Usd' => '0.29',
             'X-Request-Cost-Breakdown' => json_encode(['billing' => ['total_usd' => 0.0025]], JSON_THROW_ON_ERROR),
         ],
     )]);
@@ -136,7 +137,7 @@ it('falls back from final SSE tokens to safe legacy usage headers and nested cos
 
     expect($usage?->promptTokens)->toBe(21)
         ->and($usage?->completionTokens)->toBe(8)
-        ->and($usage?->actualCost)->toBe('0.0025');
+        ->and($usage?->actualCost)->toBe('0.29');
 });
 
 it('accepts natural EOF and strips malformed or incomplete metadata without exposing it', function (): void {
@@ -247,6 +248,24 @@ it('maps connection failures according to whether the deadline elapsed', functio
     'before deadline' => [false, 'brave.connection'],
     'at deadline' => [true, 'brave.deadline_exceeded'],
 ]);
+
+it('maps an interrupted error body through the safe status boundary', function (): void {
+    Http::fake(function () {
+        $stream = new PumpStream(function (): string {
+            throw new RuntimeException('provider-secret error stream failure');
+        });
+
+        return Http::response($stream, 503);
+    });
+
+    try {
+        braveDriver()->run(braveRequest());
+        throw new RuntimeException('The error response should fail.');
+    } catch (DriverException $exception) {
+        expect($exception->errorCode)->toBe('brave.unavailable')
+            ->and($exception->getMessage())->not->toContain('provider-secret');
+    }
+});
 
 it('discards a response whose stream becomes available after the outer deadline', function (): void {
     Http::fake(function () {

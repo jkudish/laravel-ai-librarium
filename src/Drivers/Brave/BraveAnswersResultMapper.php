@@ -321,9 +321,7 @@ final readonly class BraveAnswersResultMapper
 
     private function headerDecimal(Response $response, string $header): ?string
     {
-        $value = $response->header($header);
-
-        return is_numeric($value) ? $this->decimal((float) $value) : null;
+        return $this->decimal($response->header($header));
     }
 
     private function costBreakdown(string $value): ?string
@@ -382,18 +380,55 @@ final readonly class BraveAnswersResultMapper
 
     private function decimal(mixed $value): ?string
     {
-        if (! is_int($value) && ! is_float($value)) {
+        if (is_int($value)) {
+            return $value >= 0 ? (string) $value : null;
+        }
+
+        if (is_float($value)) {
+            if (! is_finite($value) || $value < 0) {
+                return null;
+            }
+
+            $value = (string) $value;
+        }
+
+        if (! is_string($value) || strlen($value) > 128 || ! is_numeric($value) || str_starts_with($value, '-')) {
             return null;
         }
 
-        $number = (float) $value;
-        if (! is_finite($number) || $number < 0) {
+        $decimal = $this->expandExponent($value);
+        if (preg_match('/^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/D', $decimal) !== 1) {
             return null;
         }
 
-        $decimal = rtrim(rtrim(sprintf('%.18F', $number), '0'), '.');
+        [$whole, $fraction] = array_pad(explode('.', $decimal, 2), 2, '');
+        $whole = ltrim($whole, '0');
+        $fraction = rtrim($fraction, '0');
 
-        return $decimal === '' ? '0' : $decimal;
+        return ($whole === '' ? '0' : $whole).($fraction === '' ? '' : ".{$fraction}");
+    }
+
+    private function expandExponent(string $value): string
+    {
+        if (preg_match('/^([0-9]+)(?:\.([0-9]+))?[eE]([+-]?\d+)$/D', $value, $matches) !== 1) {
+            return $value;
+        }
+
+        $whole = $matches[1];
+        $fraction = $matches[2];
+        $exponent = filter_var($matches[3], FILTER_VALIDATE_INT);
+        if (! is_int($exponent) || $exponent < -18 || $exponent > 100) {
+            return $value;
+        }
+
+        $digits = $whole.$fraction;
+        $decimalPosition = strlen($whole) + $exponent;
+
+        return match (true) {
+            $decimalPosition <= 0 => '0.'.str_repeat('0', -$decimalPosition).$digits,
+            $decimalPosition >= strlen($digits) => $digits.str_repeat('0', $decimalPosition - strlen($digits)),
+            default => substr($digits, 0, $decimalPosition).'.'.substr($digits, $decimalPosition),
+        };
     }
 
     /** @param array<array-key, mixed> $value

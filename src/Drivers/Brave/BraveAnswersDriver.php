@@ -17,6 +17,7 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
+use Throwable;
 
 /** Runs one grounded Brave Answers request through Laravel's HTTP client. */
 final readonly class BraveAnswersDriver implements Driver
@@ -82,7 +83,7 @@ final readonly class BraveAnswersDriver implements Driver
             }
 
             throw new DriverException('brave.connection', 'The Brave Answers stream was interrupted.');
-        } catch (\Throwable) {
+        } catch (Throwable) {
             throw new DriverException('brave.invalid_response', 'Brave Answers returned an invalid response.');
         }
     }
@@ -142,15 +143,19 @@ final readonly class BraveAnswersDriver implements Driver
         $stream = $response->toPsrResponse()->getBody();
         $body = '';
 
-        while (! $stream->eof() && strlen($body) <= 262_144) {
-            $chunk = $stream->read(min(8192, 262_145 - strlen($body)));
-            if ($chunk === '') {
-                $stream->close();
+        try {
+            while (! $stream->eof() && strlen($body) <= 262_144) {
+                $chunk = $stream->read(min(8192, 262_145 - strlen($body)));
+                if ($chunk === '') {
+                    $stream->close();
 
-                return null;
+                    return null;
+                }
+
+                $body .= $chunk;
             }
-
-            $body .= $chunk;
+        } catch (Throwable) {
+            return null;
         }
 
         if (strlen($body) > 262_144 || ! $stream->eof()) {
