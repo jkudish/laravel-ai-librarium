@@ -37,6 +37,10 @@ final readonly class BraveAnswersResultMapper
             throw new DriverException('brave.invalid_response', 'Brave Answers returned no answer.');
         }
 
+        if ($parsed['citations'] === []) {
+            throw new DriverException('brave.invalid_response', 'Brave Answers returned no valid citations.');
+        }
+
         $now = CarbonImmutable::now();
 
         return ResearchResult::make(

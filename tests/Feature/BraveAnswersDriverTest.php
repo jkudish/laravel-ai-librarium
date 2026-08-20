@@ -45,7 +45,7 @@ it('sends the exact deadline-bounded streaming request with subscription token a
             ->and($options['timeout'])->toBe(2)
             ->and($options['stream'])->toBeTrue();
 
-        return Http::response(braveSse(['Answer.']));
+        return Http::response(braveSse(['Answer.', braveCitation()]));
     });
 
     $result = braveDriver()->run(braveRequest(deadline: CarbonImmutable::now()->addSeconds(2)));
@@ -104,6 +104,7 @@ it('uses inline usage before final SSE usage and legacy headers', function (): v
     ], JSON_THROW_ON_ERROR).'</usage>';
     $body = braveSse([
         'Answer.',
+        braveCitation(),
         $usage,
     ], ['prompt_tokens' => 90, 'completion_tokens' => 80]);
 
@@ -123,7 +124,7 @@ it('uses inline usage before final SSE usage and legacy headers', function (): v
 
 it('falls back from final SSE tokens to safe legacy usage headers and nested cost breakdown', function (): void {
     Http::fake(['https://api.search.brave.com/*' => Http::response(
-        braveSse(['Answer.'], ['prompt_tokens' => 21]),
+        braveSse(['Answer.', braveCitation()], ['prompt_tokens' => 21]),
         200,
         [
             'X-Request-Tokens-In' => '91',
@@ -140,25 +141,31 @@ it('falls back from final SSE tokens to safe legacy usage headers and nested cos
         ->and($usage?->actualCost)->toBe('0.29');
 });
 
-it('accepts natural EOF and strips malformed or incomplete metadata without exposing it', function (): void {
-    $body = braveSse([
-        'Safe answer.',
-        '<citation>{not-json}</citation>',
-        '<usage>{"X-Request-Tokens-In":2',
-        'provider-secret-after-incomplete-tag',
-    ], terminate: false);
+it('rejects required-grounding answers without a valid citation safely', function (array $deltas): void {
+    /** @var list<string> $deltas */
+    $body = braveSse($deltas, terminate: false);
     Http::fake(['https://api.search.brave.com/*' => Http::response($body)]);
 
-    $result = braveDriver()->run(braveRequest());
-    $wire = json_encode($result->toArray(), JSON_THROW_ON_ERROR);
-
-    expect($result->content)->toBe('Safe answer.')
-        ->and($result->citations)->toBeEmpty()
-        ->and($result->usage)->toBeNull()
-        ->and($wire)->not->toContain('provider-secret');
-    expect($wire)->not->toContain('<usage>');
-    expect($wire)->not->toContain('{not-json}');
-});
+    try {
+        braveDriver()->run(braveRequest());
+        throw new RuntimeException('The ungrounded answer should fail.');
+    } catch (DriverException $exception) {
+        expect($exception->errorCode)->toBe('brave.invalid_response')
+            ->and($exception->getMessage())->not->toContain('provider-secret')
+            ->and($exception->getMessage())->not->toContain('{not-json}')
+            ->and($exception->getMessage())->not->toContain('<usage>');
+    }
+})->with([
+    'no citation tags' => [['Safe answer without citation tags. provider-secret']],
+    'all malformed or invalid citations' => [[
+        'Safe answer.',
+        '<citation>{not-json}</citation>',
+        '<citation>{"url":"ftp://example.com/nope"}</citation>',
+        '<citation>{"url":"https://user:pass@example.com/nope"}</citation>',
+        '<usage>{"X-Request-Tokens-In":2',
+        'provider-secret-after-incomplete-tag',
+    ]],
+]);
 
 it('rejects malformed, oversized, and interrupted streams safely', function (mixed $fake, string $code): void {
     Http::fake(['https://api.search.brave.com/*' => $fake]);
@@ -349,4 +356,9 @@ function braveSse(array $deltas, ?array $usage = null, bool $terminate = true): 
     }
 
     return implode("\n\n", $events);
+}
+
+function braveCitation(): string
+{
+    return '<citation>{"url":"https://example.com/source","title":"Source"}</citation>';
 }
