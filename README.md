@@ -107,8 +107,9 @@ exposes credentials through previews and terminal results.
 every configured `research_report` Profile rather than maintained as a second
 list; the built-in catalog currently yields `openai-research` and
 `perplexity-sonar-deep`. `all` similarly derives every configured Profile.
-Profiles that are disabled, missing a credential, or invalid remain visible in
-preview diagnostics but are not executed by a group.
+Profiles that are disabled or missing a credential remain visible in preview
+diagnostics but are not executed by a group. Invalid Profile configuration
+fails preflight instead of being silently skipped.
 
 OpenAI background research can use signed webhooks as wake-up hints while
 polling remains the source of truth. Configure the OpenAI dashboard endpoint as
