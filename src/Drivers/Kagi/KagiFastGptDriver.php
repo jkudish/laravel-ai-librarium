@@ -48,6 +48,13 @@ final readonly class KagiFastGptDriver implements Driver
         }
 
         $response = $this->send($request, (string) $credential);
+        if (CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
+            throw new DriverException(
+                'kagi.deadline_exceeded',
+                'Kagi FastGPT did not respond before the research deadline.',
+            );
+        }
+
         if ($response->failed()) {
             throw $this->httpFailure($response);
         }

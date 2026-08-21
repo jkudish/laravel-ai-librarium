@@ -181,6 +181,25 @@ it('does not send a request without a credential or before an expired deadline',
     'expired deadline' => ['deadline', 'kagi.deadline_exceeded'],
 ]);
 
+it('rejects a response that arrives at the deadline before mapping it', function (): void {
+    $request = kagiRequest();
+    Http::fake(function () use ($request): PromiseInterface {
+        CarbonImmutable::setTestNow($request->deadline);
+
+        return kagiSuccessResponse();
+    });
+
+    try {
+        kagiDriver()->run($request);
+        $this->fail('The response should not be accepted after the deadline.');
+    } catch (DriverException $exception) {
+        expect($exception->errorCode)->toBe('kagi.deadline_exceeded')
+            ->and($exception->getMessage())->toBe('Kagi FastGPT did not respond before the research deadline.');
+    }
+
+    Http::assertSentCount(1);
+});
+
 it('bounds request and connection timeouts to the exact remaining deadline', function (float $remaining, float $connectTimeout): void {
     $options = null;
     Http::globalMiddleware(function (callable $handler) use (&$options): Closure {
