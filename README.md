@@ -41,6 +41,35 @@ for an optional-search Profile by setting its `options.web_search` value to
 `false`; the terminal result then reports an ungrounded `model_answer` without
 invented retrieval facts.
 
+The package also ships focused Laravel HTTP Drivers for provider capabilities
+that Laravel AI does not expose through its prompt API:
+
+| Profile | Provider target | Result | Execution | Credential config |
+| --- | --- | --- | --- | --- |
+| `brave-answers` | Brave Answers (`brave`) | Grounded answer | Inline | `services.brave.key` |
+| `exa` | Exa Search | Search results | Inline | `services.exa.key` |
+| `kagi-fastgpt` | Kagi FastGPT | Grounded answer | Inline | `services.kagi.key` |
+| `perplexity-sonar-pro` | Perplexity Agent preset `low` | Grounded answer | Inline | `services.perplexity.key` |
+| `grok` | xAI `grok-4.6` with web search | Grounded answer | Inline | `ai.providers.xai.key` |
+| `openai-research` | OpenAI `gpt-5.6-sol` with web research | Research report | Background | `ai.providers.openai.key` |
+| `perplexity-sonar-deep` | Perplexity Agent preset `high` | Research report | Background | `services.perplexity.key` |
+
+OpenAI and xAI use Laravel AI's standard provider configuration even though
+these Drivers make focused HTTP requests. Add the remaining credentials to the
+consuming application's `config/services.php`:
+
+```php
+'brave' => ['key' => env('BRAVE_API_KEY')],
+'exa' => ['key' => env('EXA_API_KEY')],
+'kagi' => ['key' => env('KAGI_API_KEY')],
+'perplexity' => ['key' => env('PERPLEXITY_API_KEY')],
+'searchapi' => ['key' => env('SEARCHAPI_KEY')],
+```
+
+Librarium stores the resolved values in its in-memory Profile catalog, not the
+configuration paths. Credentials are excluded from previews, serialized
+Profiles, terminal results, provider metadata, and safe Driver errors.
+
 The package also ships SearchAPI.io Profiles served by a small Laravel HTTP
 Driver. `searchapi` returns raw Google search results; the surface Profiles
 observe a cited answer rendered on a consumer AI product:
@@ -66,6 +95,20 @@ Configure provider credentials through Laravel AI's normal provider
 configuration. Librarium resolves values such as
 `config('ai.providers.gemini.key')`; it never stores configuration paths or
 exposes credentials through previews and terminal results.
+
+## Profile groups
+
+`quick` is the default group and runs these eligible Profiles in order:
+`gemini-grounded`, `openrouter-grounded`, `brave-answers`, `exa`, and
+`kagi-fastgpt`.
+
+`visibility` runs the six SearchAPI surface Profiles followed by
+`perplexity-sonar-pro`, `gemini-grounded`, and `grok`. `deep` is derived from
+every configured `research_report` Profile rather than maintained as a second
+list; the built-in catalog currently yields `openai-research` and
+`perplexity-sonar-deep`. `all` similarly derives every configured Profile.
+Profiles that are disabled, missing a credential, or invalid remain visible in
+preview diagnostics but are not executed by a group.
 
 OpenAI background research can use signed webhooks as wake-up hints while
 polling remains the source of truth. Configure the OpenAI dashboard endpoint as

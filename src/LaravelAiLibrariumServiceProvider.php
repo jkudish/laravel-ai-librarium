@@ -7,7 +7,14 @@ namespace Jkudish\LaravelAiLibrarium;
 use Illuminate\Support\ServiceProvider;
 use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
 use Jkudish\LaravelAiLibrarium\Contracts\Librarium;
+use Jkudish\LaravelAiLibrarium\Drivers\Brave\BraveAnswersDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Exa\ExaSearchDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Kagi\KagiFastGptDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\LaravelAiDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\OpenAi\OpenAiResearchDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Perplexity\PerplexityAgentDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\SearchApi\SearchApiDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Xai\XaiGrokDriver;
 use Jkudish\LaravelAiLibrarium\Execution\ProfileCompatibility;
 use Jkudish\LaravelAiLibrarium\Execution\ResearchRuntime;
 use Jkudish\LaravelAiLibrarium\Webhooks\WebhookSignalStore;
@@ -54,7 +61,7 @@ final class LaravelAiLibrariumServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        $this->resolveLaravelAiCredentials();
+        $this->resolveProfileCredentials();
         $this->loadRoutesFrom(__DIR__.'/../routes/webhooks.php');
 
         if (! $this->app->runningInConsole()) {
@@ -66,7 +73,7 @@ final class LaravelAiLibrariumServiceProvider extends ServiceProvider
         ], 'librarium-config');
     }
 
-    private function resolveLaravelAiCredentials(): void
+    private function resolveProfileCredentials(): void
     {
         $profiles = config('librarium.profiles', []);
         if (! is_array($profiles)) {
@@ -78,18 +85,30 @@ final class LaravelAiLibrariumServiceProvider extends ServiceProvider
         foreach ($profiles as $id => $profile) {
             if (! is_string($id)
                 || ! is_array($profile)
-                || data_get($profile, 'driver') !== LaravelAiDriver::class
                 || ! array_key_exists('credential', $profile)
                 || filled(data_get($profile, 'credential'))) {
                 continue;
             }
 
+            $driver = data_get($profile, 'driver');
             $provider = data_get($profile, 'provider');
-            if (is_string($provider) && $provider !== '') {
-                $profile['credential'] = config("ai.providers.{$provider}.key");
-                $profiles[$id] = $profile;
-                $changed = true;
+            if (! is_string($driver) || ! is_string($provider) || $provider === '') {
+                continue;
             }
+
+            $credential = match ($driver) {
+                LaravelAiDriver::class, OpenAiResearchDriver::class, XaiGrokDriver::class => config("ai.providers.{$provider}.key"),
+                BraveAnswersDriver::class => config('services.brave.key'),
+                ExaSearchDriver::class => config('services.exa.key'),
+                KagiFastGptDriver::class => config('services.kagi.key'),
+                PerplexityAgentDriver::class => config('services.perplexity.key'),
+                SearchApiDriver::class => config('services.searchapi.key'),
+                default => null,
+            };
+
+            $profile['credential'] = $credential;
+            $profiles[$id] = $profile;
+            $changed = true;
         }
 
         if ($changed) {

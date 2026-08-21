@@ -4,11 +4,18 @@ declare(strict_types=1);
 
 use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Contracts\Librarium as LibrariumContract;
+use Jkudish\LaravelAiLibrarium\Drivers\Brave\BraveAnswersDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Exa\ExaSearchDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Kagi\KagiFastGptDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\LaravelAiDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\OpenAi\OpenAiResearchDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Perplexity\PerplexityAgentDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Xai\XaiGrokDriver;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\LaravelAiLibrariumServiceProvider;
 use Jkudish\LaravelAiLibrarium\LibrariumManager;
 use Jkudish\LaravelAiLibrarium\PendingResearch;
+use Jkudish\LaravelAiLibrarium\ProfileCatalog;
 use Jkudish\LaravelAiLibrarium\Webhooks\WebhookSignalStore;
 
 it('registers the manager behind the package contract', function (): void {
@@ -47,6 +54,87 @@ it('resolves Laravel AI credentials after Laravel AI registers later', function 
     'OpenAI chat' => ['openai-chat', 'openai', 'gpt-5.6-luna'],
     'Gemini chat' => ['gemini-chat', 'gemini', 'gemini-3.7-flash'],
 ]);
+
+it('registers the accepted core HTTP Profiles with resolved credentials', function (
+    string $profileId,
+    string $driver,
+    string $provider,
+    ?string $model,
+    string $resultKind,
+    string $grounding,
+    string $retrievalMethod,
+    string $credentialPath,
+    ?string $estimatedCost,
+): void {
+    $profile = config("librarium.profiles.{$profileId}");
+
+    expect($profile)->toBeArray()
+        ->and(data_get($profile, 'driver'))->toBe($driver)
+        ->and(data_get($profile, 'provider'))->toBe($provider)
+        ->and(data_get($profile, 'model'))->toBe($model)
+        ->and(data_get($profile, 'result_kind'))->toBe($resultKind)
+        ->and(data_get($profile, 'grounding'))->toBe($grounding)
+        ->and(data_get($profile, 'observation'))->toBe('api_output')
+        ->and(data_get($profile, 'corpora'))->toBe(['web'])
+        ->and(data_get($profile, 'retrieval_methods'))->toBe([$retrievalMethod])
+        ->and(data_get($profile, 'credential'))->toBe(config($credentialPath))
+        ->and(data_get($profile, 'credential'))->not->toBe($credentialPath)
+        ->and(data_get($profile, 'estimated_cost.amount'))->toBe($estimatedCost);
+})->with([
+    'Brave Answers' => ['brave-answers', BraveAnswersDriver::class, 'brave', 'brave', 'grounded_answer', 'required', 'search_endpoint', 'services.brave.key', null],
+    'Exa Search' => ['exa', ExaSearchDriver::class, 'exa', null, 'search_results', 'none', 'search_endpoint', 'services.exa.key', null],
+    'Kagi FastGPT' => ['kagi-fastgpt', KagiFastGptDriver::class, 'kagi-fastgpt', null, 'grounded_answer', 'required', 'search_endpoint', 'services.kagi.key', '0.015'],
+    'Perplexity Sonar Pro' => ['perplexity-sonar-pro', PerplexityAgentDriver::class, 'perplexity', null, 'grounded_answer', 'required', 'model_search_tool', 'services.perplexity.key', null],
+    'Grok web search' => ['grok', XaiGrokDriver::class, 'xai', 'grok-4.6', 'grounded_answer', 'required', 'model_search_tool', 'ai.providers.xai.key', null],
+    'OpenAI research' => ['openai-research', OpenAiResearchDriver::class, 'openai', 'gpt-5.6-sol', 'research_report', 'required', 'research_agent', 'ai.providers.openai.key', null],
+    'Perplexity Sonar Deep' => ['perplexity-sonar-deep', PerplexityAgentDriver::class, 'perplexity', null, 'research_report', 'required', 'research_agent', 'services.perplexity.key', null],
+]);
+
+it('resolves curated and derived groups from the complete built-in catalog', function (): void {
+    $catalog = app(ProfileCatalog::class);
+
+    expect($catalog->group('quick')['profiles']->pluck('id')->all())->toBe([
+        'gemini-grounded',
+        'openrouter-grounded',
+        'brave-answers',
+        'exa',
+        'kagi-fastgpt',
+    ])->and($catalog->group('visibility')['profiles']->pluck('id')->all())->toBe([
+        'searchapi-chatgpt',
+        'searchapi-gemini',
+        'searchapi-perplexity',
+        'searchapi-google-ai-mode',
+        'searchapi-bing-copilot',
+        'searchapi-google-ai-overview',
+        'perplexity-sonar-pro',
+        'gemini-grounded',
+        'grok',
+    ])->and($catalog->group('deep')['profiles']->pluck('id')->all())->toBe([
+        'openai-research',
+        'perplexity-sonar-deep',
+    ])->and($catalog->group('all')['profiles']->pluck('id')->all())->toBe([
+        'gemini-grounded',
+        'openrouter-grounded',
+        'openrouter-chat',
+        'claude-chat',
+        'openai-chat',
+        'gemini-chat',
+        'brave-answers',
+        'exa',
+        'kagi-fastgpt',
+        'perplexity-sonar-pro',
+        'grok',
+        'openai-research',
+        'perplexity-sonar-deep',
+        'searchapi',
+        'searchapi-chatgpt',
+        'searchapi-gemini',
+        'searchapi-perplexity',
+        'searchapi-google-ai-mode',
+        'searchapi-bing-copilot',
+        'searchapi-google-ai-overview',
+    ]);
+});
 
 it('resolves Laravel AI credentials for Profile IDs containing dots', function (): void {
     $profiles = config('librarium.profiles');

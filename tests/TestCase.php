@@ -42,14 +42,16 @@ abstract class TestCase extends Orchestra
             $app['config']->set('ai.providers.gemini.key', 'testing-gemini-key');
         }
 
-        foreach (['anthropic', 'openai', 'openrouter'] as $provider) {
+        foreach (['anthropic', 'openai', 'openrouter', 'xai'] as $provider) {
             if (blank($app['config']->get("ai.providers.{$provider}.key"))) {
                 $app['config']->set("ai.providers.{$provider}.key", "testing-{$provider}-key");
             }
         }
 
-        if (blank($app['config']->get('services.searchapi.key'))) {
-            $app['config']->set('services.searchapi.key', 'testing-searchapi-key');
+        foreach (['brave', 'exa', 'kagi', 'perplexity', 'searchapi'] as $provider) {
+            if (blank($app['config']->get("services.{$provider}.key"))) {
+                $app['config']->set("services.{$provider}.key", "testing-{$provider}-key");
+            }
         }
     }
 
