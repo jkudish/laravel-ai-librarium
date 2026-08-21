@@ -239,6 +239,26 @@ it('allows a request with a subsecond deadline so its timeouts can use the exact
     Http::assertSentCount(1);
 });
 
+it('rejects a response that arrives at the shared deadline before mapping it', function (): void {
+    $deadline = CarbonImmutable::now()->addSeconds(2);
+    Http::fake(function () use ($deadline) {
+        CarbonImmutable::setTestNow($deadline);
+
+        return Http::response(['results' => []]);
+    });
+
+    try {
+        exaSearchDriver()->run(exaSearchRequest(deadline: $deadline));
+        $this->fail('A response at the shared deadline should fail.');
+    } catch (DriverException $exception) {
+        expect($exception->errorCode)->toBe('exa.deadline_exceeded')
+            ->and($exception->fallbackAllowed)->toBeTrue()
+            ->and($exception->getMessage())->toBe('Exa did not respond before the research deadline.');
+    }
+
+    Http::assertSentCount(1);
+});
+
 it('rejects a deadline below the HTTP transport millisecond resolution before making a request', function (): void {
     Http::fake();
 

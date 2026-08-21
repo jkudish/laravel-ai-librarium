@@ -109,6 +109,10 @@ final readonly class ExaSearchDriver implements Driver
     private function requestJson(DriverRequest $request): array
     {
         $response = $this->send($request);
+        if (CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
+            throw new DriverException('exa.deadline_exceeded', 'Exa did not respond before the research deadline.');
+        }
+
         if ($response->failed()) {
             throw $this->httpFailure($response);
         }
