@@ -281,17 +281,45 @@ it('rejects incomplete and over-budget hard cost ceilings', function (): void {
 it('hands the same compiled plan shape to run and queue', function (): void {
     /** @var FakeResearchExecutor $executor */
     $executor = app(ExecutesResearch::class);
+    $profiles = config('librarium.profiles');
+    $profiles['backup-grounded'] = profileConfig(
+        provider: 'backup',
+        resultKind: ResultKind::GroundedAnswer,
+        estimatedCost: '0.04',
+    );
+    config()->set('librarium.profiles', $profiles);
 
-    $run = Librarium::query('Research this.')->using('gemini-grounded')->timeout(500);
+    $query = fn () => Librarium::query('Research this.')
+        ->using('gemini-grounded')
+        ->fallbacks(['backup-grounded'])
+        ->timeout(500);
+
+    $preview = $query()->preview();
+    $run = $query();
     $runResponse = $run->run();
-    $queued = Librarium::query('Research this.')->using('gemini-grounded')->timeout(500);
+    $queued = $query();
     $queuedResponse = $queued->queue()->onQueue('research')->onConnection('redis')->delay(5)->afterCommit();
 
     expect($runResponse->requestId)->toBe($run->requestId)
         ->and($queuedResponse)->toBeInstanceOf(QueuedResearchResponse::class)
         ->and($queuedResponse->requestId)->toBe($queued->requestId)
         ->and($executor->plans)->toHaveCount(2)
-        ->and($executor->plans[0]->preview->prompts->all())->toBe($executor->plans[1]->preview->prompts->all())
+        ->and($executor->plans[0]->preview->profiles->pluck('id')->all())->toBe($preview->profiles->pluck('id')->all())
+        ->and($executor->plans[1]->preview->profiles->pluck('id')->all())->toBe($preview->profiles->pluck('id')->all())
+        ->and($executor->plans[0]->preview->fallbacks->pluck('id')->all())->toBe($preview->fallbacks->pluck('id')->all())
+        ->and($executor->plans[1]->preview->fallbacks->pluck('id')->all())->toBe($preview->fallbacks->pluck('id')->all())
+        ->and($executor->plans[0]->preview->prompts->all())->toBe($preview->prompts->all())
+        ->and($executor->plans[1]->preview->prompts->all())->toBe($preview->prompts->all())
+        ->and($executor->plans[0]->preview->unavailable->all())->toBe($preview->unavailable->all())
+        ->and($executor->plans[1]->preview->unavailable->all())->toBe($preview->unavailable->all())
+        ->and($executor->plans[0]->preview->warnings->all())->toBe($preview->warnings->all())
+        ->and($executor->plans[1]->preview->warnings->all())->toBe($preview->warnings->all())
+        ->and($executor->plans[0]->preview->maximumEstimatedCost)->toBe($preview->maximumEstimatedCost)
+        ->and($executor->plans[1]->preview->maximumEstimatedCost)->toBe($preview->maximumEstimatedCost)
+        ->and($executor->plans[0]->preview->currency)->toBe($preview->currency)
+        ->and($executor->plans[1]->preview->currency)->toBe($preview->currency)
+        ->and($executor->plans[0]->preview->costEstimateComplete)->toBe($preview->costEstimateComplete)
+        ->and($executor->plans[1]->preview->costEstimateComplete)->toBe($preview->costEstimateComplete)
         ->and($executor->plans[0]->timeout)->toBe(500)
         ->and($executor->plans[1]->timeout)->toBe(500);
 });

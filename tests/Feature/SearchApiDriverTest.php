@@ -351,7 +351,9 @@ it('registers the SearchAPI visibility surfaces in catalog order and keeps the r
             'searchapi-google-ai-mode',
             'searchapi-bing-copilot',
             'searchapi-google-ai-overview',
+            'perplexity-sonar-pro',
             'gemini-grounded',
+            'grok',
         ]);
 });
 

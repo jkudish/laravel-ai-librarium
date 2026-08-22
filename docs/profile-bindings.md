@@ -208,13 +208,13 @@ cost. Missing provider-reported cost remains `null`, never zero.
 
 - **Workflow:** visibility
 - **Semantics:** grounded_answer; required; api_output; web; model_search_tool/direct; xai
-- **Target:** configurable model `grok-4.5`
+- **Target:** configurable model `grok-4.5` in the accepted TypeScript snapshot; approved PHP 1.0 default `grok-4.6`
 - **PHP path:** #2591 core HTTP
 - **Binding:** xAI Responses API web-search tool; Laravel AI v0.10.3 text support does not expose this corpus-specific tool
 - **Execution:** inline
 - **Terminal:** HTTP answer
 - **Pricing:** native tokens plus estimated $0.015 tool charge; reported cost wins
-- **Test and proof:** HTTP fake with exact web-only tool; D + L
+- **Test and proof:** HTTP fake with exact web-only tool; D + L; PHP default refreshed to the maintainer-approved Grok 4.6 during #2838
 
 ### `openai-research/research`
 
