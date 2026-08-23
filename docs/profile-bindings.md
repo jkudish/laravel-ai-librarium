@@ -1,9 +1,9 @@
 # Profile binding matrix
 
-This is the Wave 0 implementation authority for PlanMode #2814 and the review
-checkpoint before provider code begins under #2591. It targets best-effort
-parity. It is not a promise that PHP and TypeScript will remain in permanent
-lockstep.
+This began as the Wave 0 implementation authority for PlanMode #2814. It now
+records the Wave 4 closeout against the PHP catalog landed at
+`95744236dcc626a87db455e76cef1ce80e67a90c`. It targets best-effort parity. It
+is not a promise that PHP and TypeScript will remain in permanent lockstep.
 
 No row authorizes a provider request or a paid call.
 
@@ -22,20 +22,71 @@ Pest test locks that result without introducing a TypeScript runtime dependency.
 
 ## Summary
 
-| Classification | Count | Meaning |
+| PHP disposition | Count | Meaning |
 | --- | ---: | --- |
-| #2591 core SDK, proposed for 1.0 | 6 | Reuse the Laravel AI SDK text providers, native `WebSearch`, response metadata, citations, usage, and fakes. |
-| #2591 core HTTP, proposed for 1.0 | 14 | Small provider-specific HTTP Drivers with no substantial third-party SDK. |
-| #2592 Firecrawl adapter | 1 | Keep the optional Firecrawl package outside core. |
-| #2694 You.com | 3 | Keep this provider family in its existing task. |
-| Explicit post-1.0 holdback | 16 | Technically viable, but not required for the approved first useful release. |
+| Landed in core through #2591 | 20 | Six Laravel AI SDK Profiles and fourteen focused HTTP Profiles are configured and covered offline. |
+| Separate approved task | 4 | Firecrawl remains outside core under #2592; You.com remains under #2694. None is registered by this package. |
+| Explicit post-1.0 holdback | 16 | Technically viable parity targets that are not registered by this package. |
 | **Total** | **40** | Every implemented TypeScript Profile appears exactly once below. |
 
-The inventory contains 15 grounded answers, 10 search-result Profiles, 9
-durable research reports, and 6 surface observations. Runtime inventory is 31
-inline Profiles and 9 provider-durable background Profiles. `quick` has five
-curated members, `visibility` has nine, `deep` derives nine research Profiles,
-and `all` derives all 40 eligible Profiles.
+The TypeScript inventory contains 15 grounded answers, 10 search-result
+Profiles, 9 durable research reports, and 6 surface observations. The landed
+PHP subset contains 10 grounded answers, 2 search-result Profiles, 2 durable
+research reports, and 6 surface observations. PHP `quick` has five curated
+members, `visibility` has nine, `deep` derives its two configured research
+Profiles, and `all` derives all 20 configured Profiles.
+
+## Landed PHP reconciliation
+
+The table below is the row-by-row closeout. “Landed” means the named PHP Profile
+exists in `config/librarium.php`, resolves through the package catalog, and has
+offline provider-boundary coverage. “Separate task” and “Holdback” mean the
+TypeScript Profile remains intentionally absent from PHP configuration. Live
+proof is not claimed here; the separately gated canary inventory is in
+[`live-provider-canaries.md`](live-provider-canaries.md).
+
+| TypeScript Profile | PHP disposition | PHP Profile or owner | Offline evidence |
+| --- | --- | --- | --- |
+| `gemini-grounded/grounded` | Landed | `gemini-grounded` | `LaravelAiDriverTest` |
+| `openrouter/grounded` | Landed | `openrouter-grounded` | `LaravelAiDriverTest` |
+| `openrouter/chat` | Landed | `openrouter-chat` | `LaravelAiDriverTest` |
+| `claude/chat` | Landed | `claude-chat` | `LaravelAiDriverTest` |
+| `openai-chat/chat` | Landed | `openai-chat` | `LaravelAiDriverTest` |
+| `gemini-chat/chat` | Landed | `gemini-chat` | `LaravelAiDriverTest` |
+| `brave-answers/grounded` | Landed | `brave-answers` | `BraveAnswersDriverTest` |
+| `exa/search` | Landed | `exa` | `ExaSearchDriverTest` |
+| `kagi-fastgpt/grounded` | Landed | `kagi-fastgpt` | `KagiFastGptDriverTest` |
+| `perplexity-sonar-pro/grounded` | Landed | `perplexity-sonar-pro` | `PerplexityAgentDriverTest` |
+| `grok/web` | Landed | `grok` | `XaiGrokDriverTest` |
+| `openai-research/research` | Landed | `openai-research` | `OpenAiResearchDriverTest` |
+| `perplexity-sonar-deep/research` | Landed | `perplexity-sonar-deep` | `PerplexityAgentDriverTest` |
+| `searchapi/search` | Landed | `searchapi` | `SearchApiDriverTest` |
+| `searchapi-chatgpt/surface` | Landed | `searchapi-chatgpt` | `SearchApiDriverTest` |
+| `searchapi-gemini/surface` | Landed | `searchapi-gemini` | `SearchApiDriverTest` |
+| `searchapi-perplexity/surface` | Landed | `searchapi-perplexity` | `SearchApiDriverTest` |
+| `searchapi-google-ai-mode/surface` | Landed | `searchapi-google-ai-mode` | `SearchApiDriverTest` |
+| `searchapi-bing-copilot/surface` | Landed | `searchapi-bing-copilot` | `SearchApiDriverTest` |
+| `searchapi-google-ai-overview/surface` | Landed | `searchapi-google-ai-overview` | `SearchApiDriverTest` |
+| `firecrawl-search/search` | Separate task | #2592 adapter package | Not registered in core |
+| `you-research/grounded` | Separate task | #2694 | Not registered in core |
+| `you-research/research` | Separate task | #2694 | Not registered in core |
+| `you-answer/grounded` | Separate task | #2694 | Not registered in core |
+| `brave-search/search` | Holdback | #2841 | Not registered in core |
+| `exa/research` | Holdback | #2842 | Not registered in core |
+| `tavily/search` | Holdback | #2841 | Not registered in core |
+| `tavily/research` | Holdback | #2842 | Not registered in core |
+| `gemini-deep/research` | Holdback | #2842 | Not registered in core |
+| `perplexity-deep-research/research` | Holdback | #2842 | Not registered in core |
+| `perplexity-search/search` | Holdback | #2841 | Not registered in core |
+| `grok-x-only/x` | Holdback | #2843 | Not registered in core |
+| `grok-combined/combined` | Holdback | #2843 | Not registered in core |
+| `jina-search/search` | Holdback | #2841 | Not registered in core |
+| `serpapi/search` | Holdback | #2841 | Not registered in core |
+| `parallel/search` | Holdback | #2844 | Not registered in core |
+| `parallel/chat` | Holdback | #2844 | Not registered in core |
+| `parallel/research` | Holdback | #2844 | Not registered in core |
+| `valyu/search` | Holdback | #2845 | Not registered in core |
+| `valyu/research` | Holdback | #2845 | Not registered in core |
 
 ## How to read each row
 
@@ -80,7 +131,7 @@ Test and proof codes:
 Pricing is descriptive. `native tokens` and `API units` do not imply known USD
 cost. Missing provider-reported cost remains `null`, never zero.
 
-## #2591 core SDK: proposed 1.0 Profiles (6)
+## #2591 core SDK: landed 1.0 Profiles (6)
 
 ### `gemini-grounded/grounded`
 
@@ -154,7 +205,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 - **Pricing:** native tokens; USD unknown unless authoritative pricing is supplied
 - **Test and proof:** SDK fake for search-on and search-off; D + L
 
-## #2591 core HTTP: proposed 1.0 Profiles (14)
+## #2591 core HTTP: landed 1.0 Profiles (14)
 
 ### `brave-answers/grounded`
 
@@ -600,7 +651,7 @@ this inventory until they have a real selectable binding.
 - You.com remains #2694.
 - The six SearchAPI surface Profiles are owned by #2591, but cross-collector
   fallback stays disabled until exact measured-surface identity lands in #2830.
-- Provider implementation, provider network calls, paid calls, persistence,
-  conversation storage, pricing catalogs, and TypeScript runtime internals are
-  outside Wave 0.
-- Joey's matrix checkpoint is required before #2833 or any later provider wave.
+- Provider network calls and paid calls require the independent approval gate
+  documented in `live-provider-canaries.md`; this reconciliation made none.
+- Persistence, conversation storage, pricing catalogs, and TypeScript runtime
+  internals remain outside the core package.

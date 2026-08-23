@@ -118,3 +118,97 @@ it('locks the accepted TypeScript Profile inventory and its PHP classifications'
         ->and(array_filter($rows, fn (string $row): bool => str_contains($row, '**PHP path:** explicit holdback; #2844')))->toHaveCount(3)
         ->and(array_filter($rows, fn (string $row): bool => str_contains($row, '**PHP path:** explicit holdback; #2845')))->toHaveCount(2);
 });
+
+it('reconciles every TypeScript matrix row with the landed PHP catalog', function (): void {
+    $matrix = file_get_contents(__DIR__.'/../../docs/profile-bindings.md');
+
+    expect($matrix)->not->toBeFalse();
+    assert(is_string($matrix));
+
+    preg_match(
+        '/^## Landed PHP reconciliation\R(?<body>.*?)(?=^## )/ms',
+        $matrix,
+        $section,
+    );
+    preg_match_all(
+        '/^\| `(?<typescript>[^`]+\/[^`]+)` \| (?<disposition>Landed|Separate task|Holdback) \| (?<php>.*?) \|/m',
+        $section['body'] ?? '',
+        $matches,
+        PREG_SET_ORDER,
+    );
+
+    $landed = [
+        'gemini-grounded/grounded' => 'gemini-grounded',
+        'openrouter/grounded' => 'openrouter-grounded',
+        'openrouter/chat' => 'openrouter-chat',
+        'claude/chat' => 'claude-chat',
+        'openai-chat/chat' => 'openai-chat',
+        'gemini-chat/chat' => 'gemini-chat',
+        'brave-answers/grounded' => 'brave-answers',
+        'exa/search' => 'exa',
+        'kagi-fastgpt/grounded' => 'kagi-fastgpt',
+        'perplexity-sonar-pro/grounded' => 'perplexity-sonar-pro',
+        'grok/web' => 'grok',
+        'openai-research/research' => 'openai-research',
+        'perplexity-sonar-deep/research' => 'perplexity-sonar-deep',
+        'searchapi/search' => 'searchapi',
+        'searchapi-chatgpt/surface' => 'searchapi-chatgpt',
+        'searchapi-gemini/surface' => 'searchapi-gemini',
+        'searchapi-perplexity/surface' => 'searchapi-perplexity',
+        'searchapi-google-ai-mode/surface' => 'searchapi-google-ai-mode',
+        'searchapi-bing-copilot/surface' => 'searchapi-bing-copilot',
+        'searchapi-google-ai-overview/surface' => 'searchapi-google-ai-overview',
+    ];
+
+    $documentedLanded = [];
+    $documentedAbsent = [];
+
+    foreach ($matches as $row) {
+        if ($row['disposition'] === 'Landed') {
+            preg_match('/^`(?<profile>[^`]+)`$/', $row['php'], $profile);
+            $documentedLanded[$row['typescript']] = $profile['profile'] ?? null;
+        } else {
+            $documentedAbsent[] = $row['typescript'];
+        }
+    }
+
+    $configuredProfiles = array_keys(config('librarium.profiles'));
+    sort($configuredProfiles);
+    $expectedProfiles = array_values($landed);
+    sort($expectedProfiles);
+
+    expect($matches)->toHaveCount(40)
+        ->and($documentedLanded)->toBe($landed)
+        ->and($documentedAbsent)->toHaveCount(20)
+        ->and($configuredProfiles)->toBe($expectedProfiles);
+});
+
+it('keeps one separately gated live canary for every landed PHP Profile', function (): void {
+    $canaries = file_get_contents(__DIR__.'/../../docs/live-provider-canaries.md');
+
+    expect($canaries)->not->toBeFalse();
+    assert(is_string($canaries));
+
+    preg_match_all(
+        '/^\| C(?<id>\d{2}) \| `(?<profile>[^`]+)` \|/m',
+        $canaries,
+        $matches,
+        PREG_SET_ORDER,
+    );
+
+    $ids = array_column($matches, 'id');
+    $profiles = array_column($matches, 'profile');
+    $configuredProfiles = array_keys(config('librarium.profiles'));
+    sort($profiles);
+    sort($configuredProfiles);
+
+    expect($matches)->toHaveCount(20)
+        ->and($ids)->toBe(array_map(static fn (int $id): string => sprintf('%02d', $id), range(1, 20)))
+        ->and($profiles)->toBe($configuredProfiles)
+        ->and($canaries)->toContain('Approval for one ID does')
+        ->toContain('No live provider or')
+        ->toContain('Unknown cost is not zero.')
+        ->toContain('C01–C13 passed separately authorized live checks')
+        ->toContain('C14–C20 remain unverified live.')
+        ->toContain("--filter='<exact dataset name from the table>' --fail-on-skipped");
+});

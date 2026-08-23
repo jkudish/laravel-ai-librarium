@@ -128,42 +128,19 @@ terminal `ResearchResult`. This preserves SDK response-shape compatibility; it
 does not imply that Laravel AI manages the background request, dispatches its
 prompt events, or runs its middleware and conversation lifecycle.
 
-To exercise the background research Driver against OpenAI, make
-`OPENAI_API_KEY` available to the process, then run:
+## Live validation
 
-```bash
-LIBRARIUM_LIVE_TESTS=1 composer test:live:openai-research
-```
+Live checks are paid, separately authorized release gates. See the
+[live provider canary inventory](docs/live-provider-canaries.md) for the 20
+materially unique checks, their current harness coverage, credentials, pricing
+uncertainty, and the approval record required before each dispatch. Approval of
+one canary does not authorize another canary, a retry, or a bulk Profile group.
 
-The canary uses `gpt-5.6-sol` by default. Set `OPENAI_RESEARCH_MODEL` to test
-another Responses API model that supports background execution, `xhigh`
-reasoning, and web search.
-
-To run the opt-in live canary, make `GEMINI_API_KEY` available to the process
-without committing it, then run:
-
-```bash
-LIBRARIUM_LIVE_TESTS=1 composer test:live:gemini
-```
-
-Every live test requires the explicit `LIBRARIUM_LIVE_TESTS=1` opt-in, even when
-a provider credential is present. The ordinary test suite therefore cannot make
-a live provider call. The dedicated command fails when the opt-in or credential
-is absent, or when the canary is skipped.
-
-To validate every SDK-backed Profile, configure the Gemini, OpenRouter,
-Anthropic, and OpenAI credentials, then run:
-
-```bash
-LIBRARIUM_LIVE_TESTS=1 composer test:live:sdk
-```
-
-To exercise the SearchAPI Profiles against the live endpoint, make
-`SEARCHAPI_KEY` available to the process, then run:
-
-```bash
-LIBRARIUM_LIVE_TESTS=1 SEARCHAPI_KEY=... composer test:live:searchapi
-```
+Every existing live test requires `LIBRARIUM_LIVE_TESTS=1` even when a provider
+credential is present. The flag is a technical opt-in, not spending approval.
+The ordinary `composer test` and `composer test:conformance` commands exclude
+`tests/Live`, prevent stray HTTP requests and AI prompts, and make no provider
+calls.
 
 Queued research uses the dedicated `research` queue by default. Configure its connection through `librarium.queue.connection`, or use normal pending-dispatch methods such as `onConnection()` and `onQueue()` on the queued response.
 
@@ -199,6 +176,8 @@ Provider-native polling, resumable handles, and webhook verification stay inside
 ```bash
 composer install
 composer test
+composer test:conformance
 composer analyse
 composer format
+composer validate --strict
 ```
