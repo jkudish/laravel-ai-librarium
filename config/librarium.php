@@ -10,6 +10,15 @@ use Jkudish\LaravelAiLibrarium\Drivers\OpenAi\OpenAiResearchDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Perplexity\PerplexityAgentDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\SearchApi\SearchApiDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Xai\XaiGrokDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\You\YouAnswerDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\You\YouCredential;
+use Jkudish\LaravelAiLibrarium\Drivers\You\YouResearchDriver;
+
+/** @phpstan-ignore larastan.noEnvCallsOutsideOfConfig (publishable package config is outside the host config path) */
+$youCanonicalCredential = env('YOU_COM_API_KEY');
+/** @phpstan-ignore larastan.noEnvCallsOutsideOfConfig (publishable package config is outside the host config path) */
+$youDocsCredential = env('YDC_API_KEY');
+$youCredential = YouCredential::resolve($youCanonicalCredential, $youDocsCredential);
 
 return [
     'default_group' => 'quick',
@@ -157,6 +166,36 @@ return [
             'options' => [],
             'credential' => config('services.kagi.key'),
             'estimated_cost' => ['amount' => '0.015', 'currency' => 'USD'],
+        ],
+        'you-answer' => [
+            'driver' => YouAnswerDriver::class,
+            'provider' => 'you-answer',
+            'model' => null,
+            'result_kind' => 'grounded_answer',
+            'grounding' => 'required',
+            'observation' => 'api_output',
+            'corpora' => ['web'],
+            'retrieval_methods' => ['search_endpoint'],
+            'prompt' => '{{ query }}',
+            'enabled' => true,
+            'options' => [],
+            'credential' => $youCredential,
+            'estimated_cost' => ['amount' => '0.005', 'currency' => 'USD'],
+        ],
+        'you-research' => [
+            'driver' => YouResearchDriver::class,
+            'provider' => 'you-research',
+            'model' => null,
+            'result_kind' => 'research_report',
+            'grounding' => 'required',
+            'observation' => 'api_output',
+            'corpora' => ['web'],
+            'retrieval_methods' => ['research_agent'],
+            'prompt' => '{{ query }}',
+            'enabled' => true,
+            'options' => ['research_effort' => 'standard'],
+            'credential' => $youCredential,
+            'estimated_cost' => ['amount' => '0.05', 'currency' => 'USD'],
         ],
         'perplexity-sonar-pro' => [
             'driver' => PerplexityAgentDriver::class,
