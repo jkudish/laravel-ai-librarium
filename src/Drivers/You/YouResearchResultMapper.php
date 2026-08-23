@@ -33,7 +33,7 @@ final readonly class YouResearchResultMapper
 
         $content = data_get($output, 'content');
         $contentType = data_get($output, 'content_type');
-        $sourceValues = data_get($output, 'sources');
+        $sourceValues = data_get($output, 'sources', []);
         if (! is_string($content) || trim($content) === '' || $contentType !== 'text'
             || ! is_array($sourceValues) || ! array_is_list($sourceValues)) {
             throw $this->invalidResponse();

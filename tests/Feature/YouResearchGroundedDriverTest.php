@@ -74,6 +74,18 @@ it('accepts a synchronous Research answer with no sources', function (): void {
     Http::assertSentCount(1);
 });
 
+it('accepts a synchronous Research answer when sources are omitted', function (): void {
+    $success = youResearchGroundedSuccess();
+    unset($success['output']['sources']);
+    Http::fake(['https://api.you.com/v1/research' => Http::response($success)]);
+
+    $result = app(YouResearchGroundedDriver::class)->run(youResearchGroundedRequest());
+
+    expect($result->citations)->toBeEmpty()
+        ->and(data_get($result->providerMeta, 'you-com:research.sources'))->toBe([]);
+    Http::assertSentCount(1);
+});
+
 it('rejects invalid local input and incompatible grounded Research semantics before HTTP', function (array $overrides, string $code): void {
     Http::fake();
 
@@ -137,6 +149,7 @@ it('fails closed on malformed synchronous Research responses', function (mixed $
     'non-object' => ['provider-secret'],
     'blank content' => [['output' => ['content' => ' ', 'content_type' => 'text', 'sources' => []], 'warnings' => []]],
     'structured content' => [['output' => ['content' => ['secret' => true], 'content_type' => 'object', 'sources' => []], 'warnings' => []]],
+    'non-array sources' => [['output' => ['content' => 'Answer', 'content_type' => 'text', 'sources' => 'provider-secret'], 'warnings' => []]],
     'malformed source' => [['output' => ['content' => 'Answer', 'content_type' => 'text', 'sources' => [['url' => 'bad']]], 'warnings' => []]],
 ]);
 

@@ -150,6 +150,20 @@ it('accepts a completed durable Research report with no sources', function (): v
         ->and(data_get($result->providerMeta, 'you-com:research.warnings'))->toBe([]);
 });
 
+it('accepts a completed durable Research report when sources are omitted', function (): void {
+    $success = youResearchSuccess();
+    unset($success['output']['sources']);
+    Http::fake(['https://api.you.com/v1/research*' => Http::sequence()
+        ->push(youResearchSubmission(), 202)
+        ->push(youResearchTask('completed', $success))
+        ->push(youResearchTask('completed', $success))]);
+
+    $result = app(YouResearchDriver::class)->run(youResearchRequest());
+
+    expect($result->citations)->toBeEmpty()
+        ->and(data_get($result->providerMeta, 'you-com:research.sources'))->toBe([]);
+});
+
 it('fails closed on malformed Research task responses', function (mixed $payload): void {
     $sequence = Http::sequence()->push(youResearchSubmission(), 202)->push($payload);
     if (is_array($payload) && data_get($payload, 'status') === 'completed') {
@@ -165,6 +179,7 @@ it('fails closed on malformed Research task responses', function (mixed $payload
     'wrong task id' => [youResearchTask('running', id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')],
     'blank content' => [youResearchTask('completed', ['output' => ['content' => ' ', 'content_type' => 'text', 'sources' => []], 'warnings' => []])],
     'structured content unsupported by standard Profile' => [youResearchTask('completed', ['output' => ['content' => ['report' => true], 'content_type' => 'object', 'sources' => []], 'warnings' => []])],
+    'non-array sources' => [youResearchTask('completed', ['output' => ['content' => 'Report', 'content_type' => 'text', 'sources' => 'provider-secret'], 'warnings' => []])],
     'malformed source' => [youResearchTask('completed', ['output' => ['content' => 'Report', 'content_type' => 'text', 'sources' => [['url' => 'bad']]], 'warnings' => []])],
 ]);
 
