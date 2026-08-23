@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jkudish\LaravelAiLibrarium;
 
+use Closure;
 use Illuminate\Contracts\Validation\Factory as ValidationFactory;
 use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
@@ -30,12 +31,13 @@ final class PendingResearch
 
     private ?int $timeoutSeconds = null;
 
+    /** @param Closure(): ExecutesResearch $resolveExecutor */
     public function __construct(
         public readonly string $input,
         public readonly string $requestId,
         private readonly ValidationFactory $validator,
         private readonly ResearchCompiler $compiler,
-        private readonly ExecutesResearch $executor,
+        private readonly Closure $resolveExecutor,
     ) {}
 
     public function using(string $profile): self
@@ -118,12 +120,12 @@ final class PendingResearch
 
     public function run(): ResearchResponse
     {
-        return $this->executor->run($this->compiler->compile($this));
+        return ($this->resolveExecutor)()->run($this->compiler->compile($this));
     }
 
     public function queue(): QueuedResearchResponse
     {
-        return $this->executor->queue($this->compiler->compile($this));
+        return ($this->resolveExecutor)()->queue($this->compiler->compile($this));
     }
 
     /** @return array{kind: string|null, value: string|list<string>|array<string, mixed>|null} */

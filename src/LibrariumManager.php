@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jkudish\LaravelAiLibrarium;
 
+use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Validation\Factory as ValidationFactory;
 use Illuminate\Support\Str;
 use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
@@ -14,7 +15,7 @@ final readonly class LibrariumManager implements Librarium
     public function __construct(
         private ValidationFactory $validator,
         private ResearchCompiler $compiler,
-        private ExecutesResearch $executor,
+        private Container $container,
         private ResearchStatusStore $statusStore,
     ) {}
 
@@ -30,7 +31,7 @@ final readonly class LibrariumManager implements Librarium
             requestId: Str::ulid()->toString(),
             validator: $this->validator,
             compiler: $this->compiler,
-            executor: $this->executor,
+            resolveExecutor: fn (): ExecutesResearch => $this->container->make(ExecutesResearch::class),
         );
     }
 
