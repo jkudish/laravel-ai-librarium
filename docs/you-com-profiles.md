@@ -109,17 +109,21 @@ Official references:
 
 ## Paid live smoke gate
 
-Ordinary tests use Laravel HTTP fakes. The live harness requires two independent
-opt-ins and a credential. Its documented maximum is $0.105 for one Answer call,
-one inline standard Research call, and one background standard Research call:
+Ordinary tests use Laravel HTTP fakes. Each live canary requires two independent
+opt-ins, a credential, and an exact dataset filter. Run only the separately
+approved Profile:
 
 ```bash
 LIBRARIUM_LIVE_TESTS=1 \
-LIBRARIUM_YOU_LIVE_SPEND_USD=0.105 \
+LIBRARIUM_YOU_LIVE_SPEND_USD=0.005 \
 YOU_COM_API_KEY=... \
-vendor/bin/pest tests/Live/YouProfilesLiveTest.php --fail-on-skipped
+vendor/bin/pest tests/Live/YouProfilesLiveTest.php \
+  --filter='You Answer' --fail-on-skipped
 ```
 
-`YDC_API_KEY` may replace `YOU_COM_API_KEY`. Do not run this command as part of
-ordinary CI. Capture only redacted latency, evidence, error, and spend proof for
-the release gate; do not persist provider secrets or raw responses.
+Use `LIBRARIUM_YOU_LIVE_SPEND_USD=0.05` with the exact `You Research grounded`
+or `You Research durable` dataset filter for either Research canary. Approval
+for one dataset does not authorize either other dataset. `YDC_API_KEY` may
+replace `YOU_COM_API_KEY`. Do not run these commands as part of ordinary CI.
+Capture only redacted latency, evidence, error, and spend proof for the release
+gate; do not persist provider secrets or raw responses.

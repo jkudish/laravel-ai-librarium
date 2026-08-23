@@ -119,8 +119,8 @@ exposes credentials through previews and terminal results.
 `perplexity-sonar-pro`, `gemini-grounded`, and `grok`. `deep` is derived from
 every configured `research_report` Profile rather than maintained as a second
 list; the built-in catalog currently yields `openai-research` and
-`perplexity-sonar-deep`, plus standard-effort `you-research-research`. `all` similarly
-derives every configured Profile.
+`perplexity-sonar-deep`, plus standard-effort `you-research-research`. `all`
+similarly derives every configured Profile.
 Profiles that are disabled or missing a credential remain visible in preview
 diagnostics but are not executed by a group. Invalid Profile configuration
 fails preflight instead of being silently skipped.

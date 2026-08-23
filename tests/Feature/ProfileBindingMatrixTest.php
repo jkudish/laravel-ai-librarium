@@ -158,6 +158,9 @@ it('reconciles every TypeScript matrix row with the landed PHP catalog', functio
         'searchapi-google-ai-mode/surface' => 'searchapi-google-ai-mode',
         'searchapi-bing-copilot/surface' => 'searchapi-bing-copilot',
         'searchapi-google-ai-overview/surface' => 'searchapi-google-ai-overview',
+        'you-research/grounded' => 'you-research-grounded',
+        'you-research/research' => 'you-research-research',
+        'you-answer/grounded' => 'you-answer',
     ];
 
     $documentedLanded = [];
@@ -179,7 +182,7 @@ it('reconciles every TypeScript matrix row with the landed PHP catalog', functio
 
     expect($matches)->toHaveCount(40)
         ->and($documentedLanded)->toBe($landed)
-        ->and($documentedAbsent)->toHaveCount(20)
+        ->and($documentedAbsent)->toHaveCount(17)
         ->and($configuredProfiles)->toBe($expectedProfiles);
 });
 
@@ -202,13 +205,13 @@ it('keeps one separately gated live canary for every landed PHP Profile', functi
     sort($profiles);
     sort($configuredProfiles);
 
-    expect($matches)->toHaveCount(20)
-        ->and($ids)->toBe(array_map(static fn (int $id): string => sprintf('%02d', $id), range(1, 20)))
+    expect($matches)->toHaveCount(23)
+        ->and($ids)->toBe(array_map(static fn (int $id): string => sprintf('%02d', $id), range(1, 23)))
         ->and($profiles)->toBe($configuredProfiles)
         ->and($canaries)->toContain('Approval for one ID does')
         ->toContain('No live provider or')
         ->toContain('Unknown cost is not zero.')
         ->toContain('C01–C13 passed separately authorized live checks')
-        ->toContain('C14–C20 remain unverified live.')
+        ->toContain('C14–C23 remain unverified live.')
         ->toContain("--filter='<exact dataset name from the table>' --fail-on-skipped");
 });
