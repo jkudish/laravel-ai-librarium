@@ -1,7 +1,7 @@
 # Live provider canary approval gates
 
 This is the release-candidate inventory of materially unique live checks for the
-20 Profiles landed in PHP. It is a plan, not authorization. No live provider or
+23 Profiles landed in PHP. It is a plan, not authorization. No live provider or
 paid call was made while producing or verifying this document.
 
 ## Approval contract
@@ -50,10 +50,13 @@ provider/model and truthful search-on terminal projection differ materially.
 | C18 | `searchapi-google-ai-mode` | SearchAPI Google AI Mode surface | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — google ai mode; not run | Catalog estimate $0.004/request; cap required |
 | C19 | `searchapi-bing-copilot` | SearchAPI Bing Copilot surface | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — bing copilot; not run | Catalog estimate $0.004/request; cap required |
 | C20 | `searchapi-google-ai-overview` | SearchAPI two-stage Google page token then AI Overview | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — google ai overview; not run | Catalog estimate $0.008/logical request; cap required |
+| C21 | `you-answer` | You.com Answer endpoint and citation mapping | `YOU_COM_API_KEY` or `YDC_API_KEY` | `YouProfilesLiveTest` — You Answer; not run | Exact $0.005/request acknowledgement required |
+| C22 | `you-research-grounded` | You.com synchronous standard Research without background mode | `YOU_COM_API_KEY` or `YDC_API_KEY` | `YouProfilesLiveTest` — You Research grounded; not run | Exact $0.05/request acknowledgement required |
+| C23 | `you-research-research` | You.com background standard Research submit/poll/retrieve | `YOU_COM_API_KEY` or `YDC_API_KEY` | `YouProfilesLiveTest` — You Research durable; not run | Exact $0.05/request acknowledgement required |
 
 ## Narrow invocation
 
-For C01–C06 and C14–C20, invoke only the named dataset after approval rather
+For C01–C06 and C14–C23, invoke only the named dataset after approval rather
 than a bulk Composer script:
 
 ```bash
@@ -73,7 +76,7 @@ command itself is not authorization.
   implementation heads. PlanMode tasks #2834, #2836, and #2901 retain the
   frozen SHAs and redacted receipts. That evidence does not authorize a rerun or
   claim that a later release-candidate SHA was exercised.
-- C14–C20 remain unverified live. Their committed opt-in harness is runnable one
+- C14–C23 remain unverified live. Their committed opt-in harness is runnable one
   dataset at a time after the approval contract above is satisfied.
 - Any rerun, including a final-release revalidation, needs current provider-doc
   review, credentials, a spend cap, and an approved SHA. The bulk

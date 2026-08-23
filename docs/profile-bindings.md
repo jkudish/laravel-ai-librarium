@@ -1,9 +1,9 @@
 # Profile binding matrix
 
 This began as the Wave 0 implementation authority for PlanMode #2814. It now
-records the Wave 4 closeout against the PHP catalog landed at
-`95744236dcc626a87db455e76cef1ce80e67a90c`. It targets best-effort parity. It
-is not a promise that PHP and TypeScript will remain in permanent lockstep.
+records the Wave 4 closeout and subsequent landed Profile work. It targets
+best-effort parity. It is not a promise that PHP and TypeScript will remain in
+permanent lockstep.
 
 No row authorizes a provider request or a paid call.
 
@@ -24,17 +24,17 @@ Pest test locks that result without introducing a TypeScript runtime dependency.
 
 | PHP disposition | Count | Meaning |
 | --- | ---: | --- |
-| Landed in core through #2591 | 20 | Six Laravel AI SDK Profiles and fourteen focused HTTP Profiles are configured and covered offline. |
-| Separate approved task | 4 | Firecrawl remains outside core under #2592; You.com remains under #2694. None is registered by this package. |
+| Landed in core | 23 | Six Laravel AI SDK Profiles and seventeen focused HTTP Profiles are configured and covered offline. |
+| Separate approved task | 1 | Firecrawl remains outside core under #2592 and is not registered by this package. |
 | Explicit post-1.0 holdback | 16 | Technically viable parity targets that are not registered by this package. |
 | **Total** | **40** | Every implemented TypeScript Profile appears exactly once below. |
 
 The TypeScript inventory contains 15 grounded answers, 10 search-result
 Profiles, 9 durable research reports, and 6 surface observations. The landed
-PHP subset contains 10 grounded answers, 2 search-result Profiles, 2 durable
+PHP subset contains 12 grounded answers, 2 search-result Profiles, 3 durable
 research reports, and 6 surface observations. PHP `quick` has five curated
-members, `visibility` has nine, `deep` derives its two configured research
-Profiles, and `all` derives all 20 configured Profiles.
+members, `visibility` has nine, `deep` derives its three configured research
+Profiles, and `all` derives all 23 configured Profiles.
 
 ## Landed PHP reconciliation
 
@@ -68,9 +68,9 @@ proof is not claimed here; the separately gated canary inventory is in
 | `searchapi-bing-copilot/surface` | Landed | `searchapi-bing-copilot` | `SearchApiDriverTest` |
 | `searchapi-google-ai-overview/surface` | Landed | `searchapi-google-ai-overview` | `SearchApiDriverTest` |
 | `firecrawl-search/search` | Separate task | #2592 adapter package | Not registered in core |
-| `you-research/grounded` | Separate task | #2694 | Not registered in core |
-| `you-research/research` | Separate task | #2694 | Not registered in core |
-| `you-answer/grounded` | Separate task | #2694 | Not registered in core |
+| `you-research/grounded` | Landed | `you-research-grounded` | `YouResearchGroundedDriverTest` |
+| `you-research/research` | Landed | `you-research-research` | `YouResearchDriverTest` |
+| `you-answer/grounded` | Landed | `you-answer` | `YouAnswerDriverTest` |
 | `brave-search/search` | Holdback | #2841 | Not registered in core |
 | `exa/research` | Holdback | #2842 | Not registered in core |
 | `tavily/search` | Holdback | #2841 | Not registered in core |
@@ -375,7 +375,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 - **Pricing:** two estimated $0.004 request units
 - **Test and proof:** Two-stage surface fixture with missing-token failure; D + L + B
 
-## Separate approved tasks (4)
+## Separate approved tasks (1)
 
 ### `firecrawl-search/search`
 
@@ -389,6 +389,8 @@ cost. Missing provider-reported cost remains `null`, never zero.
 - **Pricing:** one credit by default; USD is account-specific
 - **Test and proof:** Adapter fake plus shipped-adapter paid query; D + L; B where used for collection
 
+## #2694 You.com: landed 1.0 Profiles (3)
+
 ### `you-research/grounded`
 
 - **Workflow:** none
@@ -398,7 +400,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 - **Binding:** You.com inline Research API
 - **Execution:** inline
 - **Terminal:** HTTP answer
-- **Pricing:** one query credit; USD is account-specific
+- **Pricing:** estimated $0.05 per standard request
 - **Test and proof:** HTTP fake; D + L
 
 ### `you-research/research`
@@ -410,7 +412,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 - **Binding:** You.com background Research API
 - **Execution:** background/durable; poll then retrieve; no remote cancellation claim
 - **Terminal:** HTTP report
-- **Pricing:** manual/unmetered in the accepted catalog; unknown stays null
+- **Pricing:** estimated $0.05 per standard request
 - **Test and proof:** Durable fake; D + L
 
 ### `you-answer/grounded`

@@ -49,6 +49,9 @@ that Laravel AI does not expose through its prompt API:
 | `brave-answers` | Brave Answers (`brave`) | Grounded answer | Inline | `services.brave.key` |
 | `exa` | Exa Search | Search results | Inline | `services.exa.key` |
 | `kagi-fastgpt` | Kagi FastGPT | Grounded answer | Inline | `services.kagi.key` |
+| `you-answer` | You.com Answer | Grounded answer | Inline | `YOU_COM_API_KEY` or `YDC_API_KEY` |
+| `you-research-grounded` | You.com Research (`standard`) | Grounded answer | Inline | `YOU_COM_API_KEY` or `YDC_API_KEY` |
+| `you-research-research` | You.com Research (`standard`) | Research report | Background | `YOU_COM_API_KEY` or `YDC_API_KEY` |
 | `perplexity-sonar-pro` | Perplexity Agent preset `low` | Grounded answer | Inline | `services.perplexity.key` |
 | `grok` | xAI `grok-4.6` with web search | Grounded answer | Inline | `ai.providers.xai.key` |
 | `openai-research` | OpenAI `gpt-5.6-sol` with web research | Research report | Background | `ai.providers.openai.key` |
@@ -69,6 +72,16 @@ consuming application's `config/services.php`:
 Librarium stores the resolved values in its in-memory Profile catalog, not the
 configuration paths. Credentials are excluded from previews, serialized
 Profiles, terminal results, provider metadata, and safe Driver errors.
+
+You.com Answer, inline Research, and durable Research are independently
+selectable and never alias or automatically fall back across depth.
+`YOU_COM_API_KEY` is canonical; `YDC_API_KEY` is a nonbreaking fallback for the
+provider's current documentation convention. Answer and inline Research are
+explicit opt-in and outside all curated groups; durable standard Research
+participates only in the non-default derived `deep` group. See
+[the You.com Profile guide](docs/you-com-profiles.md) for options, evidence
+mapping, exact request estimates, failed-call billing uncertainty, and the
+paid live gate.
 
 The package also ships SearchAPI.io Profiles served by a small Laravel HTTP
 Driver. `searchapi` returns raw Google search results; the surface Profiles
@@ -106,7 +119,8 @@ exposes credentials through previews and terminal results.
 `perplexity-sonar-pro`, `gemini-grounded`, and `grok`. `deep` is derived from
 every configured `research_report` Profile rather than maintained as a second
 list; the built-in catalog currently yields `openai-research` and
-`perplexity-sonar-deep`. `all` similarly derives every configured Profile.
+`perplexity-sonar-deep`, plus standard-effort `you-research-research`. `all`
+similarly derives every configured Profile.
 Profiles that are disabled or missing a credential remain visible in preview
 diagnostics but are not executed by a group. Invalid Profile configuration
 fails preflight instead of being silently skipped.
