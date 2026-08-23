@@ -13,6 +13,7 @@ use Jkudish\LaravelAiLibrarium\Drivers\Perplexity\PerplexityAgentDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Xai\XaiGrokDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\You\YouAnswerDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\You\YouResearchDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\You\YouResearchGroundedDriver;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\LaravelAiLibrariumServiceProvider;
 use Jkudish\LaravelAiLibrarium\LibrariumManager;
@@ -92,18 +93,28 @@ it('registers the accepted core HTTP Profiles with resolved credentials', functi
     'Perplexity Sonar Deep' => ['perplexity-sonar-deep', PerplexityAgentDriver::class, 'perplexity', null, 'research_report', 'required', 'research_agent', 'services.perplexity.key', null],
 ]);
 
-it('registers distinct You.com endpoint Profiles with one compatible credential value', function (): void {
+it('registers three distinct You.com Profiles with one compatible credential value', function (): void {
     config()->set('librarium.profiles.you-answer.credential', 'testing-you-key');
-    config()->set('librarium.profiles.you-research.credential', 'testing-you-key');
+    config()->set('librarium.profiles.you-research-grounded.credential', 'testing-you-key');
+    config()->set('librarium.profiles.you-research-research.credential', 'testing-you-key');
 
     expect(config('librarium.profiles.you-answer.driver'))->toBe(YouAnswerDriver::class)
         ->and(config('librarium.profiles.you-answer.provider'))->toBe('you-answer')
         ->and(config('librarium.profiles.you-answer.estimated_cost.amount'))->toBe('0.005')
-        ->and(config('librarium.profiles.you-research.driver'))->toBe(YouResearchDriver::class)
-        ->and(config('librarium.profiles.you-research.provider'))->toBe('you-research')
-        ->and(config('librarium.profiles.you-research.options'))->toBe(['research_effort' => 'standard'])
-        ->and(config('librarium.profiles.you-research.estimated_cost.amount'))->toBe('0.05')
-        ->and(config('librarium.profiles.you-answer.credential'))->toBe(config('librarium.profiles.you-research.credential'));
+        ->and(config('librarium.profiles.you-research-grounded.driver'))->toBe(YouResearchGroundedDriver::class)
+        ->and(config('librarium.profiles.you-research-grounded.provider'))->toBe('you-research')
+        ->and(config('librarium.profiles.you-research-grounded.result_kind'))->toBe('grounded_answer')
+        ->and(config('librarium.profiles.you-research-grounded.retrieval_methods'))->toBe(['search_endpoint'])
+        ->and(config('librarium.profiles.you-research-grounded.options'))->toBe(['research_effort' => 'standard'])
+        ->and(config('librarium.profiles.you-research-grounded.estimated_cost.amount'))->toBe('0.05')
+        ->and(config('librarium.profiles.you-research-research.driver'))->toBe(YouResearchDriver::class)
+        ->and(config('librarium.profiles.you-research-research.provider'))->toBe('you-research')
+        ->and(config('librarium.profiles.you-research-research.result_kind'))->toBe('research_report')
+        ->and(config('librarium.profiles.you-research-research.retrieval_methods'))->toBe(['research_agent'])
+        ->and(config('librarium.profiles.you-research-research.options'))->toBe(['research_effort' => 'standard'])
+        ->and(config('librarium.profiles.you-research-research.estimated_cost.amount'))->toBe('0.05')
+        ->and(config('librarium.profiles.you-answer.credential'))->toBe(config('librarium.profiles.you-research-grounded.credential'))
+        ->toBe(config('librarium.profiles.you-research-research.credential'));
 });
 
 it('resolves curated and derived groups from the complete built-in catalog', function (): void {
@@ -126,7 +137,7 @@ it('resolves curated and derived groups from the complete built-in catalog', fun
         'gemini-grounded',
         'grok',
     ])->and($catalog->group('deep')['profiles']->pluck('id')->all())->toBe([
-        'you-research',
+        'you-research-research',
         'openai-research',
         'perplexity-sonar-deep',
     ])->and($catalog->group('all')['profiles']->pluck('id')->all())->toBe([
@@ -140,7 +151,8 @@ it('resolves curated and derived groups from the complete built-in catalog', fun
         'exa',
         'kagi-fastgpt',
         'you-answer',
-        'you-research',
+        'you-research-grounded',
+        'you-research-research',
         'perplexity-sonar-pro',
         'grok',
         'openai-research',

@@ -13,6 +13,7 @@ use Jkudish\LaravelAiLibrarium\Drivers\Xai\XaiGrokDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\You\YouAnswerDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\You\YouCredential;
 use Jkudish\LaravelAiLibrarium\Drivers\You\YouResearchDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\You\YouResearchGroundedDriver;
 
 /** @phpstan-ignore larastan.noEnvCallsOutsideOfConfig (publishable package config is outside the host config path) */
 $youCanonicalCredential = env('YOU_COM_API_KEY');
@@ -182,7 +183,22 @@ return [
             'credential' => $youCredential,
             'estimated_cost' => ['amount' => '0.005', 'currency' => 'USD'],
         ],
-        'you-research' => [
+        'you-research-grounded' => [
+            'driver' => YouResearchGroundedDriver::class,
+            'provider' => 'you-research',
+            'model' => null,
+            'result_kind' => 'grounded_answer',
+            'grounding' => 'required',
+            'observation' => 'api_output',
+            'corpora' => ['web'],
+            'retrieval_methods' => ['search_endpoint'],
+            'prompt' => '{{ query }}',
+            'enabled' => true,
+            'options' => ['research_effort' => 'standard'],
+            'credential' => $youCredential,
+            'estimated_cost' => ['amount' => '0.05', 'currency' => 'USD'],
+        ],
+        'you-research-research' => [
             'driver' => YouResearchDriver::class,
             'provider' => 'you-research',
             'model' => null,

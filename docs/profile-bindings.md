@@ -398,7 +398,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 - **Binding:** You.com inline Research API
 - **Execution:** inline
 - **Terminal:** HTTP answer
-- **Pricing:** one query credit; USD is account-specific
+- **Pricing:** estimated $0.05 per standard request
 - **Test and proof:** HTTP fake; D + L
 
 ### `you-research/research`
@@ -410,7 +410,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 - **Binding:** You.com background Research API
 - **Execution:** background/durable; poll then retrieve; no remote cancellation claim
 - **Terminal:** HTTP report
-- **Pricing:** manual/unmetered in the accepted catalog; unknown stays null
+- **Pricing:** estimated $0.05 per standard request
 - **Test and proof:** Durable fake; D + L
 
 ### `you-answer/grounded`

@@ -151,6 +151,39 @@ it('allows exclude and boost domains together', function (): void {
     Http::assertSentCount(1);
 });
 
+it('accepts an Answer without citations or considered results', function (): void {
+    Http::fake(['https://api.you.com/v1/answer' => Http::response([
+        'answer' => 'A grounded answer without provider-reported evidence.',
+        'citations' => [],
+        'results' => ['web' => []],
+    ])]);
+
+    $result = app(YouAnswerDriver::class)->run(youAnswerRequest());
+
+    expect($result->citations)->toBeEmpty()
+        ->and(data_get($result->providerMeta, 'you-com:answer.citation_entries'))->toBe([])
+        ->and(data_get($result->providerMeta, 'you-com:answer.considered_web_results'))->toBe([]);
+    Http::assertSentCount(1);
+});
+
+it('rejects incompatible Answer Profile semantics before HTTP dispatch', function (array $overrides): void {
+    Http::fake();
+
+    expect(fn () => app(YouAnswerDriver::class)->run(youAnswerRequest(...$overrides)))
+        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'you_answer.invalid_profile'
+            && ! $exception->fallbackAllowed);
+
+    Http::assertNothingSent();
+})->with([
+    'provider' => [['provider' => 'you-research']],
+    'model' => [['model' => 'provider-selected']],
+    'result kind' => [['resultKind' => ResultKind::ResearchReport]],
+    'grounding' => [['grounding' => GroundingPolicy::Optional]],
+    'observation' => [['observation' => ObservationMode::SurfaceSnapshot]],
+    'corpus' => [['corpora' => [Corpus::News]]],
+    'retrieval method' => [['retrievalMethods' => [RetrievalMethod::ResearchAgent]]],
+]);
+
 it('fails closed on malformed successful payloads without leaking them', function (mixed $payload): void {
     Http::fake(['https://api.you.com/v1/answer' => Http::response($payload)]);
 
@@ -282,17 +315,24 @@ function youAnswerRequest(
     array $options = [],
     ?CarbonImmutable $deadline = null,
     ?string $credential = 'testing-you-key',
+    string $provider = 'you-answer',
+    ?string $model = null,
+    ResultKind $resultKind = ResultKind::GroundedAnswer,
+    GroundingPolicy $grounding = GroundingPolicy::Required,
+    ObservationMode $observation = ObservationMode::ApiOutput,
+    array $corpora = [Corpus::Web],
+    array $retrievalMethods = [RetrievalMethod::SearchEndpoint],
 ): DriverRequest {
     $profile = new Profile(
         id: 'you-answer',
         driver: YouAnswerDriver::class,
-        provider: 'you-answer',
-        model: null,
-        resultKind: ResultKind::GroundedAnswer,
-        grounding: GroundingPolicy::Required,
-        observation: ObservationMode::ApiOutput,
-        corpora: collect([Corpus::Web]),
-        retrievalMethods: collect([RetrievalMethod::SearchEndpoint]),
+        provider: $provider,
+        model: $model,
+        resultKind: $resultKind,
+        grounding: $grounding,
+        observation: $observation,
+        corpora: collect($corpora),
+        retrievalMethods: collect($retrievalMethods),
         prompt: '{{ query }}',
         enabled: true,
         options: $options,

@@ -10,6 +10,7 @@ use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
 use Jkudish\LaravelAiLibrarium\Drivers\You\YouAnswerDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\You\YouCredential;
 use Jkudish\LaravelAiLibrarium\Drivers\You\YouResearchDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\You\YouResearchGroundedDriver;
 use Jkudish\LaravelAiLibrarium\Events\ResearchCompleted;
 use Jkudish\LaravelAiLibrarium\Events\ResearchStarted;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
@@ -22,43 +23,56 @@ use Jkudish\LaravelAiLibrarium\Tests\Support\ContractSnapshot;
 
 beforeEach(function (): void {
     config()->set('librarium.profiles.you-answer.credential', 'testing-you-key');
-    config()->set('librarium.profiles.you-research.credential', 'testing-you-key');
+    config()->set('librarium.profiles.you-research-grounded.credential', 'testing-you-key');
+    config()->set('librarium.profiles.you-research-research.credential', 'testing-you-key');
 });
 
-it('registers independently selectable Answer and Research Profiles without aliases or default Answer membership', function (): void {
+it('registers all three independent You.com Profiles without aliases or default membership', function (): void {
     $catalog = app(ProfileCatalog::class);
     $answer = $catalog->find('you-answer')?->profile;
-    $research = $catalog->find('you-research')?->profile;
+    $groundedResearch = $catalog->find('you-research-grounded')?->profile;
+    $durableResearch = $catalog->find('you-research-research')?->profile;
 
     expect($answer)->not->toBeNull()
         ->and($answer?->driver)->toBe(YouAnswerDriver::class)
         ->and($answer?->provider)->toBe('you-answer')
         ->and($answer?->id)->toBe('you-answer')
         ->and($answer?->estimatedCostMicros)->toBe(5_000)
-        ->and($research)->not->toBeNull()
-        ->and($research?->driver)->toBe(YouResearchDriver::class)
-        ->and($research?->provider)->toBe('you-research')
-        ->and($research?->id)->toBe('you-research')
-        ->and($research?->estimatedCostMicros)->toBe(50_000)
-        ->and($research?->options)->toBe(['research_effort' => 'standard'])
-        ->and($catalog->group('quick')['profiles']->pluck('id'))->not->toContain('you-answer')
-        ->and($catalog->group('visibility')['profiles']->pluck('id'))->not->toContain('you-answer')
-        ->and($catalog->group('deep')['profiles']->pluck('id'))->toContain('you-research');
+        ->and($groundedResearch)->not->toBeNull()
+        ->and($groundedResearch?->driver)->toBe(YouResearchGroundedDriver::class)
+        ->and($groundedResearch?->provider)->toBe('you-research')
+        ->and($groundedResearch?->id)->toBe('you-research-grounded')
+        ->and($groundedResearch?->estimatedCostMicros)->toBe(50_000)
+        ->and($groundedResearch?->options)->toBe(['research_effort' => 'standard'])
+        ->and($durableResearch)->not->toBeNull()
+        ->and($durableResearch?->driver)->toBe(YouResearchDriver::class)
+        ->and($durableResearch?->provider)->toBe('you-research')
+        ->and($durableResearch?->id)->toBe('you-research-research')
+        ->and($durableResearch?->estimatedCostMicros)->toBe(50_000)
+        ->and($durableResearch?->options)->toBe(['research_effort' => 'standard']);
+
+    foreach (['you-answer', 'you-research-grounded'] as $inlineProfile) {
+        expect($catalog->group('quick')['profiles']->pluck('id'))->not->toContain($inlineProfile)
+            ->and($catalog->group('visibility')['profiles']->pluck('id'))->not->toContain($inlineProfile)
+            ->and($catalog->group('deep')['profiles']->pluck('id'))->not->toContain($inlineProfile);
+    }
+    expect($catalog->group('deep')['profiles']->pluck('id'))->toContain('you-research-research');
 
     expect(fn () => Librarium::query('Do deep research.')
-        ->using('you-research')
+        ->using('you-research-research')
         ->fallbacks(['you-answer'])
         ->preview())
         ->toThrow(ValidationException::class, 'compatible with at least one primary');
 });
 
-it('keeps YOU_COM_API_KEY canonical while accepting YDC_API_KEY as a nonbreaking fallback for both Profiles', function (): void {
+it('keeps YOU_COM_API_KEY canonical while accepting YDC_API_KEY as a nonbreaking fallback for all Profiles', function (): void {
     expect(YouCredential::resolve('canonical-key', 'docs-alias-key'))->toBe('canonical-key')
         ->and(YouCredential::resolve(null, 'docs-alias-key'))->toBe('docs-alias-key')
         ->and(YouCredential::resolve('  ', 'docs-alias-key'))->toBe('docs-alias-key')
         ->and(YouCredential::resolve(null, null))->toBeNull()
         ->and(config('librarium.profiles.you-answer.credential'))
-        ->toBe(config('librarium.profiles.you-research.credential'));
+        ->toBe(config('librarium.profiles.you-research-grounded.credential'))
+        ->toBe(config('librarium.profiles.you-research-research.credential'));
 });
 
 it('previews an exact 5000 micro-USD Answer estimate and refuses a lower hard budget before HTTP', function (): void {
@@ -82,6 +96,28 @@ it('previews an exact 5000 micro-USD Answer estimate and refuses a lower hard bu
 
     Http::assertNothingSent();
 });
+
+it('previews an exact 50000 micro-USD estimate for each Research Profile and refuses a lower budget before HTTP', function (string $profile): void {
+    Http::fake();
+
+    $preview = Librarium::query('Research this.')
+        ->using($profile)
+        ->maxCost('0.05')
+        ->preview();
+
+    expect($preview->maximumEstimatedCost)->toBe('0.05')
+        ->and($preview->currency)->toBe('USD')
+        ->and($preview->costEstimateComplete)->toBeTrue()
+        ->and($preview->prompts->get($profile))->toBe('Research this.');
+
+    expect(fn () => Librarium::query('Research this.')
+        ->using($profile)
+        ->maxCost('0.049999')
+        ->run())
+        ->toThrow(ValidationException::class);
+
+    Http::assertNothingSent();
+})->with(['you-research-grounded', 'you-research-research']);
 
 it('gives inline Answer run and queue identical terminal semantics and events through the shared runtime', function (): void {
     Http::fake(['https://api.you.com/v1/answer' => Http::response(youProfilesAnswerSuccess())]);

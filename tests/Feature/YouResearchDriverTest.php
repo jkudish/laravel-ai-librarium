@@ -55,7 +55,7 @@ it('uses only the durable standard-effort Research endpoint and maps a distinct 
     expect($result->contentFormat)->toBe(ContentFormat::Markdown)
         ->and($result->content)->toBe('A multi-step report [[1]].')
         ->and($result->provider)->toBe('you-research')
-        ->and($result->profile)->toBe('you-research')
+        ->and($result->profile)->toBe('you-research-research')
         ->and($result->provenance->resultKind)->toBe(ResultKind::ResearchReport)
         ->and($result->provenance->retrievalMethods->all())->toBe([RetrievalMethod::ResearchAgent])
         ->and($result->citations->sole()->source->url)->toBe('https://research.example/source')
@@ -115,6 +115,40 @@ it('rejects any effort drift, blank or overlong input, missing credentials, and 
     'missing credential' => fn () => [youResearchRequest(credential: null), 'you_research.authentication'],
     'expired deadline' => fn () => [youResearchRequest(deadline: CarbonImmutable::now()), 'you_research.deadline_exceeded'],
 ]);
+
+it('rejects incompatible durable Research Profile semantics before HTTP dispatch', function (array $overrides): void {
+    Http::fake();
+
+    expect(fn () => app(YouResearchDriver::class)->run(youResearchRequest(...$overrides)))
+        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'you_research.invalid_profile'
+            && ! $exception->fallbackAllowed);
+
+    Http::assertNothingSent();
+})->with([
+    'provider' => [['provider' => 'you-answer']],
+    'model' => [['model' => 'provider-selected']],
+    'result kind' => [['resultKind' => ResultKind::GroundedAnswer]],
+    'grounding' => [['grounding' => GroundingPolicy::Optional]],
+    'observation' => [['observation' => ObservationMode::SurfaceSnapshot]],
+    'corpus' => [['corpora' => [Corpus::News]]],
+    'retrieval method' => [['retrievalMethods' => [RetrievalMethod::SearchEndpoint]]],
+]);
+
+it('accepts a completed durable Research report with no sources', function (): void {
+    $success = youResearchSuccess();
+    data_set($success, 'output.sources', []);
+    unset($success['warnings']);
+    Http::fake(['https://api.you.com/v1/research*' => Http::sequence()
+        ->push(youResearchSubmission(), 202)
+        ->push(youResearchTask('completed', $success))
+        ->push(youResearchTask('completed', $success))]);
+
+    $result = app(YouResearchDriver::class)->run(youResearchRequest());
+
+    expect($result->citations)->toBeEmpty()
+        ->and(data_get($result->providerMeta, 'you-com:research.sources'))->toBe([])
+        ->and(data_get($result->providerMeta, 'you-com:research.warnings'))->toBe([]);
+});
 
 it('fails closed on malformed Research task responses', function (mixed $payload): void {
     $sequence = Http::sequence()->push(youResearchSubmission(), 202)->push($payload);
@@ -225,17 +259,24 @@ function youResearchRequest(
     array $options = ['research_effort' => 'standard'],
     ?CarbonImmutable $deadline = null,
     ?string $credential = 'testing-you-key',
+    string $provider = 'you-research',
+    ?string $model = null,
+    ResultKind $resultKind = ResultKind::ResearchReport,
+    GroundingPolicy $grounding = GroundingPolicy::Required,
+    ObservationMode $observation = ObservationMode::ApiOutput,
+    array $corpora = [Corpus::Web],
+    array $retrievalMethods = [RetrievalMethod::ResearchAgent],
 ): DriverRequest {
     $profile = new Profile(
-        id: 'you-research',
+        id: 'you-research-research',
         driver: YouResearchDriver::class,
-        provider: 'you-research',
-        model: null,
-        resultKind: ResultKind::ResearchReport,
-        grounding: GroundingPolicy::Required,
-        observation: ObservationMode::ApiOutput,
-        corpora: collect([Corpus::Web]),
-        retrievalMethods: collect([RetrievalMethod::ResearchAgent]),
+        provider: $provider,
+        model: $model,
+        resultKind: $resultKind,
+        grounding: $grounding,
+        observation: $observation,
+        corpora: collect($corpora),
+        retrievalMethods: collect($retrievalMethods),
         prompt: '{{ query }}',
         enabled: true,
         options: $options,

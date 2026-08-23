@@ -16,9 +16,14 @@ use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
+use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
+use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Responses\Citation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ContentFormat;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\SourceKind;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 use Jkudish\LaravelAiLibrarium\Responses\ResultProvenance;
@@ -81,6 +86,22 @@ final readonly class YouAnswerDriver implements Driver
 
     private function preflight(DriverRequest $request): void
     {
+        $profile = $request->profile;
+        if ($profile->provider !== 'you-answer'
+            || $profile->model !== null
+            || $profile->resultKind !== ResultKind::GroundedAnswer
+            || $profile->grounding !== GroundingPolicy::Required
+            || $profile->observation !== ObservationMode::ApiOutput
+            || $profile->corpora->values()->all() !== [Corpus::Web]
+            || $profile->retrievalMethods->values()->all() !== [RetrievalMethod::SearchEndpoint]
+        ) {
+            throw new DriverException(
+                'you_answer.invalid_profile',
+                'The You.com Answer Profile has incompatible provider or provenance semantics.',
+                false,
+            );
+        }
+
         $rules = ['query' => ['bail', 'required', 'string', 'max:400']];
         foreach (self::optionRules() as $key => $rule) {
             $rules['options.'.$key] = $rule;
