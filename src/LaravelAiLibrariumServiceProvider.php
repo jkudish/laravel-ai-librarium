@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Jkudish\LaravelAiLibrarium;
 
 use Illuminate\Support\ServiceProvider;
+use Jkudish\LaravelAiLibrarium\Console\Commands\ProfilesCommand;
+use Jkudish\LaravelAiLibrarium\Console\Commands\QueryCommand;
+use Jkudish\LaravelAiLibrarium\Console\Commands\StatusCommand;
 use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
 use Jkudish\LaravelAiLibrarium\Contracts\Librarium;
 use Jkudish\LaravelAiLibrarium\Drivers\Brave\BraveAnswersDriver;
@@ -67,6 +70,12 @@ final class LaravelAiLibrariumServiceProvider extends ServiceProvider
         if (! $this->app->runningInConsole()) {
             return;
         }
+
+        $this->commands([
+            QueryCommand::class,
+            StatusCommand::class,
+            ProfilesCommand::class,
+        ]);
 
         $this->publishes([
             __DIR__.'/../config/librarium.php' => config_path('librarium.php'),

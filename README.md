@@ -25,6 +25,80 @@ $research = Librarium::query('Compare current agent memory architectures.')
     ->catch(fn ($exception) => /* report the infrastructure failure */);
 ```
 
+## Artisan commands
+
+`librarium:query` provides a guided Laravel Prompts workflow for operators. It
+collects a missing query, lets the operator choose one eligible Profile, a
+group, or multiple Profiles, and offers the existing fallback, timeout, and
+cost controls. It always displays the compiled Profile, availability, warning,
+and cost preview before offering `Run now`, `Queue`, or the default
+`Exit without dispatching` action. Run and queue each require a separate,
+default-no confirmation after that preview.
+
+```bash
+php artisan librarium:query
+php artisan librarium:query 'Compare current agent memory architectures.' \
+    --profile=gemini-grounded \
+    --fallback=openrouter-grounded \
+    --timeout=600 \
+    --max-cost=0.25 \
+    --currency=USD
+```
+
+Supplying a query or selection does not dispatch provider work. `--run` and
+`--queue` select an action, but the interactive command still requires the
+post-preview confirmation. A non-TTY process must use either `--agent` or
+Laravel's `--no-interaction`; otherwise the command exits instead of waiting
+for input. `--no-interaction` uses plain human output and never implies JSON.
+
+Use `--agent` for automation. It disables prompts, ANSI decoration, and
+spinners, writes one deterministic JSON value to stdout on success, and never
+dispatches unless `--run` or `--queue` is explicit. Repeat `--profile` to fan
+out, and repeat `--fallback` to preserve fallback priority:
+
+```bash
+# Preview only
+php artisan librarium:query 'Compare memory systems.' \
+    --agent --profile=gemini-grounded
+
+# Explicit synchronous dispatch
+php artisan librarium:query 'Compare memory systems.' \
+    --agent --profile=gemini-grounded --run
+
+# Explicit queued dispatch
+php artisan librarium:query 'Compare memory systems.' \
+    --agent --group=deep --queue
+
+php artisan librarium:status 01M13EXAMPLEREQUESTID --agent
+php artisan librarium:profiles --agent
+```
+
+Preview, queued, status, and profile-listing JSON use small envelopes with
+`schema_version: 1` and a matching `type`. A completed `--run` writes the public
+`ResearchResponse::toArray()` value directly, without a command envelope.
+Validation and command errors leave stdout empty and write a bounded,
+credential-safe message to stderr when it is available.
+
+Agent-mode exit codes are stable:
+
+| Code | Meaning |
+| ---: | --- |
+| `0` | Preview, queue submission, status/profile lookup, or succeeded research completed |
+| `1` | Unexpected command/infrastructure failure |
+| `2` | Invalid or conflicting input |
+| `3` | Requested status was not found |
+| `4` | Research completed with a partial terminal response |
+| `5` | Research completed with a failed terminal response |
+
+`librarium:status {requestId?}` is a read-only lookup of the package's
+transient queue status; it is not persisted history. `librarium:profiles` is a
+read-only availability view and omits credentials, Profile options, prompts,
+and secret-bearing configuration. Queue workers and the configured queue
+backend remain application responsibilities. These commands can make paid
+provider calls only when an operator explicitly runs or queues a query, so the
+consuming application remains responsible for provider credentials, budgets,
+and authorization to make live calls.
+
 The package ships these Laravel AI SDK Profiles:
 
 | Profile | Provider | Model | Web search |
