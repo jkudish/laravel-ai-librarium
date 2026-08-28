@@ -193,5 +193,64 @@ composer test
 composer test:conformance
 composer analyse
 composer format
+composer format:check
 composer validate --strict
 ```
+
+### Pull-request verification and signoff
+
+GitHub is the collaboration and status surface for this repository, not its
+verification authority. GitHub Actions workflows are intentionally absent.
+Pull-request verification is performed manually in a trusted Amp orb against
+the exact candidate commit:
+
+```bash
+composer install
+composer pr:check
+```
+
+`composer install` is setup only and is never part of `pr:check`. The check
+requires a clean worktree and runs the repository's deterministic offline plan:
+strict Composer validation, platform requirements, the package test suite,
+PHPStan/Larastan, non-mutating Pint, and final diff/worktree/HEAD drift guards.
+It does not install dependencies, run live tests, make provider or other network
+calls, publish, release, deploy, mutate a database, run Node, or perform
+application-owned work. Candidate subprocesses receive an allowlisted
+environment with a disposable home and no ambient GitHub, dedicated signoff,
+provider, or Composer credentials.
+
+On success, the command atomically writes a regular mode-`0600` receipt beneath
+Git administrative storage. The receipt binds the exact full commit SHA,
+`jkudish/laravel-ai-librarium`, the immutable verification-plan ID, successful
+completion time, accepted PHP policy, and bounded PHP, Composer, platform, and
+architecture evidence. Any new commit or change in plan, repository, policy, or
+actual runtime makes the receipt stale and requires a fresh `composer pr:check`.
+
+Signoff requires a separate human approval naming the exact full lowercase SHA:
+
+```bash
+composer pr:signoff -- --approved-sha <full-lowercase-sha>
+```
+
+The command fails closed unless the receipt, clean local HEAD and branch, pushed
+branch, and repository-pinned open PR all still identify that SHA. It also
+requires the canonical `basecamp/gh-signoff` extension and repeats remote, PR,
+worktree, branch, and HEAD checks immediately before one exact unforced
+`gh signoff --commit <sha>` write. Read-only GitHub checks use the existing
+GitHub CLI login. Only the final status-writing subprocess maps the dedicated
+`GH_SIGNOFF_TOKEN` to `GH_TOKEN`; ambient `GH_TOKEN` and `GH_REPO` cannot redirect
+earlier checks or selectors.
+
+Install the extension with `gh extension install basecamp/gh-signoff`. Store
+`GH_SIGNOFF_TOKEN` as an orb secret and limit its fine-grained access to this
+repository with **Contents: read**, **Pull requests: read**, and **Commit
+statuses: read/write**. Never put the token in repository files or ordinary
+shell history, and never inspect or print its value, length, shape, or effective
+permissions.
+
+Signoff is a manual, non-enforced status attestation unless a future separately
+authorized GitHub ruleset changes that policy. Exact-SHA approval authorizes
+only the guarded signoff write. It is not self-approval, merge authorization,
+cryptographic commit signing, ruleset configuration, release, publication,
+deployment, production verification, database work, or permission for paid or
+live provider calls.
