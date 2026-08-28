@@ -28,7 +28,7 @@ function prFailure(string $stderr): array
  * @param  list<string>  $branchSequence
  * @param  list<string>  $remoteSequence
  * @param  list<array<string, mixed>|string>  $pullRequestSequence
- * @return array{calls: ArrayObject<int, array{command: string, arguments: list<string>, options: array<string, mixed>}>, directory: string, path: string, run: Closure}
+ * @return array{calls: ArrayObject<int, array{command: string, arguments: list<string>, options: array<string, mixed>}>, directory: string, path: string, root: string, run: Closure}
  */
 function prRunner(
     array $headSequence = [PR_SHA],
@@ -45,10 +45,12 @@ function prRunner(
     ?string $failingCheck = null,
     string $phpVersion = '8.5.9',
 ): array {
-    $directory = sys_get_temp_dir().'/librarium-pr-workflow-test-'.bin2hex(random_bytes(8));
+    $root = sys_get_temp_dir().'/librarium-pr-workflow-test-'.bin2hex(random_bytes(8));
+    $directory = $root.'/librarium/pr-check';
     mkdir($directory, 0700, true);
+    chmod($root.'/librarium', 0700);
     chmod($directory, 0700);
-    prTemporaryDirectories()->append($directory);
+    prTemporaryDirectories()->append($root);
     $path = $directory.'/'.PR_SHA.'.json';
     $calls = new ArrayObject;
     $headIndex = 0;
@@ -71,6 +73,7 @@ function prRunner(
         &$pullRequestIndex,
         $remoteSequence,
         &$remoteIndex,
+        $root,
         $worktreeSequence,
         &$worktreeIndex,
     ): array {
@@ -90,7 +93,11 @@ function prRunner(
             return prSuccess($value);
         }
 
-        if ($command === 'git' && $arguments[0] === 'rev-parse' && $arguments[1] === '--git-path') {
+        if ($command === 'git' && $arguments === ['rev-parse', '--path-format=absolute', '--git-common-dir']) {
+            return prSuccess($root."\n");
+        }
+
+        if ($command === 'git' && $arguments[0] === 'rev-parse' && in_array('--git-path', $arguments, true)) {
             return prSuccess($path."\n");
         }
 
@@ -134,7 +141,7 @@ function prRunner(
         return prSuccess();
     };
 
-    return compact('calls', 'directory', 'path', 'run');
+    return compact('calls', 'directory', 'path', 'root', 'run');
 }
 
 /** @return array<string, mixed> */
@@ -154,6 +161,7 @@ function prValidReceipt(PrWorkflow $workflow, array $overrides = []): array
                 'architecture' => 'x86_64',
                 'php' => '8.5.9',
                 'composer' => '2.10.3',
+                'composerInstalled' => hash_file('sha256', dirname(__DIR__, 2).'/vendor/composer/installed.json'),
             ],
         ],
     ], $overrides);
@@ -258,6 +266,7 @@ it('writes an atomic exact-SHA mode-0600 repository-bound receipt after every ch
     expect($result['path'])->toBe($mock['path'])
         ->and(fileperms($mock['path']) & 0777)->toBe(0600)
         ->and(fileperms($mock['directory']) & 0777)->toBe(0700)
+        ->and(fileperms(dirname($mock['directory'])) & 0777)->toBe(0700)
         ->and(json_decode((string) file_get_contents($mock['path']), true, flags: JSON_THROW_ON_ERROR))->toBe($result['receipt'])
         ->and($result['receipt'])->toBe(prValidReceipt($workflow));
 
@@ -362,6 +371,7 @@ it('rejects missing, partial, malformed, stale, and foreign receipts before GitH
     'wrong policy' => [['runtime' => ['policy' => ['phpConstraint' => '^8.5', 'phpMinimum' => '8.5.0']]], 'malformed, stale'],
     'missing runtime' => [['runtime' => null], 'malformed, stale'],
     'malformed runtime' => [['runtime' => ['actual' => ['php' => 'not-a-version']]], 'malformed, stale'],
+    'different installed packages' => [['runtime' => ['actual' => ['composerInstalled' => str_repeat('a', 64)]]], 'runtime evidence'],
     'unexpected field' => [['unexpected' => true], 'malformed, stale'],
 ]);
 
@@ -394,6 +404,21 @@ it('rejects symlinked and oversized receipts', function (string $kind, string $m
     'symlink' => ['symlink', 'No readable verification receipt'],
     'oversized' => ['oversized', 'malformed or too large'],
 ]);
+
+it('rejects an intermediate symlink that redirects receipt storage outside Git administration', function (): void {
+    $mock = prRunner();
+    $workflow = new PrWorkflow($mock['run'], ['PATH' => '/usr/bin', 'HOME' => '/home/user', 'GH_SIGNOFF_TOKEN' => 'token']);
+    $outside = sys_get_temp_dir().'/librarium-receipt-outside-'.bin2hex(random_bytes(8));
+    mkdir($outside.'/pr-check', 0700, true);
+    chmod($outside, 0700);
+    chmod($outside.'/pr-check', 0700);
+    prTemporaryDirectories()->append($outside);
+    prRemoveTestDirectory($mock['root'].'/librarium');
+    symlink($outside, $mock['root'].'/librarium');
+    prWriteReceipt($outside.'/pr-check/'.PR_SHA.'.json', prValidReceipt($workflow));
+
+    expect(fn () => $workflow->signoff(PR_SHA))->toThrow(RuntimeException::class, 'receipt namespace directory');
+});
 
 it('rejects runtime evidence that differs or falls outside policy', function (string $phpVersion, string $message): void {
     $mock = prRunner(phpVersion: $phpVersion);
@@ -546,10 +571,21 @@ it('pins selectors and maps the dedicated token only for one exact unforced sign
     $signoffCalls = array_values(array_filter($githubCalls, fn (array $call): bool => $call['arguments'][0] === 'signoff'));
     $remoteCalls = array_values(array_filter($githubCalls, fn (array $call): bool => $call['arguments'][0] === 'api'));
     $pullRequestCalls = array_values(array_filter($githubCalls, fn (array $call): bool => $call['arguments'][0] === 'pr'));
+    $gitPathCalls = array_values(array_filter(
+        $calls,
+        fn (array $call): bool => $call['command'] === 'git' && in_array('--git-path', $call['arguments'], true),
+    ));
 
     expect($signoffCalls)->toHaveCount(1)
         ->and($remoteCalls)->toHaveCount(2)
-        ->and($pullRequestCalls)->toHaveCount(2);
+        ->and($pullRequestCalls)->toHaveCount(2)
+        ->and($gitPathCalls)->toHaveCount(1)
+        ->and($gitPathCalls[0]['arguments'])->toBe([
+            'rev-parse',
+            '--path-format=absolute',
+            '--git-path',
+            'librarium/pr-check/'.PR_SHA.'.json',
+        ]);
 
     $signoffCall = $signoffCalls[0];
     expect($signoffCall['arguments'])->toBe(['signoff', '--commit', PR_SHA])

@@ -224,7 +224,7 @@ final class PrWorkflow
 
     /**
      * @param  array<string, string>  $environment
-     * @return array{policy: array{phpConstraint: string, phpMinimum: string}, actual: array{platform: string, architecture: string, php: string, composer: string}}
+     * @return array{policy: array{phpConstraint: string, phpMinimum: string}, actual: array{platform: string, architecture: string, php: string, composer: string, composerInstalled: string}}
      */
     private function collectRuntime(array $environment): array
     {
@@ -257,17 +257,18 @@ final class PrWorkflow
             'architecture' => $php[1] ?? null,
             'php' => $php[2] ?? null,
             'composer' => $composerMatch[1],
+            'composerInstalled' => $this->composerInstalledHash(),
         ];
 
         $this->requireValidRuntimeActual($actual);
 
-        /** @var array{platform: string, architecture: string, php: string, composer: string} $actual */
+        /** @var array{platform: string, architecture: string, php: string, composer: string, composerInstalled: string} $actual */
         return ['policy' => $this->runtimePolicy(), 'actual' => $actual];
     }
 
     /**
      * @param  array<string, mixed>  $receipt
-     * @param  array{policy: array{phpConstraint: string, phpMinimum: string}, actual: array{platform: string, architecture: string, php: string, composer: string}}  $currentRuntime
+     * @param  array{policy: array{phpConstraint: string, phpMinimum: string}, actual: array{platform: string, architecture: string, php: string, composer: string, composerInstalled: string}}  $currentRuntime
      */
     private function requireValidReceipt(array $receipt, string $sha, array $currentRuntime): void
     {
@@ -310,7 +311,7 @@ final class PrWorkflow
         $maximumMajor = (string) (((int) explode('.', $policy['phpMinimum'])[0]) + 1).'.0.0';
 
         if (
-            array_keys($actual) !== ['platform', 'architecture', 'php', 'composer']
+            array_keys($actual) !== ['platform', 'architecture', 'php', 'composer', 'composerInstalled']
             || ! is_string($actual['platform'] ?? null)
             || $actual['platform'] === ''
             || strlen($actual['platform']) > 32
@@ -325,9 +326,28 @@ final class PrWorkflow
             || ! is_string($actual['composer'] ?? null)
             || strlen($actual['composer']) > 64
             || preg_match(self::VERSION_PATTERN, $actual['composer']) !== 1
+            || ! is_string($actual['composerInstalled'] ?? null)
+            || preg_match('/^[0-9a-f]{64}$/D', $actual['composerInstalled']) !== 1
         ) {
             throw new RuntimeException('Runtime evidence is missing, malformed, or outside the accepted PHP policy.');
         }
+    }
+
+    private function composerInstalledHash(): string
+    {
+        $path = dirname(__DIR__).'/vendor/composer/installed.json';
+
+        if (! is_file($path) || is_link($path)) {
+            throw new RuntimeException('Composer installed-package evidence is unavailable or unsafe.');
+        }
+
+        $hash = hash_file('sha256', $path);
+
+        if (! is_string($hash) || preg_match('/^[0-9a-f]{64}$/D', $hash) !== 1) {
+            throw new RuntimeException('Composer installed-package evidence could not be collected.');
+        }
+
+        return $hash;
     }
 
     /** @return array<string, mixed> */
@@ -339,6 +359,7 @@ final class PrWorkflow
 
         $pathStat = $this->requireSafeOwnedPath($path, 0600, 'verification receipt');
         $this->requireSafeOwnedPath(dirname($path), 0700, 'receipt directory');
+        $this->requireSafeOwnedPath(dirname($path, 2), 0700, 'receipt namespace directory');
         $handle = fopen($path, 'rb');
 
         if ($handle === false) {
@@ -390,12 +411,19 @@ final class PrWorkflow
     private function writeReceipt(string $path, array $receipt): void
     {
         $directory = dirname($path);
+        $namespaceDirectory = dirname($path, 2);
 
-        if ((! is_dir($directory) && ! mkdir($directory, 0700, true)) || is_link($directory) || ! chmod($directory, 0700)) {
-            throw new RuntimeException('Could not create a safe receipt directory: '.$directory);
+        foreach ([$namespaceDirectory, $directory] as $component) {
+            if (
+                is_link($component)
+                || (! is_dir($component) && ! mkdir($component, 0700))
+                || ! chmod($component, 0700)
+            ) {
+                throw new RuntimeException('Could not create a safe receipt directory: '.$component);
+            }
+
+            $this->requireSafeOwnedPath($component, 0700, 'receipt directory');
         }
-
-        $this->requireSafeOwnedPath($directory, 0700, 'receipt directory');
 
         if (file_exists($path) || is_link($path)) {
             if (! is_file($path) || is_link($path)) {
@@ -448,7 +476,20 @@ final class PrWorkflow
     /** @param array<string, string> $environment */
     private function receiptPathFor(string $sha, array $environment): string
     {
-        return $this->git(['rev-parse', '--git-path', 'librarium/pr-check/'.$sha.'.json'], $environment);
+        $gitDirectory = rtrim($this->git(['rev-parse', '--path-format=absolute', '--git-common-dir'], $environment), '/');
+        $path = $this->git([
+            'rev-parse',
+            '--path-format=absolute',
+            '--git-path',
+            'librarium/pr-check/'.$sha.'.json',
+        ], $environment);
+        $expectedPath = $gitDirectory.'/librarium/pr-check/'.$sha.'.json';
+
+        if ($gitDirectory === '' || $path !== $expectedPath) {
+            throw new RuntimeException('Git did not resolve receipt storage beneath its administrative directory.');
+        }
+
+        return $path;
     }
 
     /** @param array<string, string> $environment */

@@ -45,9 +45,10 @@ separately, commit every intended change, require a clean worktree, and run the
 check at the final candidate HEAD. It uses only the allowlisted offline package
 plan and writes its exact-SHA, repository-, plan-, and runtime-bound mode-`0600`
 receipt beneath Git administrative storage. A changed SHA, plan, repository,
-PHP policy, or actual runtime invalidates the receipt. Never add install, live
-test, provider/network, publication, release, deployment, database, Node, or
-application-owned steps to this plan without separate authorization.
+PHP policy, actual runtime, or installed Composer-package set invalidates the
+receipt. Never add install, live test, provider/network, publication, release,
+deployment, database, Node, or application-owned steps to this plan without
+separate authorization.
 
 After the branch is pushed and an open PR points to the same exact head, a human
 must separately approve the full lowercase SHA before running:

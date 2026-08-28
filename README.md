@@ -223,8 +223,10 @@ On success, the command atomically writes a regular mode-`0600` receipt beneath
 Git administrative storage. The receipt binds the exact full commit SHA,
 `jkudish/laravel-ai-librarium`, the immutable verification-plan ID, successful
 completion time, accepted PHP policy, and bounded PHP, Composer, platform, and
-architecture evidence. Any new commit or change in plan, repository, policy, or
-actual runtime makes the receipt stale and requires a fresh `composer pr:check`.
+architecture evidence, including the exact installed Composer-package set used
+by the checks. Any new commit or change in plan, repository, policy, actual
+runtime, or installed dependency resolution makes the receipt stale and
+requires a fresh `composer pr:check`.
 
 Signoff requires a separate human approval naming the exact full lowercase SHA:
 
