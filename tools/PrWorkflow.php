@@ -116,19 +116,7 @@ final class PrWorkflow
 
         $path = $this->receiptPathFor($sha, $readEnvironment);
         $receipt = $this->readReceipt($path);
-        $runtimeHome = sys_get_temp_dir().'/librarium-pr-signoff-home-'.bin2hex(random_bytes(12));
-
-        if (! mkdir($runtimeHome, 0700) || ! chmod($runtimeHome, 0700)) {
-            throw new RuntimeException('Could not create the isolated runtime evidence home.');
-        }
-
-        try {
-            $currentRuntime = $this->collectRuntime(self::candidateEnvironment($this->environment, $runtimeHome));
-        } finally {
-            self::removeDirectory($runtimeHome);
-        }
-
-        $this->requireValidReceipt($receipt, $sha, $currentRuntime);
+        $this->requireValidReceipt($receipt, $sha, $this->currentRuntime());
         $this->requireSignoffExtension($readEnvironment);
         $branch = $this->currentBranch($readEnvironment);
         $this->requirePushedBranchAtSha($branch, $sha, $readEnvironment);
@@ -139,6 +127,15 @@ final class PrWorkflow
         if (trim($token) === '') {
             throw new RuntimeException('GH_SIGNOFF_TOKEN is required for the final signoff status write.');
         }
+
+        $repeatedCheck = $this->check();
+        $repeatedReceipt = $this->readReceipt($path);
+
+        if ($repeatedCheck['path'] !== $path || $repeatedCheck['receipt'] !== $repeatedReceipt) {
+            throw new RuntimeException('Repeated verification did not return the expected exact-SHA receipt.');
+        }
+
+        $this->requireValidReceipt($repeatedReceipt, $sha, $this->currentRuntime());
 
         $this->requirePushedBranchAtSha($branch, $sha, $readEnvironment);
         $this->requireOpenPullRequestAtSha($branch, $sha, $readEnvironment);
@@ -264,6 +261,22 @@ final class PrWorkflow
 
         /** @var array{platform: string, architecture: string, php: string, composer: string, composerInstalled: string} $actual */
         return ['policy' => $this->runtimePolicy(), 'actual' => $actual];
+    }
+
+    /** @return array{policy: array{phpConstraint: string, phpMinimum: string}, actual: array{platform: string, architecture: string, php: string, composer: string, composerInstalled: string}} */
+    private function currentRuntime(): array
+    {
+        $home = sys_get_temp_dir().'/librarium-pr-signoff-home-'.bin2hex(random_bytes(12));
+
+        if (! mkdir($home, 0700) || ! chmod($home, 0700)) {
+            throw new RuntimeException('Could not create the isolated runtime evidence home.');
+        }
+
+        try {
+            return $this->collectRuntime(self::candidateEnvironment($this->environment, $home));
+        } finally {
+            self::removeDirectory($home);
+        }
     }
 
     /**

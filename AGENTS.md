@@ -59,11 +59,13 @@ composer pr:signoff -- --approved-sha <full-lowercase-sha>
 
 Use the canonical `basecamp/gh-signoff` extension. Keep `GH_SIGNOFF_TOKEN`
 dedicated to this repository with Contents read, Pull requests read, and Commit
-statuses read/write. Do not print or inspect the credential. Candidate checks
-and all pre-write subprocesses receive neither ambient GitHub credentials nor
-the dedicated token; only the final exact unforced signoff subprocess maps it
-to `GH_TOKEN`. Signoff approval grants no merge, ruleset, release, publish,
-deploy, production, database, or provider-call authority.
+statuses read/write. Do not print or inspect the credential. Signoff reruns the
+complete ordered `pr:check` plan after initial eligibility and token readiness,
+then revalidates its replacement exact-SHA receipt before final drift guards.
+Candidate checks and all pre-write subprocesses receive neither ambient GitHub
+credentials nor the dedicated token; only the final exact unforced signoff
+subprocess maps it to `GH_TOKEN`. Signoff approval grants no merge, ruleset,
+release, publish, deploy, production, database, or provider-call authority.
 
 ## Git workflow
 

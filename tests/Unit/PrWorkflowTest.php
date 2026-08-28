@@ -506,6 +506,44 @@ it('requires the dedicated token only after read-only eligibility checks', funct
     expect(array_map(fn (array $call): string => $call['arguments'][0], $githubCalls))->toBe(['extension', 'api', 'pr']);
 });
 
+it('reruns every credential-free check in order and stops before signoff when one fails', function (): void {
+    $mock = prRunner(failingCheck: 'composer test');
+    $workflow = new PrWorkflow($mock['run'], [
+        'PATH' => '/usr/bin',
+        'HOME' => '/home/user',
+        'GH_TOKEN' => 'ambient-token',
+        'GH_SIGNOFF_TOKEN' => 'status-token',
+        'OPENAI_API_KEY' => 'provider-token',
+        'GH_REPO' => 'attacker/redirect',
+    ]);
+    prWriteReceipt($mock['path'], prValidReceipt($workflow));
+
+    expect(fn () => $workflow->signoff(PR_SHA))->toThrow(RuntimeException::class, 'composer test failed');
+
+    $calls = $mock['calls']->getArrayCopy();
+    $checkCalls = array_values(array_filter(
+        $calls,
+        fn (array $call): bool => ($call['options']['inherit'] ?? false) === true && $call['command'] !== 'gh',
+    ));
+    expect(array_map(fn (array $call): string => $call['command'].' '.implode(' ', $call['arguments']), $checkCalls))->toBe([
+        'composer validate --strict',
+        'composer check-platform-reqs',
+        'composer test',
+    ])->and(array_filter(
+        $calls,
+        fn (array $call): bool => $call['command'] === 'gh' && $call['arguments'][0] === 'signoff',
+    ))->toBe([]);
+
+    foreach ($checkCalls as $call) {
+        expect($call['options']['env'])->not->toHaveKeys([
+            'GH_TOKEN',
+            'GH_SIGNOFF_TOKEN',
+            'OPENAI_API_KEY',
+            'GH_REPO',
+        ])->and($call['options']['env']['HOME'])->toStartWith(sys_get_temp_dir().'/librarium-pr-check-home-');
+    }
+});
+
 it('fails closed when local, branch, remote, or PR state drifts during final checks', function (
     array $heads,
     array $worktrees,
@@ -534,10 +572,10 @@ it('fails closed when local, branch, remote, or PR state drifts during final che
         fn (array $call): bool => $call['command'] === 'gh' && $call['arguments'][0] === 'signoff',
     ))->toBe([]);
 })->with([
-    'HEAD drift' => [[PR_SHA, PR_OTHER_SHA], ['', ''], [PR_BRANCH], [PR_SHA, PR_SHA], [
+    'HEAD drift' => [[PR_SHA, PR_SHA, PR_SHA, PR_OTHER_SHA], ['', '', '', ''], [PR_BRANCH], [PR_SHA, PR_SHA], [
         ['headRefName' => PR_BRANCH, 'headRefOid' => PR_SHA, 'headRepositoryOwner' => ['login' => 'jkudish'], 'state' => 'OPEN'],
     ], 'HEAD changed'],
-    'worktree drift' => [[PR_SHA], ['', ' M README.md'], [PR_BRANCH], [PR_SHA, PR_SHA], [
+    'worktree drift' => [[PR_SHA], ['', '', '', ' M README.md'], [PR_BRANCH], [PR_SHA, PR_SHA], [
         ['headRefName' => PR_BRANCH, 'headRefOid' => PR_SHA, 'headRepositoryOwner' => ['login' => 'jkudish'], 'state' => 'OPEN'],
     ], 'worktree must be clean'],
     'branch drift' => [[PR_SHA, PR_SHA], ['', ''], [PR_BRANCH, 'feature/other'], [PR_SHA, PR_SHA], [
@@ -575,17 +613,48 @@ it('pins selectors and maps the dedicated token only for one exact unforced sign
         $calls,
         fn (array $call): bool => $call['command'] === 'git' && in_array('--git-path', $call['arguments'], true),
     ));
+    $checkCalls = array_values(array_filter(
+        $calls,
+        fn (array $call): bool => ($call['options']['inherit'] ?? false) === true && $call['command'] !== 'gh',
+    ));
+    $guardedSequence = array_values(array_filter(
+        $calls,
+        fn (array $call): bool => $call['command'] === 'gh' || ($call['options']['inherit'] ?? false) === true,
+    ));
 
     expect($signoffCalls)->toHaveCount(1)
         ->and($remoteCalls)->toHaveCount(2)
         ->and($pullRequestCalls)->toHaveCount(2)
-        ->and($gitPathCalls)->toHaveCount(1)
+        ->and($gitPathCalls)->toHaveCount(2)
         ->and($gitPathCalls[0]['arguments'])->toBe([
             'rev-parse',
             '--path-format=absolute',
             '--git-path',
             'librarium/pr-check/'.PR_SHA.'.json',
+        ])->and($gitPathCalls[1]['arguments'])->toBe($gitPathCalls[0]['arguments'])
+        ->and(array_map(fn (array $call): array => [$call['command'], $call['arguments']], $checkCalls))
+        ->toBe(array_map(fn (array $step): array => [$step['command'], $step['arguments']], PrWorkflow::CHECK_STEPS))
+        ->and(array_map(
+            fn (array $call): string => $call['command'].' '.implode(' ', $call['command'] === 'gh' ? [$call['arguments'][0]] : $call['arguments']),
+            $guardedSequence,
+        ))->toBe([
+            'gh extension',
+            'gh api',
+            'gh pr',
+            ...array_map(fn (array $step): string => $step['command'].' '.implode(' ', $step['arguments']), PrWorkflow::CHECK_STEPS),
+            'gh api',
+            'gh pr',
+            'gh signoff',
         ]);
+
+    foreach ($checkCalls as $call) {
+        expect($call['options']['env'])->not->toHaveKeys([
+            'GH_TOKEN',
+            'GH_SIGNOFF_TOKEN',
+            'OPENAI_API_KEY',
+            'GH_REPO',
+        ])->and($call['options']['env']['HOME'])->toStartWith(sys_get_temp_dir().'/librarium-pr-check-home-');
+    }
 
     $signoffCall = $signoffCalls[0];
     expect($signoffCall['arguments'])->toBe(['signoff', '--commit', PR_SHA])
@@ -594,6 +663,12 @@ it('pins selectors and maps the dedicated token only for one exact unforced sign
         ->and($signoffCall['options']['env']['GH_TOKEN'])->toBe('status-token')
         ->and($signoffCall['options']['env']['GH_REPO'])->toBe(PrWorkflow::EXPECTED_REPOSITORY)
         ->and($signoffCall['options']['env'])->not->toHaveKeys(['GH_SIGNOFF_TOKEN', 'OPENAI_API_KEY']);
+
+    $replacementReceipt = json_decode((string) file_get_contents($mock['path']), true, flags: JSON_THROW_ON_ERROR);
+    expect($replacementReceipt['sha'])->toBe(PR_SHA)
+        ->and($replacementReceipt['repository'])->toBe(PrWorkflow::EXPECTED_REPOSITORY)
+        ->and($replacementReceipt['planId'])->toBe($workflow->planId())
+        ->and($replacementReceipt['completedAt'])->not->toBe('2026-08-28T12:00:00+00:00');
 
     foreach ($remoteCalls as $call) {
         expect($call['arguments'])->toBe([

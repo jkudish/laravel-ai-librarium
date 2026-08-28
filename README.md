@@ -236,12 +236,14 @@ composer pr:signoff -- --approved-sha <full-lowercase-sha>
 
 The command fails closed unless the receipt, clean local HEAD and branch, pushed
 branch, and repository-pinned open PR all still identify that SHA. It also
-requires the canonical `basecamp/gh-signoff` extension and repeats remote, PR,
-worktree, branch, and HEAD checks immediately before one exact unforced
-`gh signoff --commit <sha>` write. Read-only GitHub checks use the existing
-GitHub CLI login. Only the final status-writing subprocess maps the dedicated
-`GH_SIGNOFF_TOKEN` to `GH_TOKEN`; ambient `GH_TOKEN` and `GH_REPO` cannot redirect
-earlier checks or selectors.
+requires the canonical `basecamp/gh-signoff` extension. After initial
+eligibility and dedicated-token readiness, it reruns the complete ordered
+`pr:check` plan in the same credential-free candidate environment, replaces and
+revalidates the exact-SHA receipt, then repeats remote, PR, worktree, branch, and
+HEAD checks immediately before one exact unforced `gh signoff --commit <sha>`
+write. Read-only GitHub checks use the existing GitHub CLI login. Only the final
+status-writing subprocess maps the dedicated `GH_SIGNOFF_TOKEN` to `GH_TOKEN`;
+ambient `GH_TOKEN` and `GH_REPO` cannot redirect earlier checks or selectors.
 
 Install the extension with `gh extension install basecamp/gh-signoff`. Store
 `GH_SIGNOFF_TOKEN` as an orb secret and limit its fine-grained access to this
