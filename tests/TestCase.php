@@ -53,6 +53,12 @@ abstract class TestCase extends Orchestra
                 $app['config']->set("services.{$provider}.key", "testing-{$provider}-key");
             }
         }
+
+        foreach (['you-answer', 'you-research-grounded', 'you-research-research'] as $profile) {
+            if (blank($app['config']->get("librarium.profiles.{$profile}.credential"))) {
+                $app['config']->set("librarium.profiles.{$profile}.credential", 'testing-you-key');
+            }
+        }
     }
 
     protected function preventsExternalRequests(): bool

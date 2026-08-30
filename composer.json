@@ -72,8 +72,11 @@
             "vendor/bin/pest tests/Live/LaravelAiProfilesLiveTest.php --fail-on-skipped"
         ],
         "format": "vendor/bin/pint --format agent",
+        "format:check": "vendor/bin/pint --test",
+        "pr:check": "@php tools/pr-check.php",
+        "pr:signoff": "@php tools/pr-signoff.php",
         "check": [
-            "@composer format",
+            "@composer format:check",
             "@composer analyse",
             "@composer test"
         ]

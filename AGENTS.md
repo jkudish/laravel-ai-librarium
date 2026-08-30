@@ -28,12 +28,44 @@ This repository contains `jkudish/laravel-ai-librarium`, a Laravel-native resear
 
 ## Verification
 
+GitHub Actions are not this repository's verification authority. GitHub is the
+collaboration/status surface; signoff is manual and non-enforced unless a future
+separately authorized ruleset changes that policy.
+
 ```bash
 composer test
 composer analyse
-composer format
+composer format:check
 composer validate --strict
+composer pr:check
 ```
+
+`composer pr:check` is the repository-owned exact-SHA Amp-orb gate. Run setup
+separately, commit every intended change, require a clean worktree, and run the
+check at the final candidate HEAD. It uses only the allowlisted offline package
+plan and writes its exact-SHA, repository-, plan-, and runtime-bound mode-`0600`
+receipt beneath Git administrative storage. A changed SHA, plan, repository,
+PHP policy, actual runtime, or installed Composer-package set invalidates the
+receipt. Never add install, live test, provider/network, publication, release,
+deployment, database, Node, or application-owned steps to this plan without
+separate authorization.
+
+After the branch is pushed and an open PR points to the same exact head, a human
+must separately approve the full lowercase SHA before running:
+
+```bash
+composer pr:signoff -- --approved-sha <full-lowercase-sha>
+```
+
+Use the canonical `basecamp/gh-signoff` extension. Keep `GH_SIGNOFF_TOKEN`
+dedicated to this repository with Contents read, Pull requests read, and Commit
+statuses read/write. Do not print or inspect the credential. Signoff reruns the
+complete ordered `pr:check` plan after initial eligibility and token readiness,
+then revalidates its replacement exact-SHA receipt before final drift guards.
+Candidate checks and all pre-write subprocesses receive neither ambient GitHub
+credentials nor the dedicated token; only the final exact unforced signoff
+subprocess maps it to `GH_TOKEN`. Signoff approval grants no merge, ruleset,
+release, publish, deploy, production, database, or provider-call authority.
 
 ## Git workflow
 
