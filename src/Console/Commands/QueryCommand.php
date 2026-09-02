@@ -15,7 +15,6 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\ResponseStatus;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResponse;
 use Throwable;
 
-use function Laravel\Prompts\confirm;
 use function Laravel\Prompts\info;
 use function Laravel\Prompts\multiselect;
 use function Laravel\Prompts\note;
@@ -97,15 +96,6 @@ final class QueryCommand extends LibrariumCommand
                 if ($interactive) {
                     outro('No research was dispatched.');
                 }
-
-                return self::SUCCESS;
-            }
-
-            if ($interactive && ! confirm(
-                $action === 'run' ? 'Dispatch this research now?' : 'Queue this research?',
-                default: false,
-            )) {
-                outro('No research was dispatched.');
 
                 return self::SUCCESS;
             }
@@ -206,15 +196,20 @@ final class QueryCommand extends LibrariumCommand
             throw ValidationException::withMessages(['profiles' => 'No eligible Profiles are configured.']);
         }
 
+        $selectionOptions = [
+            'default' => 'Default: '.$this->groupLabel($this->defaultGroupName()),
+            'multiple' => 'Choose Profiles (fan out)',
+            ...collect($this->groupNames())->mapWithKeys(fn (string $name): array => ["group:{$name}" => $this->groupLabel($name)])->all(),
+            ...collect($eligible)->mapWithKeys(fn (string $label, string $id): array => ["profile:{$id}" => "Profile: {$label}"])->all(),
+        ];
+
         $choice = $this->promptString(select(
             'How should Librarium select Profiles?',
-            [
-                'default' => 'Default group',
-                ...collect($this->groupNames())->mapWithKeys(fn (string $name): array => ["group:{$name}" => "Group: {$name}"])->all(),
-                ...collect($eligible)->mapWithKeys(fn (string $label, string $id): array => ["profile:{$id}" => "Profile: {$label}"])->all(),
-                'multiple' => 'Multiple Profiles (fan out)',
-            ],
+            $selectionOptions,
             default: 'default',
+            scroll: min(10, count($selectionOptions)),
+            hint: 'Groups and fan-out run eligible Profiles sequentially.',
+            info: fn (int|string $value): string => $this->selectionInfo((string) $value),
         ));
 
         if ($choice === 'default') {
@@ -222,7 +217,13 @@ final class QueryCommand extends LibrariumCommand
         }
 
         if ($choice === 'multiple') {
-            $selected = $this->promptStringList(multiselect('Choose Profiles', $eligible, required: true));
+            $selected = $this->promptStringList(multiselect(
+                'Choose Profiles to fan out',
+                $eligible,
+                scroll: min(10, count($eligible)),
+                required: true,
+                hint: 'Space selects; Ctrl+A toggles all; Enter continues.',
+            ));
             $pending->fanOut($selected);
 
             return;
@@ -245,11 +246,11 @@ final class QueryCommand extends LibrariumCommand
         $currency = $this->stringOption('currency');
 
         if ($interactive && $fallbacks === [] && $timeout === null && $maximumCost === null && $currency === null) {
-            $controls = multiselect('Optional controls', [
-                'fallbacks' => 'Fallback Profiles',
-                'timeout' => 'Timeout',
-                'max_cost' => 'Maximum estimated cost',
-            ]);
+            $controls = multiselect('Add safeguards (optional)', [
+                'fallbacks' => 'Fallback Profiles — try alternatives after a failure',
+                'timeout' => 'Timeout — override the configured deadline',
+                'max_cost' => 'Cost ceiling — reject plans above an estimate',
+            ], hint: 'Space selects; Enter continues with the configured defaults.');
 
             if (in_array('fallbacks', $controls, true)) {
                 $fallbacks = $this->promptStringList(multiselect('Choose fallback Profiles', $this->eligibleProfileOptions(), required: true));
@@ -288,10 +289,10 @@ final class QueryCommand extends LibrariumCommand
 
         return $interactive
             ? $this->promptString(select('What would you like to do?', [
-                'exit' => 'Exit without dispatching',
                 'run' => 'Run now',
                 'queue' => 'Queue',
-            ], default: 'exit'))
+                'exit' => 'Exit without dispatching',
+            ], default: 'run'))
             : 'exit';
     }
 
@@ -307,17 +308,26 @@ final class QueryCommand extends LibrariumCommand
             ],
         );
 
-        foreach ($preview->unavailable as $profile => $reasons) {
-            warning("Unavailable {$profile}: ".implode(' ', $reasons));
+        $previewNotes = [];
+        if ($preview->unavailable->isNotEmpty()) {
+            $unavailable = $preview->unavailable
+                ->map(fn (array $reasons, string $profile): string => "{$profile} (".$this->sentenceFragment($reasons).')')
+                ->values()
+                ->implode('; ');
+            $noun = $preview->unavailable->count() === 1 ? 'Profile' : 'Profiles';
+            $previewNotes[] = 'Skipped '.$preview->unavailable->count()." unavailable {$noun}: {$unavailable}";
         }
-        foreach ($preview->warnings as $message) {
-            warning($message);
+        if ($preview->warnings->isNotEmpty()) {
+            $previewNotes[] = $this->sentenceFragment(array_values($preview->warnings->all()));
+        }
+        if ($previewNotes !== []) {
+            warning('Preview notes: '.implode(' ', $previewNotes).'.');
         }
 
         $cost = $preview->maximumEstimatedCost === null
-            ? 'Unavailable'
+            ? 'unavailable'
             : "{$preview->maximumEstimatedCost} {$preview->currency}";
-        note('Estimated maximum cost: '.$cost.'; completeness: '.($preview->costEstimateComplete ? 'complete' : 'incomplete').'.');
+        note('Estimated maximum cost: '.$cost.' ('.($preview->costEstimateComplete ? 'complete' : 'incomplete').' estimate).');
     }
 
     private function showPlainPreview(PendingResearch $pending, ResearchPreview $preview): void
@@ -393,6 +403,56 @@ final class QueryCommand extends LibrariumCommand
             : [];
 
         return array_values(array_unique(['quick', 'deep', 'visibility', 'all', ...$customNames]));
+    }
+
+    private function defaultGroupName(): string
+    {
+        $group = config('librarium.default_group', 'quick');
+
+        return is_string($group) ? $group : 'quick';
+    }
+
+    private function groupLabel(string $name): string
+    {
+        $group = $this->catalog->group($name);
+        $ready = $group['profiles']->count();
+        $total = $ready + count($group['unavailable']);
+
+        return "{$name} group ({$ready}/{$total} ready)";
+    }
+
+    private function selectionInfo(string $value): string
+    {
+        if ($value === 'multiple') {
+            return 'Choose any eligible Profiles for a custom fan-out.';
+        }
+
+        if (str_starts_with($value, 'profile:')) {
+            $item = $this->catalog->find(substr($value, 8));
+
+            return $item === null
+                ? ''
+                : "One {$item->profile->resultKind->value} result from {$item->profile->provider}.";
+        }
+
+        $name = $value === 'default' ? $this->defaultGroupName() : substr($value, 6);
+        $description = match ($name) {
+            'quick' => 'Fast grounded answers and search results.',
+            'deep' => 'Long-form research reports.',
+            'visibility' => 'AI answer-surface and visibility observations.',
+            'all' => 'Every configured Profile.',
+            default => 'An application-defined Profile group.',
+        };
+
+        return ($value === 'default' ? "Configured default [{$name}]. " : '').$description;
+    }
+
+    /** @param list<string> $sentences */
+    private function sentenceFragment(array $sentences): string
+    {
+        return collect($sentences)
+            ->map(fn (string $sentence): string => rtrim($sentence, ". \t\n\r\0\x0B"))
+            ->implode('; ');
     }
 
     /** @return list<string> */

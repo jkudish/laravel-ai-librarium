@@ -36,15 +36,15 @@ beforeEach(function (): void {
     config()->set('librarium.default_group', 'custom:quick-test');
 });
 
-it('shows an interactive compiled preview and exits safely by default', function (): void {
+it('shows an interactive compiled preview and allows exiting without dispatch', function (): void {
     $fake = Librarium::fake()->preventStrayQueries();
 
     $this->artisan('librarium:query', ['query' => 'Compare research tools.'])
         ->expectsQuestion('How should Librarium select Profiles?', 'profile:eligible')
-        ->expectsQuestion('Optional controls', [])
+        ->expectsQuestion('Add safeguards (optional)', [])
         ->expectsPromptsInfo('Compiled research preview')
         ->expectsOutputToContain('eligible')
-        ->expectsOutputToContain('Estimated maximum cost: 0.05 USD; completeness: complete.')
+        ->expectsOutputToContain('Estimated maximum cost: 0.05 USD (complete estimate).')
         ->expectsQuestion('What would you like to do?', 'exit')
         ->expectsPromptsOutro('No research was dispatched.')
         ->assertSuccessful();
@@ -52,38 +52,49 @@ it('shows an interactive compiled preview and exits safely by default', function
     $fake->assertNeverQueried()->assertNeverQueued();
 });
 
-it('does not dispatch when interactive confirmation is declined', function (): void {
-    $fake = Librarium::fake()->preventStrayQueries();
-
-    $this->artisan('librarium:query', [
-        'query' => 'Run only after review.',
-        '--profile' => ['eligible'],
-        '--run' => true,
-    ])
-        ->expectsQuestion('Optional controls', [])
-        ->expectsPromptsInfo('Compiled research preview')
-        ->expectsConfirmation('Dispatch this research now?', 'no')
-        ->expectsPromptsOutro('No research was dispatched.')
-        ->assertSuccessful();
-
-    $fake->assertNeverQueried()->assertNeverQueued();
-});
-
-it('dispatches only after interactive confirmation is accepted', function (): void {
+it('dispatches an explicit interactive run after preview without asking again', function (): void {
     $fake = Librarium::fake([consoleResponse('markdown-success.json')])->preventStrayQueries();
 
     $this->artisan('librarium:query', [
-        'query' => 'Run only after review.',
+        'query' => 'Run after preview.',
         '--profile' => ['eligible'],
         '--run' => true,
     ])
-        ->expectsQuestion('Optional controls', [])
+        ->expectsQuestion('Add safeguards (optional)', [])
         ->expectsPromptsInfo('Compiled research preview')
-        ->expectsConfirmation('Dispatch this research now?', 'yes')
         ->assertSuccessful();
 
     expect($fake->queries())->toHaveCount(1)
         ->and($fake->queuedQueries())->toBeEmpty();
+});
+
+it('runs by default when the interactive action menu is accepted', function (): void {
+    $fake = Librarium::fake([consoleResponse('markdown-success.json')])->preventStrayQueries();
+
+    $this->artisan('librarium:query', [
+        'query' => 'Run from the action menu.',
+        '--profile' => ['eligible'],
+    ])
+        ->expectsQuestion('Add safeguards (optional)', [])
+        ->expectsPromptsInfo('Compiled research preview')
+        ->expectsQuestion('What would you like to do?', 'run')
+        ->assertSuccessful();
+
+    expect($fake->queries())->toHaveCount(1)
+        ->and($fake->queuedQueries())->toBeEmpty();
+});
+
+it('summarizes unavailable Profiles in one compact preview warning', function (): void {
+    $fake = Librarium::fake()->preventStrayQueries();
+
+    $this->artisan('librarium:query', ['query' => 'Summarize availability.'])
+        ->expectsQuestion('How should Librarium select Profiles?', 'default')
+        ->expectsQuestion('Add safeguards (optional)', [])
+        ->expectsOutputToContain('Preview notes: Skipped 1 unavailable Profile: unavailable (Profile is disabled).')
+        ->expectsQuestion('What would you like to do?', 'exit')
+        ->assertSuccessful();
+
+    $fake->assertNeverQueried()->assertNeverQueued();
 });
 
 it('returns a deterministic agent preview without dispatching', function (): void {

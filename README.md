@@ -30,10 +30,11 @@ $research = Librarium::query('Compare current agent memory architectures.')
 `librarium:query` provides a guided Laravel Prompts workflow for operators. It
 collects a missing query, lets the operator choose one eligible Profile, a
 group, or multiple Profiles, and offers the existing fallback, timeout, and
-cost controls. It always displays the compiled Profile, availability, warning,
-and cost preview before offering `Run now`, `Queue`, or the default
-`Exit without dispatching` action. Run and queue each require a separate,
-default-no confirmation after that preview.
+cost controls. Group choices explain their purpose and show how many Profiles
+are ready, while custom fan-out is available near the top of the selection
+menu. It always displays a compact compiled Profile, availability, warning,
+and cost preview before offering the default `Run now`, `Queue`, or
+`Exit without dispatching` action.
 
 ```bash
 php artisan librarium:query
@@ -45,11 +46,14 @@ php artisan librarium:query 'Compare current agent memory architectures.' \
     --currency=USD
 ```
 
-Supplying a query or selection does not dispatch provider work. `--run` and
-`--queue` select an action, but the interactive command still requires the
-post-preview confirmation. A non-TTY process must use either `--agent` or
-Laravel's `--no-interaction`; otherwise the command exits instead of waiting
-for input. `--no-interaction` uses plain human output and never implies JSON.
+Supplying a query or selection does not bypass the preview or interactive
+action menu. `--run` and `--queue` select and dispatch that action immediately
+after displaying the preview, without asking the operator to repeat the
+choice. With neither flag, the interactive action menu defaults to `Run now`;
+choose `Exit without dispatching` for preview-only use. A non-TTY process must
+use either `--agent` or Laravel's `--no-interaction`; otherwise the command
+exits instead of waiting for input. `--no-interaction` uses plain human output
+and never implies JSON.
 
 Use `--agent` for automation. It disables prompts, ANSI decoration, and
 spinners, writes one deterministic JSON value to stdout on success, and never
