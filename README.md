@@ -34,7 +34,9 @@ cost controls. Group choices explain their purpose and show how many Profiles
 are ready, while custom fan-out is available near the top of the selection
 menu. It always displays a compact compiled Profile, availability, warning,
 and cost preview before offering the default `Run now`, `Queue`, or
-`Exit without dispatching` action.
+`Exit without dispatching` action. Human-mode string results render Markdown
+headings, emphasis, lists, links, tables, and code for readable terminal output;
+agent-mode JSON preserves the original Markdown string.
 
 ```bash
 php artisan librarium:query

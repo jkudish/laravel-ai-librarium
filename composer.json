@@ -26,6 +26,7 @@
         "illuminate/validation": "^13.0",
         "laravel/ai": "^0.10.3",
         "laravel/prompts": "^0.3.24",
+        "league/commonmark": "^2.8",
         "standard-webhooks/standard-webhooks": "^1.0.2"
     },
     "require-dev": {

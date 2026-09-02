@@ -13,6 +13,7 @@ use Jkudish\LaravelAiLibrarium\ProfileCatalog;
 use Jkudish\LaravelAiLibrarium\ResearchPreview;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResponseStatus;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResponse;
+use League\CommonMark\CommonMarkConverter;
 use Throwable;
 
 use function Laravel\Prompts\info;
@@ -23,6 +24,7 @@ use function Laravel\Prompts\select;
 use function Laravel\Prompts\table;
 use function Laravel\Prompts\text;
 use function Laravel\Prompts\warning;
+use function Termwind\parse;
 
 final class QueryCommand extends LibrariumCommand
 {
@@ -309,19 +311,14 @@ final class QueryCommand extends LibrariumCommand
         );
 
         $previewNotes = [];
-        if ($preview->unavailable->isNotEmpty()) {
-            $unavailable = $preview->unavailable
-                ->map(fn (array $reasons, string $profile): string => "{$profile} (".$this->sentenceFragment($reasons).')')
-                ->values()
-                ->implode('; ');
-            $noun = $preview->unavailable->count() === 1 ? 'Profile' : 'Profiles';
-            $previewNotes[] = 'Skipped '.$preview->unavailable->count()." unavailable {$noun}: {$unavailable}";
+        foreach ($preview->unavailable as $profile => $reasons) {
+            $previewNotes[] = "• Skipped {$profile}: ".$this->sentenceFragment($reasons).'.';
         }
-        if ($preview->warnings->isNotEmpty()) {
-            $previewNotes[] = $this->sentenceFragment(array_values($preview->warnings->all()));
+        foreach ($preview->warnings as $message) {
+            $previewNotes[] = '• '.rtrim($message, ". \t\n\r\0\x0B").'.';
         }
         if ($previewNotes !== []) {
-            warning('Preview notes: '.implode(' ', $previewNotes).'.');
+            warning("Preview notes:\n".implode("\n", $previewNotes));
         }
 
         $cost = $preview->maximumEstimatedCost === null
@@ -347,9 +344,11 @@ final class QueryCommand extends LibrariumCommand
         } else {
             $this->components->info("Research {$response->status->value}. Request ID: {$response->requestId}");
             foreach ($response->results as $result) {
-                $this->line(is_string($result->content)
-                    ? $result->content
-                    : json_encode($result->content, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+                if (is_string($result->content)) {
+                    $this->writeMarkdown($result->content);
+                } else {
+                    $this->line(json_encode($result->content, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+                }
             }
             foreach ($response->errors as $error) {
                 $this->components->error("{$error->code}: {$error->message}");
@@ -361,6 +360,25 @@ final class QueryCommand extends LibrariumCommand
             ResponseStatus::Partial => self::EXIT_PARTIAL,
             ResponseStatus::Failed => self::EXIT_RESEARCH_FAILED,
         };
+    }
+
+    private function writeMarkdown(string $markdown): void
+    {
+        $converter = new CommonMarkConverter([
+            'allow_unsafe_links' => false,
+            'html_input' => 'strip',
+        ]);
+        $html = $converter->convert($markdown)->getContent();
+
+        foreach (range(1, 6) as $level) {
+            $html = str_replace(
+                ["<h{$level}>", "</h{$level}>"],
+                ['<div class="font-bold text-green">', '</div>'],
+                $html,
+            );
+        }
+
+        $this->line(parse('<div class="space-y-1">'.$html.'</div>'));
     }
 
     /** @return array<string, mixed> */

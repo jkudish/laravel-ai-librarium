@@ -62,6 +62,8 @@ it('dispatches an explicit interactive run after preview without asking again', 
     ])
         ->expectsQuestion('Add safeguards (optional)', [])
         ->expectsPromptsInfo('Compiled research preview')
+        ->expectsOutputToContain('Result')
+        ->doesntExpectOutputToContain('# Result')
         ->assertSuccessful();
 
     expect($fake->queries())->toHaveCount(1)
@@ -90,7 +92,7 @@ it('summarizes unavailable Profiles in one compact preview warning', function ()
     $this->artisan('librarium:query', ['query' => 'Summarize availability.'])
         ->expectsQuestion('How should Librarium select Profiles?', 'default')
         ->expectsQuestion('Add safeguards (optional)', [])
-        ->expectsOutputToContain('Preview notes: Skipped 1 unavailable Profile: unavailable (Profile is disabled).')
+        ->expectsPromptsWarning("Preview notes:\n• Skipped unavailable: Profile is disabled.")
         ->expectsQuestion('What would you like to do?', 'exit')
         ->assertSuccessful();
 
