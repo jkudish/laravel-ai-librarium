@@ -187,6 +187,20 @@ it('marks a Profile unavailable when its resolved credential is missing', functi
         ->and($preview->unavailable->get('gemini-grounded'))->toBe(['Credential is not configured.']);
 });
 
+it('marks a Profile unavailable when its credential contains control characters', function (): void {
+    $credential = "resolved-secret-value\n";
+    config()->set('librarium.profiles.gemini-grounded.credential', $credential);
+
+    $preview = Librarium::query('Research this.')->preview();
+    $encoded = json_encode($preview, JSON_THROW_ON_ERROR);
+
+    expect($preview->profiles->pluck('id')->all())->toBe(['openrouter-grounded'])
+        ->and($preview->unavailable->get('gemini-grounded'))->toBe(['Credential contains invalid control characters.'])
+        ->and($encoded)->not->toContain($credential)
+        ->and(FakeProfileDriver::$constructorCalls)->toBe(0)
+        ->and(app(ExecutesResearch::class)->plans)->toBe([]);
+});
+
 it('lets the Driver validate bounded options before execution', function (array $options): void {
     config()->set('librarium.profiles.gemini-grounded.options', $options);
 

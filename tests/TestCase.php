@@ -38,26 +38,18 @@ abstract class TestCase extends Orchestra
     /** @param Application $app */
     protected function defineEnvironment($app): void
     {
-        if (blank($app['config']->get('ai.providers.gemini.key'))) {
-            $app['config']->set('ai.providers.gemini.key', 'testing-gemini-key');
-        }
+        $app['config']->set('ai.providers.gemini.key', 'testing-gemini-key');
 
         foreach (['anthropic', 'openai', 'openrouter', 'xai'] as $provider) {
-            if (blank($app['config']->get("ai.providers.{$provider}.key"))) {
-                $app['config']->set("ai.providers.{$provider}.key", "testing-{$provider}-key");
-            }
+            $app['config']->set("ai.providers.{$provider}.key", "testing-{$provider}-key");
         }
 
         foreach (['brave', 'exa', 'kagi', 'perplexity', 'searchapi'] as $provider) {
-            if (blank($app['config']->get("services.{$provider}.key"))) {
-                $app['config']->set("services.{$provider}.key", "testing-{$provider}-key");
-            }
+            $app['config']->set("services.{$provider}.key", "testing-{$provider}-key");
         }
 
         foreach (['you-answer', 'you-research-grounded', 'you-research-research'] as $profile) {
-            if (blank($app['config']->get("librarium.profiles.{$profile}.credential"))) {
-                $app['config']->set("librarium.profiles.{$profile}.credential", 'testing-you-key');
-            }
+            $app['config']->set("librarium.profiles.{$profile}.credential", 'testing-you-key');
         }
     }
 

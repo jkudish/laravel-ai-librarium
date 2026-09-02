@@ -246,6 +246,12 @@ final class ProfileCatalog
             $reasons[] = 'Credential is not configured.';
         }
 
+        if ($requiresCredential
+            && is_string($profile->credential)
+            && preg_match('/[\x00-\x1F\x7F]/', $profile->credential) === 1) {
+            $reasons[] = 'Credential contains invalid control characters.';
+        }
+
         if ($profile->driver === LaravelAiDriver::class
             && $profile->grounding === GroundingPolicy::Required
             && data_get($profile->options, 'web_search', true) === false) {

@@ -47,8 +47,10 @@ abstract class LibrariumCommand extends Command
         );
     }
 
-    protected function reportUnexpected(Throwable $_exception): int
+    protected function reportUnexpected(Throwable $exception): int
     {
+        report($exception);
+
         return $this->reportError('The Librarium command could not be completed.', self::FAILURE);
     }
 

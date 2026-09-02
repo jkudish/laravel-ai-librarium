@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Jkudish\LaravelAiLibrarium\Console\Commands\LibrariumCommand;
+use Jkudish\LaravelAiLibrarium\Contracts\Librarium as LibrariumContract;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
+use Jkudish\LaravelAiLibrarium\PendingResearch;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\ResearchPlan;
@@ -252,6 +255,37 @@ it('keeps real agent validation stdout empty and stderr bounded and secret-safe'
         ->and($process->getErrorOutput())->not->toContain($secretQuery)
         ->and($process->getErrorOutput())->not->toContain("\e[")
         ->and(mb_strlen($process->getErrorOutput()))->toBeLessThanOrEqual(501);
+});
+
+it('reports unexpected failures internally without exposing them to the operator', function (): void {
+    $secret = 'unexpected-sensitive-detail';
+    Exceptions::fake();
+    app()->instance(LibrariumContract::class, new class($secret) implements LibrariumContract
+    {
+        public function __construct(private readonly string $message) {}
+
+        public function query(string $input): PendingResearch
+        {
+            throw new RuntimeException($this->message);
+        }
+
+        public function status(string $requestId): ?ResearchStatus
+        {
+            return null;
+        }
+    });
+
+    $this->artisan('librarium:query', [
+        'query' => 'Fail safely.',
+        '--no-interaction' => true,
+    ])
+        ->expectsOutputToContain('The Librarium command could not be completed.')
+        ->doesntExpectOutputToContain($secret)
+        ->assertFailed();
+
+    Exceptions::assertReported(
+        fn (RuntimeException $exception): bool => $exception->getMessage() === $secret,
+    );
 });
 
 it('reports status in human mode', function (): void {
