@@ -24,6 +24,7 @@ use Jkudish\LaravelAiLibrarium\Execution\ProfileCompatibility;
 use Jkudish\LaravelAiLibrarium\Execution\ResearchRuntime;
 use Jkudish\LaravelAiLibrarium\Webhooks\WebhookSignalStore;
 use Jkudish\LaravelAiPricing\Contracts\CostResolver;
+use Jkudish\LaravelAiPricing\LaravelAiPricingServiceProvider as PricingServiceProvider;
 use Jkudish\LaravelAiPricing\PricingResolver;
 use Jkudish\LaravelAiPricing\Sources\ConfiguredPricingSource;
 use Jkudish\LaravelAiPricing\Sources\OpenRouterPricingSource;
@@ -35,6 +36,10 @@ final class LaravelAiLibrariumServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        // Discovery order is not guaranteed, but Librarium's compiler requires
+        // pricing configuration while its contextual resolver is constructed.
+        $this->app->register(PricingServiceProvider::class);
+
         $this->mergeConfigFrom(__DIR__.'/../config/librarium.php', 'librarium');
 
         $this->app->singleton(LibrariumManager::class);

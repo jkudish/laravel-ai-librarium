@@ -2,6 +2,9 @@
 
 declare(strict_types=1);
 
+use Illuminate\Config\Repository;
+use Illuminate\Container\Container;
+use Illuminate\Foundation\Application;
 use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Contracts\Librarium as LibrariumContract;
 use Jkudish\LaravelAiLibrarium\Drivers\Brave\BraveAnswersDriver;
@@ -20,6 +23,7 @@ use Jkudish\LaravelAiLibrarium\LibrariumManager;
 use Jkudish\LaravelAiLibrarium\PendingResearch;
 use Jkudish\LaravelAiLibrarium\ProfileCatalog;
 use Jkudish\LaravelAiLibrarium\Webhooks\WebhookSignalStore;
+use Jkudish\LaravelAiPricing\LaravelAiPricingServiceProvider;
 
 it('registers the manager behind the package contract', function (): void {
     $contract = app(LibrariumContract::class);
@@ -37,6 +41,28 @@ it('merges the package configuration', function (): void {
         ->and(config('librarium.webhook_signal_ttl'))->toBe(10800)
         ->and(config('librarium.queue.name'))->toBe('research')
         ->and(app(WebhookSignalStore::class))->toBe(app(WebhookSignalStore::class));
+});
+
+it('registers its pricing dependency before package discovery can resolve compiler bindings', function (): void {
+    $originalContainer = Container::getInstance();
+
+    try {
+        $consumer = new Application(dirname(__DIR__, 2));
+        $consumer->instance('config', new Repository);
+
+        expect($consumer->providerIsLoaded(LaravelAiPricingServiceProvider::class))->toBeFalse();
+
+        $librariumProvider = $consumer->register(LaravelAiLibrariumServiceProvider::class);
+        $pricingProvider = $consumer->getProvider(LaravelAiPricingServiceProvider::class);
+
+        expect($pricingProvider)->toBeInstanceOf(LaravelAiPricingServiceProvider::class)
+            ->and($consumer->providerIsLoaded(LaravelAiPricingServiceProvider::class))->toBeTrue()
+            ->and($consumer['config']->get('ai-pricing.cache_ttl'))->toBe(86_400)
+            ->and($consumer->register(LaravelAiPricingServiceProvider::class))->toBe($pricingProvider)
+            ->and($consumer->getProvider(LaravelAiLibrariumServiceProvider::class))->toBe($librariumProvider);
+    } finally {
+        Container::setInstance($originalContainer);
+    }
 });
 
 it('resolves Laravel AI credentials after Laravel AI registers later', function (string $profileId, string $provider, string $model): void {
