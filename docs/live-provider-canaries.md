@@ -17,9 +17,13 @@ a changed model, query, timeout, or cost ceiling. Before dispatch, record:
 5. the terminal receipt location with secrets and raw provider payloads removed.
 
 Unknown cost is not zero. A canary with unknown or variable pricing must not run
-until the approver supplies a dollar ceiling that the operator can enforce. The
-ordinary suite remains network-free. Existing live tests additionally require
-`LIBRARIUM_LIVE_TESTS=1`; the environment flag alone is not approval.
+until the approver supplies a dollar ceiling that the operator can enforce. A
+Librarium `--max-cost` ceiling is valid only when `laravel-ai-pricing` returns a
+complete, current, conservative, single-currency quote for the full reachable
+plan; otherwise the operator needs an independently enforced provider/account
+ceiling. The ordinary suite remains network-free. Existing live tests
+additionally require `LIBRARIUM_LIVE_TESTS=1`; the environment flag alone is
+not approval.
 
 ## Unique canaries
 
@@ -38,21 +42,21 @@ provider/model and truthful search-on terminal projection differ materially.
 | C06 | `gemini-chat` | Gemini SDK, `gemini-3.7-flash`, optional search-on projection | `GEMINI_API_KEY` | `LaravelAiProfilesLiveTest` — `Gemini chat`; passed under #2834 | Variable native tokens/tools; cap required |
 | C07 | `brave-answers` | Brave Answers chat-completions endpoint | `BRAVE_API_KEY` | Approved ephemeral harness; passed under #2901 | Search plus token pricing; cap required |
 | C08 | `exa` | Exa Search endpoint and search-result normalization | `EXA_API_KEY` | Approved ephemeral harness; passed under #2901 | Variable provider cost; cap required |
-| C09 | `kagi-fastgpt` | Kagi FastGPT endpoint | `KAGI_API_KEY` | Approved ephemeral harness; passed under #2901 | Catalog estimate $0.015/request; cap required |
+| C09 | `kagi-fastgpt` | Kagi FastGPT endpoint | `KAGI_API_KEY` | Approved ephemeral harness; passed under #2901 | Current conservative resolver quote and cap required |
 | C10 | `perplexity-sonar-pro` | Perplexity Agent API `low`, inline result | `PERPLEXITY_API_KEY` | Approved ephemeral harness; passed under #2901 | Variable provider cost; cap required |
 | C11 | `grok` | xAI Responses API, `grok-4.6`, web-only tool | `XAI_API_KEY` | Approved ephemeral harness; passed under #2901 | Tokens plus tool charge; cap required |
 | C12 | `openai-research` | OpenAI background Responses lifecycle, `gpt-5.6-sol`, xhigh reasoning | `OPENAI_API_KEY` | `OpenAiResearchDriverLiveTest`; passed under #2836 | Potentially material variable spend; explicit cap required |
 | C13 | `perplexity-sonar-deep` | Perplexity Agent API `high`, background poll/retrieve | `PERPLEXITY_API_KEY` | Approved ephemeral harness; passed under #2901 | Potentially material variable spend; explicit cap required |
-| C14 | `searchapi` | SearchAPI Google raw search | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — raw google; not run | Catalog estimate $0.004/request; cap required |
-| C15 | `searchapi-chatgpt` | SearchAPI ChatGPT surface with web search | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — chatgpt; not run | Catalog estimate $0.004/request; cap required |
-| C16 | `searchapi-gemini` | SearchAPI Gemini surface | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — gemini; not run | Catalog estimate $0.004/request; cap required |
-| C17 | `searchapi-perplexity` | SearchAPI Perplexity surface | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — perplexity; not run | Catalog estimate $0.004/request; cap required |
-| C18 | `searchapi-google-ai-mode` | SearchAPI Google AI Mode surface | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — google ai mode; not run | Catalog estimate $0.004/request; cap required |
-| C19 | `searchapi-bing-copilot` | SearchAPI Bing Copilot surface | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — bing copilot; not run | Catalog estimate $0.004/request; cap required |
-| C20 | `searchapi-google-ai-overview` | SearchAPI two-stage Google page token then AI Overview | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — google ai overview; not run | Catalog estimate $0.008/logical request; cap required |
-| C21 | `you-answer` | You.com Answer endpoint and citation mapping | `YOU_COM_API_KEY` or `YDC_API_KEY` | `YouProfilesLiveTest` — You Answer; not run | Exact $0.005/request acknowledgement required |
-| C22 | `you-research-grounded` | You.com synchronous standard Research without background mode | `YOU_COM_API_KEY` or `YDC_API_KEY` | `YouProfilesLiveTest` — You Research grounded; not run | Exact $0.05/request acknowledgement required |
-| C23 | `you-research-research` | You.com background standard Research submit/poll/retrieve | `YOU_COM_API_KEY` or `YDC_API_KEY` | `YouProfilesLiveTest` — You Research durable; not run | Exact $0.05/request acknowledgement required |
+| C14 | `searchapi` | SearchAPI Google raw search | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — raw google; not run | Configured-only; unavailable until the application supplies a current conservative rate |
+| C15 | `searchapi-chatgpt` | SearchAPI ChatGPT surface with web search | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — chatgpt; not run | Configured-only; unavailable until the application supplies a current conservative rate |
+| C16 | `searchapi-gemini` | SearchAPI Gemini surface | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — gemini; not run | Configured-only; unavailable until the application supplies a current conservative rate |
+| C17 | `searchapi-perplexity` | SearchAPI Perplexity surface | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — perplexity; not run | Configured-only; unavailable until the application supplies a current conservative rate |
+| C18 | `searchapi-google-ai-mode` | SearchAPI Google AI Mode surface | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — google ai mode; not run | Configured-only; unavailable until the application supplies a current conservative rate |
+| C19 | `searchapi-bing-copilot` | SearchAPI Bing Copilot surface | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — bing copilot; not run | Configured-only; unavailable until the application supplies a current conservative rate |
+| C20 | `searchapi-google-ai-overview` | SearchAPI two-stage Google page token then AI Overview | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — google ai overview; not run | Configured-only two-unit quote; unavailable until the application supplies a current conservative rate |
+| C21 | `you-answer` | You.com Answer endpoint and citation mapping | `YOU_COM_API_KEY` or `YDC_API_KEY` | `YouProfilesLiveTest` — You Answer; not run | Current conservative resolver quote and exact acknowledgement required |
+| C22 | `you-research-grounded` | You.com synchronous standard Research without background mode | `YOU_COM_API_KEY` or `YDC_API_KEY` | `YouProfilesLiveTest` — You Research grounded; not run | Current conservative resolver quote and exact acknowledgement required |
+| C23 | `you-research-research` | You.com background standard Research submit/poll/retrieve | `YOU_COM_API_KEY` or `YDC_API_KEY` | `YouProfilesLiveTest` — You Research durable; not run | Current conservative resolver quote and exact acknowledgement required |
 
 ## Narrow invocation
 

@@ -37,18 +37,24 @@ it('registers all three independent You.com Profiles without aliases or default 
         ->and($answer?->driver)->toBe(YouAnswerDriver::class)
         ->and($answer?->provider)->toBe('you-answer')
         ->and($answer?->id)->toBe('you-answer')
-        ->and($answer?->estimatedCostMicros)->toBe(5_000)
+        ->and($answer?->pricingIdentity?->key())->toBe('you:answer')
+        ->and($answer?->pricingUsage?->toArray())->toBe(['requests' => '1'])
+        ->and($answer?->pricingUsageConservative)->toBeTrue()
         ->and($groundedResearch)->not->toBeNull()
         ->and($groundedResearch?->driver)->toBe(YouResearchGroundedDriver::class)
         ->and($groundedResearch?->provider)->toBe('you-research')
         ->and($groundedResearch?->id)->toBe('you-research-grounded')
-        ->and($groundedResearch?->estimatedCostMicros)->toBe(50_000)
+        ->and($groundedResearch?->pricingIdentity?->key())->toBe('you:research-standard')
+        ->and($groundedResearch?->pricingUsage?->toArray())->toBe(['requests' => '1'])
+        ->and($groundedResearch?->pricingUsageConservative)->toBeTrue()
         ->and($groundedResearch?->options)->toBe(['research_effort' => 'standard'])
         ->and($durableResearch)->not->toBeNull()
         ->and($durableResearch?->driver)->toBe(YouResearchDriver::class)
         ->and($durableResearch?->provider)->toBe('you-research')
         ->and($durableResearch?->id)->toBe('you-research-research')
-        ->and($durableResearch?->estimatedCostMicros)->toBe(50_000)
+        ->and($durableResearch?->pricingIdentity?->key())->toBe('you:research-standard')
+        ->and($durableResearch?->pricingUsage?->toArray())->toBe(['requests' => '1'])
+        ->and($durableResearch?->pricingUsageConservative)->toBeTrue()
         ->and($durableResearch?->options)->toBe(['research_effort' => 'standard']);
 
     foreach (['you-answer', 'you-research-grounded'] as $inlineProfile) {
@@ -75,7 +81,7 @@ it('keeps YOU_COM_API_KEY canonical while accepting YDC_API_KEY as a nonbreaking
         ->toBe(config('librarium.profiles.you-research-research.credential'));
 });
 
-it('previews an exact 5000 micro-USD Answer estimate and refuses a lower hard budget before HTTP', function (): void {
+it('quotes an exact 5000 micro-USD Answer ceiling and refuses a lower hard budget before HTTP', function (): void {
     Http::fake();
 
     $preview = Librarium::query('What changed?')
@@ -97,7 +103,7 @@ it('previews an exact 5000 micro-USD Answer estimate and refuses a lower hard bu
     Http::assertNothingSent();
 });
 
-it('previews an exact 50000 micro-USD estimate for each Research Profile and refuses a lower budget before HTTP', function (string $profile): void {
+it('quotes an exact 50000 micro-USD ceiling for each Research Profile and refuses a lower budget before HTTP', function (string $profile): void {
     Http::fake();
 
     $preview = Librarium::query('Research this.')

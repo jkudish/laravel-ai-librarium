@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Jkudish\LaravelAiLibrarium;
 
 use Illuminate\Support\Collection;
+use Jkudish\LaravelAiPricing\ValueObjects\CostQuote;
+use Jkudish\LaravelAiPricing\ValueObjects\ModelIdentity;
+use Jkudish\LaravelAiPricing\ValueObjects\Usage;
 
 final class ResearchPreview
 {
@@ -14,6 +17,18 @@ final class ResearchPreview
      * @param  Collection<string, string>  $prompts
      * @param  Collection<string, list<string>>  $unavailable
      * @param  Collection<int, string>  $warnings
+     * @param  Collection<int, array{
+     *     profile: string,
+     *     role: string,
+     *     reachable_from: list<string>,
+     *     maximum_invocations: int,
+     *     identity: ModelIdentity|null,
+     *     usage: Usage|null,
+     *     conservative: bool,
+     *     quote: CostQuote,
+     *     freshness: string
+     * }>  $pricingQuotes
+     * @param  Collection<string, string>  $knownCostSubtotals
      */
     public function __construct(
         public readonly string $input,
@@ -22,6 +37,10 @@ final class ResearchPreview
         public readonly Collection $prompts,
         public readonly Collection $unavailable,
         public readonly Collection $warnings,
+        public readonly Collection $pricingQuotes,
+        public readonly Collection $knownCostSubtotals,
+        public readonly string $pricingStatus,
+        public readonly bool $hardCostCeilingAvailable,
         public readonly ?string $maximumEstimatedCost,
         public readonly ?string $currency,
         public readonly bool $costEstimateComplete,

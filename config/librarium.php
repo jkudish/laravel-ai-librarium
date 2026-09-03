@@ -28,6 +28,10 @@ return [
     'webhook_signal_ttl' => 10800,
     'profile_options_max_bytes' => 16384,
 
+    'pricing' => [
+        'max_age_days' => 30,
+    ],
+
     'webhooks' => [
         'openai' => [
             'secret' => config('services.openai.webhook_secret'),
@@ -54,6 +58,12 @@ return [
             'enabled' => true,
             'options' => [],
             'credential' => config('ai.providers.gemini.key'),
+            'pricing' => [
+                'provider' => 'gemini',
+                'model' => 'gemini-3.6-flash',
+                'usage' => ['input_tokens' => 100_000, 'output_tokens' => 100_000, 'web_searches' => 100],
+                'conservative' => false,
+            ],
         ],
         'openrouter-grounded' => [
             'driver' => LaravelAiDriver::class,
@@ -68,6 +78,12 @@ return [
             'enabled' => true,
             'options' => [],
             'credential' => config('ai.providers.openrouter.key'),
+            'pricing' => [
+                'provider' => 'openrouter',
+                'model' => 'openai/gpt-5.6-luna',
+                'usage' => ['input_tokens' => 100_000, 'output_tokens' => 100_000, 'web_searches' => 100],
+                'conservative' => false,
+            ],
         ],
         'openrouter-chat' => [
             'driver' => LaravelAiDriver::class,
@@ -82,6 +98,12 @@ return [
             'enabled' => true,
             'options' => ['web_search' => true],
             'credential' => config('ai.providers.openrouter.key'),
+            'pricing' => [
+                'provider' => 'openrouter',
+                'model' => 'openai/gpt-5.6-terra',
+                'usage' => ['input_tokens' => 100_000, 'output_tokens' => 100_000, 'web_searches' => 100],
+                'conservative' => false,
+            ],
         ],
         'claude-chat' => [
             'driver' => LaravelAiDriver::class,
@@ -96,6 +118,12 @@ return [
             'enabled' => true,
             'options' => ['web_search' => true],
             'credential' => config('ai.providers.anthropic.key'),
+            'pricing' => [
+                'provider' => 'anthropic',
+                'model' => 'claude-sonnet-5',
+                'usage' => ['input_tokens' => 100_000, 'output_tokens' => 100_000, 'web_searches' => 100],
+                'conservative' => false,
+            ],
         ],
         'openai-chat' => [
             'driver' => LaravelAiDriver::class,
@@ -110,6 +138,12 @@ return [
             'enabled' => true,
             'options' => ['web_search' => true],
             'credential' => config('ai.providers.openai.key'),
+            'pricing' => [
+                'provider' => 'openai',
+                'model' => 'gpt-5.6-luna',
+                'usage' => ['input_tokens' => 100_000, 'output_tokens' => 100_000, 'web_searches' => 100],
+                'conservative' => false,
+            ],
         ],
         'gemini-chat' => [
             'driver' => LaravelAiDriver::class,
@@ -124,6 +158,12 @@ return [
             'enabled' => true,
             'options' => ['web_search' => true],
             'credential' => config('ai.providers.gemini.key'),
+            'pricing' => [
+                'provider' => 'gemini',
+                'model' => 'gemini-3.7-flash',
+                'usage' => ['input_tokens' => 100_000, 'output_tokens' => 100_000, 'web_searches' => 100],
+                'conservative' => false,
+            ],
         ],
         'brave-answers' => [
             'driver' => BraveAnswersDriver::class,
@@ -138,6 +178,12 @@ return [
             'enabled' => true,
             'options' => [],
             'credential' => config('services.brave.key'),
+            'pricing' => [
+                'provider' => 'brave',
+                'model' => 'answers',
+                'usage' => ['queries' => 1, 'input_tokens' => 100_000, 'output_tokens' => 100_000],
+                'conservative' => false,
+            ],
         ],
         'exa' => [
             'driver' => ExaSearchDriver::class,
@@ -152,6 +198,12 @@ return [
             'enabled' => true,
             'options' => [],
             'credential' => config('services.exa.key'),
+            'pricing' => [
+                'provider' => 'exa',
+                'model' => 'search',
+                'usage' => ['requests' => 1, 'additional_results' => 0, 'summary_pages' => 0],
+                'conservative' => true,
+            ],
         ],
         'kagi-fastgpt' => [
             'driver' => KagiFastGptDriver::class,
@@ -166,7 +218,12 @@ return [
             'enabled' => true,
             'options' => [],
             'credential' => config('services.kagi.key'),
-            'estimated_cost' => ['amount' => '0.015', 'currency' => 'USD'],
+            'pricing' => [
+                'provider' => 'kagi',
+                'model' => 'fastgpt',
+                'usage' => ['uncached_queries' => 1],
+                'conservative' => true,
+            ],
         ],
         'you-answer' => [
             'driver' => YouAnswerDriver::class,
@@ -181,7 +238,12 @@ return [
             'enabled' => true,
             'options' => [],
             'credential' => $youCredential,
-            'estimated_cost' => ['amount' => '0.005', 'currency' => 'USD'],
+            'pricing' => [
+                'provider' => 'you',
+                'model' => 'answer',
+                'usage' => ['requests' => 1],
+                'conservative' => true,
+            ],
         ],
         'you-research-grounded' => [
             'driver' => YouResearchGroundedDriver::class,
@@ -196,7 +258,12 @@ return [
             'enabled' => true,
             'options' => ['research_effort' => 'standard'],
             'credential' => $youCredential,
-            'estimated_cost' => ['amount' => '0.05', 'currency' => 'USD'],
+            'pricing' => [
+                'provider' => 'you',
+                'model' => 'research-standard',
+                'usage' => ['requests' => 1],
+                'conservative' => true,
+            ],
         ],
         'you-research-research' => [
             'driver' => YouResearchDriver::class,
@@ -211,7 +278,12 @@ return [
             'enabled' => true,
             'options' => ['research_effort' => 'standard'],
             'credential' => $youCredential,
-            'estimated_cost' => ['amount' => '0.05', 'currency' => 'USD'],
+            'pricing' => [
+                'provider' => 'you',
+                'model' => 'research-standard',
+                'usage' => ['requests' => 1],
+                'conservative' => true,
+            ],
         ],
         'perplexity-sonar-pro' => [
             'driver' => PerplexityAgentDriver::class,
@@ -226,6 +298,12 @@ return [
             'enabled' => true,
             'options' => [],
             'credential' => config('services.perplexity.key'),
+            'pricing' => [
+                'provider' => 'perplexity',
+                'model' => 'agent-low',
+                'usage' => ['input_tokens' => 100_000, 'output_tokens' => 100_000, 'web_searches' => 100, 'fetch_url_requests' => 100, 'sandbox_sessions' => 10],
+                'conservative' => false,
+            ],
         ],
         'grok' => [
             'driver' => XaiGrokDriver::class,
@@ -240,6 +318,12 @@ return [
             'enabled' => true,
             'options' => [],
             'credential' => config('ai.providers.xai.key'),
+            'pricing' => [
+                'provider' => 'xai',
+                'model' => 'grok-4.6',
+                'usage' => ['input_tokens' => 100_000, 'output_tokens' => 100_000, 'web_searches' => 100],
+                'conservative' => false,
+            ],
         ],
         'openai-research' => [
             'driver' => OpenAiResearchDriver::class,
@@ -254,6 +338,12 @@ return [
             'enabled' => true,
             'options' => [],
             'credential' => config('ai.providers.openai.key'),
+            'pricing' => [
+                'provider' => 'openai',
+                'model' => 'gpt-5.6-sol',
+                'usage' => ['input_tokens' => 100_000, 'output_tokens' => 100_000, 'web_searches' => 100],
+                'conservative' => false,
+            ],
         ],
         'perplexity-sonar-deep' => [
             'driver' => PerplexityAgentDriver::class,
@@ -268,6 +358,12 @@ return [
             'enabled' => true,
             'options' => [],
             'credential' => config('services.perplexity.key'),
+            'pricing' => [
+                'provider' => 'perplexity',
+                'model' => 'agent-high',
+                'usage' => ['input_tokens' => 100_000, 'output_tokens' => 100_000, 'web_searches' => 100, 'fetch_url_requests' => 100, 'sandbox_sessions' => 10],
+                'conservative' => false,
+            ],
         ],
         'searchapi' => [
             'driver' => SearchApiDriver::class,
@@ -282,7 +378,12 @@ return [
             'enabled' => true,
             'options' => [],
             'credential' => config('services.searchapi.key'),
-            'estimated_cost' => ['amount' => '0.004', 'currency' => 'USD'],
+            'pricing' => [
+                'provider' => 'searchapi',
+                'model' => 'search',
+                'usage' => ['successful_search_request' => 1],
+                'conservative' => true,
+            ],
         ],
         'searchapi-chatgpt' => [
             'driver' => SearchApiDriver::class,
@@ -297,7 +398,12 @@ return [
             'enabled' => true,
             'options' => [],
             'credential' => config('services.searchapi.key'),
-            'estimated_cost' => ['amount' => '0.004', 'currency' => 'USD'],
+            'pricing' => [
+                'provider' => 'searchapi',
+                'model' => 'search',
+                'usage' => ['successful_search_request' => 1],
+                'conservative' => true,
+            ],
         ],
         'searchapi-gemini' => [
             'driver' => SearchApiDriver::class,
@@ -312,7 +418,12 @@ return [
             'enabled' => true,
             'options' => [],
             'credential' => config('services.searchapi.key'),
-            'estimated_cost' => ['amount' => '0.004', 'currency' => 'USD'],
+            'pricing' => [
+                'provider' => 'searchapi',
+                'model' => 'search',
+                'usage' => ['successful_search_request' => 1],
+                'conservative' => true,
+            ],
         ],
         'searchapi-perplexity' => [
             'driver' => SearchApiDriver::class,
@@ -327,7 +438,12 @@ return [
             'enabled' => true,
             'options' => [],
             'credential' => config('services.searchapi.key'),
-            'estimated_cost' => ['amount' => '0.004', 'currency' => 'USD'],
+            'pricing' => [
+                'provider' => 'searchapi',
+                'model' => 'search',
+                'usage' => ['successful_search_request' => 1],
+                'conservative' => true,
+            ],
         ],
         'searchapi-google-ai-mode' => [
             'driver' => SearchApiDriver::class,
@@ -342,7 +458,12 @@ return [
             'enabled' => true,
             'options' => [],
             'credential' => config('services.searchapi.key'),
-            'estimated_cost' => ['amount' => '0.004', 'currency' => 'USD'],
+            'pricing' => [
+                'provider' => 'searchapi',
+                'model' => 'search',
+                'usage' => ['successful_search_request' => 1],
+                'conservative' => true,
+            ],
         ],
         'searchapi-bing-copilot' => [
             'driver' => SearchApiDriver::class,
@@ -357,7 +478,12 @@ return [
             'enabled' => true,
             'options' => [],
             'credential' => config('services.searchapi.key'),
-            'estimated_cost' => ['amount' => '0.004', 'currency' => 'USD'],
+            'pricing' => [
+                'provider' => 'searchapi',
+                'model' => 'search',
+                'usage' => ['successful_search_request' => 1],
+                'conservative' => true,
+            ],
         ],
         'searchapi-google-ai-overview' => [
             'driver' => SearchApiDriver::class,
@@ -372,7 +498,12 @@ return [
             'enabled' => true,
             'options' => [],
             'credential' => config('services.searchapi.key'),
-            'estimated_cost' => ['amount' => '0.008', 'currency' => 'USD'],
+            'pricing' => [
+                'provider' => 'searchapi',
+                'model' => 'search',
+                'usage' => ['successful_search_request' => 2],
+                'conservative' => true,
+            ],
         ],
     ],
 

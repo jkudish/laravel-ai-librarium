@@ -67,7 +67,7 @@ it('registers the accepted core HTTP Profiles with resolved credentials', functi
     string $grounding,
     string $retrievalMethod,
     string $credentialPath,
-    ?string $estimatedCost,
+    string $pricingIdentity,
 ): void {
     $profile = config("librarium.profiles.{$profileId}");
 
@@ -82,15 +82,17 @@ it('registers the accepted core HTTP Profiles with resolved credentials', functi
         ->and(data_get($profile, 'retrieval_methods'))->toBe([$retrievalMethod])
         ->and(data_get($profile, 'credential'))->toBe(config($credentialPath))
         ->and(data_get($profile, 'credential'))->not->toBe($credentialPath)
-        ->and(data_get($profile, 'estimated_cost.amount'))->toBe($estimatedCost);
+        ->and(data_get($profile, 'pricing.provider').':'.data_get($profile, 'pricing.model'))->toBe($pricingIdentity)
+        ->and(data_get($profile, 'pricing.usage'))->toBeArray()->not->toBeEmpty()
+        ->and(data_get($profile, 'pricing.conservative'))->toBeBool();
 })->with([
-    'Brave Answers' => ['brave-answers', BraveAnswersDriver::class, 'brave', 'brave', 'grounded_answer', 'required', 'search_endpoint', 'services.brave.key', null],
-    'Exa Search' => ['exa', ExaSearchDriver::class, 'exa', null, 'search_results', 'none', 'search_endpoint', 'services.exa.key', null],
-    'Kagi FastGPT' => ['kagi-fastgpt', KagiFastGptDriver::class, 'kagi-fastgpt', null, 'grounded_answer', 'required', 'search_endpoint', 'services.kagi.key', '0.015'],
-    'Perplexity Sonar Pro' => ['perplexity-sonar-pro', PerplexityAgentDriver::class, 'perplexity', null, 'grounded_answer', 'required', 'model_search_tool', 'services.perplexity.key', null],
-    'Grok web search' => ['grok', XaiGrokDriver::class, 'xai', 'grok-4.6', 'grounded_answer', 'required', 'model_search_tool', 'ai.providers.xai.key', null],
-    'OpenAI research' => ['openai-research', OpenAiResearchDriver::class, 'openai', 'gpt-5.6-sol', 'research_report', 'required', 'research_agent', 'ai.providers.openai.key', null],
-    'Perplexity Sonar Deep' => ['perplexity-sonar-deep', PerplexityAgentDriver::class, 'perplexity', null, 'research_report', 'required', 'research_agent', 'services.perplexity.key', null],
+    'Brave Answers' => ['brave-answers', BraveAnswersDriver::class, 'brave', 'brave', 'grounded_answer', 'required', 'search_endpoint', 'services.brave.key', 'brave:answers'],
+    'Exa Search' => ['exa', ExaSearchDriver::class, 'exa', null, 'search_results', 'none', 'search_endpoint', 'services.exa.key', 'exa:search'],
+    'Kagi FastGPT' => ['kagi-fastgpt', KagiFastGptDriver::class, 'kagi-fastgpt', null, 'grounded_answer', 'required', 'search_endpoint', 'services.kagi.key', 'kagi:fastgpt'],
+    'Perplexity Sonar Pro' => ['perplexity-sonar-pro', PerplexityAgentDriver::class, 'perplexity', null, 'grounded_answer', 'required', 'model_search_tool', 'services.perplexity.key', 'perplexity:agent-low'],
+    'Grok web search' => ['grok', XaiGrokDriver::class, 'xai', 'grok-4.6', 'grounded_answer', 'required', 'model_search_tool', 'ai.providers.xai.key', 'xai:grok-4.6'],
+    'OpenAI research' => ['openai-research', OpenAiResearchDriver::class, 'openai', 'gpt-5.6-sol', 'research_report', 'required', 'research_agent', 'ai.providers.openai.key', 'openai:gpt-5.6-sol'],
+    'Perplexity Sonar Deep' => ['perplexity-sonar-deep', PerplexityAgentDriver::class, 'perplexity', null, 'research_report', 'required', 'research_agent', 'services.perplexity.key', 'perplexity:agent-high'],
 ]);
 
 it('registers three distinct You.com Profiles with one compatible credential value', function (): void {
@@ -100,19 +102,19 @@ it('registers three distinct You.com Profiles with one compatible credential val
 
     expect(config('librarium.profiles.you-answer.driver'))->toBe(YouAnswerDriver::class)
         ->and(config('librarium.profiles.you-answer.provider'))->toBe('you-answer')
-        ->and(config('librarium.profiles.you-answer.estimated_cost.amount'))->toBe('0.005')
+        ->and(config('librarium.profiles.you-answer.pricing'))->toMatchArray(['provider' => 'you', 'model' => 'answer', 'usage' => ['requests' => 1], 'conservative' => true])
         ->and(config('librarium.profiles.you-research-grounded.driver'))->toBe(YouResearchGroundedDriver::class)
         ->and(config('librarium.profiles.you-research-grounded.provider'))->toBe('you-research')
         ->and(config('librarium.profiles.you-research-grounded.result_kind'))->toBe('grounded_answer')
         ->and(config('librarium.profiles.you-research-grounded.retrieval_methods'))->toBe(['search_endpoint'])
         ->and(config('librarium.profiles.you-research-grounded.options'))->toBe(['research_effort' => 'standard'])
-        ->and(config('librarium.profiles.you-research-grounded.estimated_cost.amount'))->toBe('0.05')
+        ->and(config('librarium.profiles.you-research-grounded.pricing'))->toMatchArray(['provider' => 'you', 'model' => 'research-standard', 'usage' => ['requests' => 1], 'conservative' => true])
         ->and(config('librarium.profiles.you-research-research.driver'))->toBe(YouResearchDriver::class)
         ->and(config('librarium.profiles.you-research-research.provider'))->toBe('you-research')
         ->and(config('librarium.profiles.you-research-research.result_kind'))->toBe('research_report')
         ->and(config('librarium.profiles.you-research-research.retrieval_methods'))->toBe(['research_agent'])
         ->and(config('librarium.profiles.you-research-research.options'))->toBe(['research_effort' => 'standard'])
-        ->and(config('librarium.profiles.you-research-research.estimated_cost.amount'))->toBe('0.05')
+        ->and(config('librarium.profiles.you-research-research.pricing'))->toMatchArray(['provider' => 'you', 'model' => 'research-standard', 'usage' => ['requests' => 1], 'conservative' => true])
         ->and(config('librarium.profiles.you-answer.credential'))->toBe(config('librarium.profiles.you-research-grounded.credential'))
         ->toBe(config('librarium.profiles.you-research-research.credential'));
 });

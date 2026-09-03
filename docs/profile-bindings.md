@@ -128,8 +128,12 @@ Test and proof codes:
 - **L:** run one separately authorized paid live canary before release.
 - **B:** pass the SearchAPI/Firecrawl fidelity bake-off under #2593.
 
-Pricing is descriptive. `native tokens` and `API units` do not imply known USD
-cost. Missing provider-reported cost remains `null`, never zero.
+Pricing statements identify usage semantics only. Landed PHP Profiles resolve
+rates, source provenance, and freshness through `laravel-ai-pricing`; this
+matrix does not duplicate a rate table. Provider-reported actual totals retain
+resolver precedence after execution. SearchAPI is configured-only and remains
+unavailable until the application supplies its rate. Unregistered holdbacks do
+not receive preview quotes. Missing cost remains `null`, never zero.
 
 ## #2591 core SDK: landed 1.0 Profiles (6)
 
@@ -142,7 +146,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 - **Binding:** Laravel AI Gemini, exact model, native `WebSearch`
 - **Execution:** inline; no provider-durable handle
 - **Terminal:** SDK answer
-- **Pricing:** native tokens; USD unknown unless authoritative pricing is supplied
+- **Pricing:** model token/tool units quoted through `laravel-ai-pricing`; assumptions are not a hard bound
 - **Test and proof:** SDK fake; D + L; Wave 1 exemplar under #2833; target refreshed to the installed Laravel AI SDK v0.10.3 default during #2834
 
 ### `openrouter/grounded`
@@ -154,7 +158,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 - **Binding:** Laravel AI OpenRouter, exact model, native `WebSearch`
 - **Execution:** inline; no provider-durable handle
 - **Terminal:** SDK answer
-- **Pricing:** provider-native cost when reported; otherwise null
+- **Pricing:** model token/tool units quoted through `laravel-ai-pricing`; reported actual cost wins
 - **Test and proof:** SDK fake; D + L
 
 ### `openrouter/chat`
@@ -166,7 +170,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 - **Binding:** Laravel AI OpenRouter and native `WebSearch`, on by default; search-off becomes `model_answer`
 - **Execution:** inline; no provider-durable handle
 - **Terminal:** SDK answer
-- **Pricing:** provider-native cost when reported; otherwise null
+- **Pricing:** model token/tool units quoted through `laravel-ai-pricing`; reported actual cost wins
 - **Test and proof:** SDK fake for search-on and search-off; D + L
 
 ### `claude/chat`
@@ -178,7 +182,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 - **Binding:** Laravel AI Anthropic and native `WebSearch`, on by default; search-off becomes `model_answer`
 - **Execution:** inline; no provider-durable handle
 - **Terminal:** SDK answer
-- **Pricing:** native tokens; USD unknown unless authoritative pricing is supplied
+- **Pricing:** model token/tool units quoted through `laravel-ai-pricing`; assumptions are not a hard bound
 - **Test and proof:** SDK fake for search-on and search-off; D + L
 
 ### `openai-chat/chat`
@@ -190,7 +194,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 - **Binding:** Laravel AI OpenAI and native `WebSearch`, on by default; search-off becomes `model_answer`
 - **Execution:** inline; no provider-durable handle
 - **Terminal:** SDK answer
-- **Pricing:** native tokens; USD unknown unless authoritative pricing is supplied
+- **Pricing:** model token/tool units quoted through `laravel-ai-pricing`; assumptions are not a hard bound
 - **Test and proof:** SDK fake for search-on and search-off; D + L
 
 ### `gemini-chat/chat`
@@ -202,7 +206,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 - **Binding:** Laravel AI Gemini and native `WebSearch`, on by default; search-off becomes `model_answer`
 - **Execution:** inline; no provider-durable handle
 - **Terminal:** SDK answer
-- **Pricing:** native tokens; USD unknown unless authoritative pricing is supplied
+- **Pricing:** model token/tool units quoted through `laravel-ai-pricing`; assumptions are not a hard bound
 - **Test and proof:** SDK fake for search-on and search-off; D + L
 
 ## #2591 core HTTP: landed 1.0 Profiles (14)
@@ -216,7 +220,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 - **Binding:** Brave chat-completions answer endpoint; no matching Laravel AI provider tool
 - **Execution:** inline
 - **Terminal:** HTTP answer
-- **Pricing:** API-unit priced by search plus tokens; exact USD unknown
+- **Pricing:** request/token units quoted through `laravel-ai-pricing`; assumptions are not a hard bound
 - **Test and proof:** HTTP fake; D + L
 
 ### `exa/search`
@@ -228,7 +232,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 - **Binding:** Exa Search API; no Laravel AI text-provider equivalent
 - **Execution:** inline
 - **Terminal:** HTTP search
-- **Pricing:** provider-native cost when reported; otherwise null
+- **Pricing:** conservative request units quoted through `laravel-ai-pricing`; reported actual cost wins
 - **Test and proof:** HTTP fake; D + L
 
 ### `kagi-fastgpt/grounded`
@@ -240,7 +244,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 - **Binding:** Kagi FastGPT endpoint; no Laravel AI provider equivalent
 - **Execution:** inline
 - **Terminal:** HTTP answer
-- **Pricing:** estimated $0.015 per request; retain reported cost when available
+- **Pricing:** conservative request units quoted through `laravel-ai-pricing`; reported actual cost wins
 - **Test and proof:** HTTP fake; D + L
 
 ### `perplexity-sonar-pro/grounded`
@@ -252,7 +256,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 - **Binding:** Perplexity Agent API low effort; not an OpenAI-compatible SDK chat call
 - **Execution:** inline Agent result
 - **Terminal:** HTTP answer
-- **Pricing:** provider-native cost when reported; otherwise null
+- **Pricing:** model token/tool units quoted through `laravel-ai-pricing`; reported actual cost wins
 - **Test and proof:** HTTP fake; D + L
 
 ### `grok/web`
@@ -264,7 +268,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 - **Binding:** xAI Responses API web-search tool; Laravel AI v0.10.3 text support does not expose this corpus-specific tool
 - **Execution:** inline
 - **Terminal:** HTTP answer
-- **Pricing:** native tokens plus estimated $0.015 tool charge; reported cost wins
+- **Pricing:** model token/tool units quoted through `laravel-ai-pricing`; reported actual cost wins
 - **Test and proof:** HTTP fake with exact web-only tool; D + L; PHP default refreshed to the maintainer-approved Grok 4.6 during #2838
 
 ### `openai-research/research`
@@ -276,7 +280,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 - **Binding:** OpenAI Responses API background mode plus web search; SDK queueing is not provider-durable execution
 - **Execution:** background/durable; webhook wake hint plus bounded poll and retrieve
 - **Terminal:** HTTP report
-- **Pricing:** native tokens; USD unknown unless authoritative pricing is supplied
+- **Pricing:** model token/tool units quoted through `laravel-ai-pricing`; assumptions are not a hard bound
 - **Test and proof:** Durable fake with signed duplicate webhook; D + L
 
 ### `perplexity-sonar-deep/research`
@@ -288,7 +292,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 - **Binding:** Perplexity Agent API high effort
 - **Execution:** background/durable; poll then retrieve; no remote cancellation claim
 - **Terminal:** HTTP report
-- **Pricing:** provider-native cost when reported; otherwise null
+- **Pricing:** model token/tool units quoted through `laravel-ai-pricing`; reported actual cost wins
 - **Test and proof:** Durable fake; D + L
 
 ### `searchapi/search`
@@ -300,7 +304,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 - **Binding:** SearchAPI Google engine with bearer auth; explicit `zero_retention` fails closed when unsupported
 - **Execution:** inline
 - **Terminal:** HTTP search
-- **Pricing:** estimated $0.004 per request; retain reported cost when available
+- **Pricing:** configured-only request unit; unavailable until the application supplies a rate
 - **Test and proof:** HTTP fake for normal and zero-retention denial; D + L
 
 ### `searchapi-chatgpt/surface`
@@ -312,7 +316,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 - **Binding:** SearchAPI `chatgpt` engine with web search enabled
 - **Execution:** inline
 - **Terminal:** Surface snapshot; preserve effective model only when reported
-- **Pricing:** estimated $0.004 per request
+- **Pricing:** configured-only request unit; unavailable until the application supplies a rate
 - **Test and proof:** Surface fixture; D + L + B
 
 ### `searchapi-gemini/surface`
@@ -324,7 +328,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 - **Binding:** SearchAPI `gemini` engine
 - **Execution:** inline
 - **Terminal:** Surface snapshot
-- **Pricing:** estimated $0.004 per request
+- **Pricing:** configured-only request unit; unavailable until the application supplies a rate
 - **Test and proof:** Surface fixture; D + L + B
 
 ### `searchapi-perplexity/surface`
@@ -336,7 +340,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 - **Binding:** SearchAPI `perplexity` engine
 - **Execution:** inline
 - **Terminal:** Surface snapshot
-- **Pricing:** estimated $0.004 per request
+- **Pricing:** configured-only request unit; unavailable until the application supplies a rate
 - **Test and proof:** Surface fixture; D + L + B
 
 ### `searchapi-google-ai-mode/surface`
@@ -348,7 +352,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 - **Binding:** SearchAPI `google_ai_mode`; consume only AI answer fields, never organic-result fallback content
 - **Execution:** inline
 - **Terminal:** Surface snapshot
-- **Pricing:** estimated $0.004 per request
+- **Pricing:** configured-only request unit; unavailable until the application supplies a rate
 - **Test and proof:** Surface fixture; D + L + B
 
 ### `searchapi-bing-copilot/surface`
@@ -360,7 +364,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 - **Binding:** SearchAPI `bing_copilot` engine
 - **Execution:** inline
 - **Terminal:** Surface snapshot
-- **Pricing:** estimated $0.004 per request
+- **Pricing:** configured-only request unit; unavailable until the application supplies a rate
 - **Test and proof:** Surface fixture; D + L + B
 
 ### `searchapi-google-ai-overview/surface`
@@ -372,7 +376,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 - **Binding:** SearchAPI two-stage Google page-token then `google_ai_overview`; no stage-one organic fallback
 - **Execution:** inline logical operation with two bounded HTTP calls
 - **Terminal:** Surface snapshot
-- **Pricing:** two estimated $0.004 request units
+- **Pricing:** two configured-only request units; unavailable until the application supplies a rate
 - **Test and proof:** Two-stage surface fixture with missing-token failure; D + L + B
 
 ## Separate approved tasks (1)
@@ -386,7 +390,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 - **Binding:** official Firecrawl SDK/API search Driver; keep this dependency out of core
 - **Execution:** inline search; Firecrawl research/browser async remains separately designed
 - **Terminal:** HTTP search
-- **Pricing:** one credit by default; USD is account-specific
+- **Pricing:** owned by the separate adapter package and consuming account
 - **Test and proof:** Adapter fake plus shipped-adapter paid query; D + L; B where used for collection
 
 ## #2694 You.com: landed 1.0 Profiles (3)
@@ -400,7 +404,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 - **Binding:** You.com inline Research API
 - **Execution:** inline
 - **Terminal:** HTTP answer
-- **Pricing:** estimated $0.05 per standard request
+- **Pricing:** conservative request units quoted through `laravel-ai-pricing`
 - **Test and proof:** HTTP fake; D + L
 
 ### `you-research/research`
@@ -412,7 +416,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 - **Binding:** You.com background Research API
 - **Execution:** background/durable; poll then retrieve; no remote cancellation claim
 - **Terminal:** HTTP report
-- **Pricing:** estimated $0.05 per standard request
+- **Pricing:** conservative request units quoted through `laravel-ai-pricing`
 - **Test and proof:** Durable fake; D + L
 
 ### `you-answer/grounded`
@@ -424,7 +428,7 @@ cost. Missing provider-reported cost remains `null`, never zero.
 - **Binding:** You.com Answer API; distinct from both Research Profiles
 - **Execution:** inline
 - **Terminal:** HTTP answer
-- **Pricing:** estimated $0.005 per request
+- **Pricing:** conservative request units quoted through `laravel-ai-pricing`
 - **Test and proof:** HTTP fake; D + L
 
 ## Explicit post-1.0 holdbacks (16)
@@ -443,7 +447,7 @@ maintainer checkpoint may move a row into #2591 later.
 - **Binding:** Brave Web Search API
 - **Execution:** inline
 - **Terminal:** HTTP search
-- **Pricing:** estimated $0.005 per request
+- **Pricing:** not resolved while the Profile remains unregistered
 - **Test and proof:** Holdback guard; later HTTP fake, D + L
 - **Holdback reason:** Exa already covers raw discovery in quick.
 
@@ -456,7 +460,7 @@ maintainer checkpoint may move a row into #2591 later.
 - **Binding:** Exa Agent runs API
 - **Execution:** background/durable; poll then retrieve
 - **Terminal:** HTTP report
-- **Pricing:** provider-native cost when reported
+- **Pricing:** not resolved while the Profile remains unregistered
 - **Test and proof:** Holdback guard; later Durable fake, D + L
 - **Holdback reason:** OpenAI and Perplexity provide the first two deep paths.
 
@@ -469,7 +473,7 @@ maintainer checkpoint may move a row into #2591 later.
 - **Binding:** Tavily Search API
 - **Execution:** inline
 - **Terminal:** HTTP search
-- **Pricing:** two credits by default; USD is account-specific
+- **Pricing:** not resolved while the Profile remains unregistered
 - **Test and proof:** Holdback guard; later HTTP fake, D + L
 - **Holdback reason:** Not required by quick and duplicates the initial search lane.
 
@@ -482,7 +486,7 @@ maintainer checkpoint may move a row into #2591 later.
 - **Binding:** Tavily Research API
 - **Execution:** background/durable; poll then retrieve
 - **Terminal:** HTTP report
-- **Pricing:** credits reported when available; USD is account-specific
+- **Pricing:** not resolved while the Profile remains unregistered
 - **Test and proof:** Holdback guard; later Durable fake, D + L
 - **Holdback reason:** Defer another durable path until the first two prove the runtime.
 
@@ -495,7 +499,7 @@ maintainer checkpoint may move a row into #2591 later.
 - **Binding:** Gemini Interactions background agent; Laravel AI v0.10.3 has no provider-durable research abstraction
 - **Execution:** background/durable; poll then retrieve
 - **Terminal:** HTTP report
-- **Pricing:** native tokens plus descriptive $3 task estimate; reported cost wins
+- **Pricing:** not resolved while the Profile remains unregistered
 - **Test and proof:** Holdback guard; later Durable fake, D + L
 - **Holdback reason:** Preview agent and separate protocol need focused post-1.0 proof.
 
@@ -508,7 +512,7 @@ maintainer checkpoint may move a row into #2591 later.
 - **Binding:** Perplexity Agent API medium effort
 - **Execution:** background/durable; poll then retrieve
 - **Terminal:** HTTP report
-- **Pricing:** provider-native cost when reported
+- **Pricing:** not resolved while the Profile remains unregistered
 - **Test and proof:** Holdback guard; later Durable fake, D + L
 - **Holdback reason:** High effort proves the Perplexity Agent family for 1.0.
 
@@ -521,7 +525,7 @@ maintainer checkpoint may move a row into #2591 later.
 - **Binding:** Perplexity Search API, not Agent or chat completion
 - **Execution:** inline
 - **Terminal:** HTTP search
-- **Pricing:** one request unit; exact USD unknown
+- **Pricing:** not resolved while the Profile remains unregistered
 - **Test and proof:** Holdback guard; later HTTP fake, D + L
 - **Holdback reason:** Not required by quick and adds another raw-search shape.
 
@@ -534,7 +538,7 @@ maintainer checkpoint may move a row into #2591 later.
 - **Binding:** xAI Responses API with X-only search tool
 - **Execution:** inline
 - **Terminal:** HTTP answer; `x_post` only when provider facts support it
-- **Pricing:** native tokens plus estimated $0.015 tool charge
+- **Pricing:** not resolved while the Profile remains unregistered
 - **Test and proof:** Holdback guard; later exact X-only HTTP fake, D + L
 - **Holdback reason:** `grok/web` supplies the 1.0 visibility baseline.
 
@@ -547,7 +551,7 @@ maintainer checkpoint may move a row into #2591 later.
 - **Binding:** one xAI Responses attempt with both web and X tools
 - **Execution:** inline; one origin, never two independent confirmations
 - **Terminal:** HTTP answer with per-citation source kinds when supported
-- **Pricing:** native tokens plus estimated $0.025 tool charge
+- **Pricing:** not resolved while the Profile remains unregistered
 - **Test and proof:** Holdback guard; later combined-tool HTTP fake, D + L
 - **Holdback reason:** Defer two-corpus provenance until each basic lane is stable.
 
@@ -560,7 +564,7 @@ maintainer checkpoint may move a row into #2591 later.
 - **Binding:** Jina Search Foundation; Laravel AI Jina support is embeddings/reranking, not this API
 - **Execution:** inline
 - **Terminal:** HTTP search
-- **Pricing:** token/API-unit priced; exact USD unknown
+- **Pricing:** not resolved while the Profile remains unregistered
 - **Test and proof:** Holdback guard; later HTTP fake, D + L
 - **Holdback reason:** No SDK reuse and no required 1.0 workflow membership.
 
@@ -573,7 +577,7 @@ maintainer checkpoint may move a row into #2591 later.
 - **Binding:** SerpAPI Google engine
 - **Execution:** inline
 - **Terminal:** HTTP search
-- **Pricing:** estimated $0.015 per request
+- **Pricing:** not resolved while the Profile remains unregistered
 - **Test and proof:** Holdback guard; later HTTP fake, D + L
 - **Holdback reason:** SearchAPI already supplies brokered Google search.
 
@@ -586,7 +590,7 @@ maintainer checkpoint may move a row into #2591 later.
 - **Binding:** Parallel Search API
 - **Execution:** inline
 - **Terminal:** HTTP search
-- **Pricing:** API-unit priced; exact USD unknown
+- **Pricing:** not resolved while the Profile remains unregistered
 - **Test and proof:** Holdback guard; later HTTP fake, D + L
 - **Holdback reason:** Defer the three-profile family and shared options together.
 
@@ -599,7 +603,7 @@ maintainer checkpoint may move a row into #2591 later.
 - **Binding:** Parallel chat-completions with web retrieval and structured output
 - **Execution:** inline
 - **Terminal:** HTTP answer
-- **Pricing:** API-unit priced; exact USD unknown
+- **Pricing:** not resolved while the Profile remains unregistered
 - **Test and proof:** Holdback guard; later HTTP fake, D + L
 - **Holdback reason:** Not required by quick and belongs with the deferred family.
 
@@ -612,7 +616,7 @@ maintainer checkpoint may move a row into #2591 later.
 - **Binding:** Parallel task-run submit, poll, and result APIs
 - **Execution:** background/durable; poll then retrieve
 - **Terminal:** HTTP report
-- **Pricing:** processor-request units; exact USD unknown
+- **Pricing:** not resolved while the Profile remains unregistered
 - **Test and proof:** Holdback guard; later Durable fake, D + L
 - **Holdback reason:** Defer another durable family until 1.0 dogfooding.
 
@@ -625,7 +629,7 @@ maintainer checkpoint may move a row into #2591 later.
 - **Binding:** Valyu Search API
 - **Execution:** inline
 - **Terminal:** HTTP search; specialized categories are metadata, not independent evidence
-- **Pricing:** provider-native cost when reported
+- **Pricing:** not resolved while the Profile remains unregistered
 - **Test and proof:** Holdback guard; later HTTP fake, D + L
 - **Holdback reason:** Specialized sources are valuable but not required for 1.0.
 
@@ -638,7 +642,7 @@ maintainer checkpoint may move a row into #2591 later.
 - **Binding:** Valyu deep-research tasks API
 - **Execution:** background/durable; only accepted Profile advertising exact-profile remote cancellation
 - **Terminal:** HTTP report
-- **Pricing:** provider-native cost when reported
+- **Pricing:** not resolved while the Profile remains unregistered
 - **Test and proof:** Holdback guard; later Durable fake with cancellation, D + L
 - **Holdback reason:** Cancellation and specialized provenance deserve focused work.
 
@@ -655,5 +659,6 @@ this inventory until they have a real selectable binding.
   fallback stays disabled until exact measured-surface identity lands in #2830.
 - Provider network calls and paid calls require the independent approval gate
   documented in `live-provider-canaries.md`; this reconciliation made none.
-- Persistence, conversation storage, pricing catalogs, and TypeScript runtime
-  internals remain outside the core package.
+- Persistence, conversation storage, and TypeScript runtime internals remain
+  outside the core package. Pricing catalogs are owned by
+  `laravel-ai-pricing`, not duplicated here.

@@ -11,6 +11,8 @@ use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
+use Jkudish\LaravelAiPricing\ValueObjects\ModelIdentity;
+use Jkudish\LaravelAiPricing\ValueObjects\Usage;
 use JsonSerializable;
 
 /** @implements Arrayable<string, mixed> */
@@ -35,8 +37,9 @@ final class Profile implements Arrayable, JsonSerializable
         public readonly bool $enabled,
         public readonly array $options,
         public readonly ?string $credential = null,
-        public readonly ?int $estimatedCostMicros = null,
-        public readonly ?string $currency = null,
+        public readonly ?ModelIdentity $pricingIdentity = null,
+        public readonly ?Usage $pricingUsage = null,
+        public readonly bool $pricingUsageConservative = false,
     ) {}
 
     public function renderPrompt(string $input): string
@@ -60,8 +63,11 @@ final class Profile implements Arrayable, JsonSerializable
             'prompt' => $this->prompt,
             'enabled' => $this->enabled,
             'options' => $this->options,
-            'estimated_cost_micros' => $this->estimatedCostMicros,
-            'currency' => $this->currency,
+            'pricing' => $this->pricingIdentity === null || $this->pricingUsage === null ? null : [
+                'identity' => $this->pricingIdentity->toArray(),
+                'usage' => $this->pricingUsage->toArray(),
+                'conservative' => $this->pricingUsageConservative,
+            ],
         ];
     }
 

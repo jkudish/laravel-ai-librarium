@@ -8,6 +8,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Http;
 use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\ResearchAgent;
 use Jkudish\LaravelAiLibrarium\LaravelAiLibrariumServiceProvider;
+use Jkudish\LaravelAiPricing\LaravelAiPricingServiceProvider;
 use Laravel\Ai\AiServiceProvider;
 use Orchestra\Testbench\TestCase as Orchestra;
 
@@ -30,6 +31,7 @@ abstract class TestCase extends Orchestra
     protected function getPackageProviders($app): array
     {
         return [
+            LaravelAiPricingServiceProvider::class,
             LaravelAiLibrariumServiceProvider::class,
             AiServiceProvider::class,
         ];

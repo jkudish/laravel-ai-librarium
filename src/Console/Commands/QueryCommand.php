@@ -13,6 +13,7 @@ use Jkudish\LaravelAiLibrarium\ProfileCatalog;
 use Jkudish\LaravelAiLibrarium\ResearchPreview;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResponseStatus;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResponse;
+use Jkudish\LaravelAiPricing\Enums\CostCompleteness;
 use League\CommonMark\CommonMarkConverter;
 use Throwable;
 
@@ -34,7 +35,7 @@ final class QueryCommand extends LibrariumCommand
         {--group= : Profile group to use}
         {--fallback=* : Fallback Profile; repeat in priority order}
         {--timeout= : Timeout in seconds}
-        {--max-cost= : Hard maximum estimated cost}
+        {--max-cost= : Hard maximum cost}
         {--currency= : ISO 4217 currency for --max-cost (default: USD)}
         {--run : Run synchronously after preview}
         {--queue : Queue after preview}
@@ -251,7 +252,7 @@ final class QueryCommand extends LibrariumCommand
             $controls = multiselect('Add safeguards (optional)', [
                 'fallbacks' => 'Fallback Profiles — try alternatives after a failure',
                 'timeout' => 'Timeout — override the configured deadline',
-                'max_cost' => 'Cost ceiling — reject plans above an estimate',
+                'max_cost' => 'Cost ceiling — require a conservative hard bound',
             ], hint: 'Space selects; Enter continues with the configured defaults.');
 
             if (in_array('fallbacks', $controls, true)) {
@@ -261,7 +262,7 @@ final class QueryCommand extends LibrariumCommand
                 $timeout = text('Timeout in seconds', required: true, validate: fn (string $value): ?string => ctype_digit($value) ? null : 'Enter a whole number of seconds.');
             }
             if (in_array('max_cost', $controls, true)) {
-                $maximumCost = text('Maximum estimated cost', required: true);
+                $maximumCost = text('Maximum cost', required: true);
                 $currency = text('Currency', default: 'USD', required: true);
             }
         }
@@ -321,10 +322,7 @@ final class QueryCommand extends LibrariumCommand
             warning("Preview notes:\n".implode("\n", $previewNotes));
         }
 
-        $cost = $preview->maximumEstimatedCost === null
-            ? 'unavailable'
-            : "{$preview->maximumEstimatedCost} {$preview->currency}";
-        note('Estimated maximum cost: '.$cost.' ('.($preview->costEstimateComplete ? 'complete' : 'incomplete').' estimate).');
+        note($this->pricingSummary($preview));
     }
 
     private function showPlainPreview(PendingResearch $pending, ResearchPreview $preview): void
@@ -333,8 +331,7 @@ final class QueryCommand extends LibrariumCommand
         $this->line('Request ID: '.$pending->requestId);
         $this->line('Profiles: '.$preview->profiles->pluck('id')->implode(', '));
         $this->line('Fallbacks: '.($preview->fallbacks->isEmpty() ? 'none' : $preview->fallbacks->pluck('id')->implode(', ')));
-        $this->line('Cost estimate: '.($preview->maximumEstimatedCost === null ? 'unavailable' : $preview->maximumEstimatedCost.' '.$preview->currency));
-        $this->line('Cost completeness: '.($preview->costEstimateComplete ? 'complete' : 'incomplete'));
+        $this->line($this->pricingSummary($preview));
     }
 
     private function writeResponse(ResearchResponse $response): int
@@ -398,6 +395,89 @@ final class QueryCommand extends LibrariumCommand
                 'currency' => $preview->currency,
                 'complete' => $preview->costEstimateComplete,
             ],
+            'pricing' => $this->pricingEnvelope($preview),
+        ];
+    }
+
+    private function pricingSummary(ResearchPreview $preview): string
+    {
+        $subtotals = $preview->knownCostSubtotals
+            ->map(fn (string $amount, string $currency): string => "{$amount} {$currency}")
+            ->values()
+            ->implode(' + ');
+        $unknown = $preview->pricingQuotes
+            ->filter(fn (array $entry): bool => $entry['quote']->completeness !== CostCompleteness::Complete)
+            ->map(function (array $entry): string {
+                $units = $entry['quote']->missingUnits;
+
+                return $entry['profile'].($units === [] ? '' : ' ('.implode(', ', $units).')');
+            })
+            ->values()
+            ->implode(', ');
+        $unbounded = $preview->pricingQuotes
+            ->reject(fn (array $entry): bool => $entry['conservative'])
+            ->pluck('profile')
+            ->values()
+            ->implode(', ');
+        $sources = $preview->pricingQuotes
+            ->map(function (array $entry): string {
+                $retrievedAt = $entry['quote']->provenance?->retrievedAt?->format('Y-m-d');
+
+                return $entry['quote']->source->value.' / '.$entry['freshness']
+                    .($retrievedAt === null ? '' : " ({$retrievedAt})");
+            })
+            ->unique()
+            ->values()
+            ->implode(', ');
+
+        return implode("\n", [
+            'Known subtotal: '.($subtotals === '' ? 'none' : $subtotals).'.',
+            'Unknown pricing: '.($unknown === '' ? 'none' : $unknown).'.',
+            'Unbounded assumptions: '.($unbounded === '' ? 'none' : $unbounded).'.',
+            'Hard ceiling: '.($preview->hardCostCeilingAvailable ? 'available' : 'unavailable').'.',
+            'Sources / freshness: '.$sources.'.',
+        ]);
+    }
+
+    /** @return array<string, mixed> */
+    private function pricingEnvelope(ResearchPreview $preview): array
+    {
+        return [
+            'schema_version' => 1,
+            'status' => $preview->pricingStatus,
+            'known_subtotals' => $preview->knownCostSubtotals
+                ->map(fn (string $amount, string $currency): array => [
+                    'amount' => $amount,
+                    'currency' => $currency,
+                ])
+                ->values()
+                ->all(),
+            'hard_ceiling_available' => $preview->hardCostCeilingAvailable,
+            'quotes' => $preview->pricingQuotes->map(function (array $entry): array {
+                $quote = $entry['quote'];
+
+                return [
+                    'profile' => $entry['profile'],
+                    'role' => $entry['role'],
+                    'reachable_from' => $entry['reachable_from'],
+                    'maximum_invocations' => $entry['maximum_invocations'],
+                    'identity' => $entry['identity']?->toArray(),
+                    'usage' => $entry['usage']?->toArray(),
+                    'conservative_usage_bound' => $entry['conservative'],
+                    'freshness' => [
+                        'status' => $entry['freshness'],
+                        'retrieved_at' => $quote->provenance?->retrievedAt?->format(DATE_ATOM),
+                    ],
+                    'quote' => [
+                        'completeness' => $quote->completeness->value,
+                        'cost' => $quote->cost?->toArray(),
+                        'source' => $quote->source->value,
+                        'missing_units' => $quote->missingUnits,
+                        'snapshot_fingerprint' => $quote->snapshot?->fingerprint,
+                        'provenance' => $quote->provenance?->toArray(),
+                    ],
+                ];
+            })->values()->all(),
         ];
     }
 

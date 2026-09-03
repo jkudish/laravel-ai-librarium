@@ -12,5 +12,7 @@ All notable changes to this project will be documented in this file.
 - Add provider-safe option validation, credential handling, deadlines,
   fallbacks, webhook wake hints, provenance, citations, usage, and errors.
 - Pin and verify the accepted TypeScript terminal-interchange snapshot offline.
+- Replace static Profile cost estimates with offline, provenance-aware
+  `laravel-ai-pricing` quotes and fail-closed conservative cost ceilings.
 - Document the reconciled 40-row TypeScript/PHP binding matrix and separately
   approval-gated live provider canaries.

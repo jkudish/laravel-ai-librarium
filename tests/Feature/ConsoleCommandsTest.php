@@ -44,7 +44,7 @@ it('shows an interactive compiled preview and allows exiting without dispatch', 
         ->expectsQuestion('Add safeguards (optional)', [])
         ->expectsPromptsInfo('Compiled research preview')
         ->expectsOutputToContain('eligible')
-        ->expectsOutputToContain('Estimated maximum cost: 0.05 USD (complete estimate).')
+        ->expectsOutputToContain('Known subtotal: 0.05 USD.')
         ->expectsQuestion('What would you like to do?', 'exit')
         ->expectsPromptsOutro('No research was dispatched.')
         ->assertSuccessful();
@@ -125,6 +125,43 @@ it('returns a deterministic agent preview without dispatching', function (): voi
             'unavailable' => [],
             'warnings' => [],
             'cost' => ['amount' => '0.07', 'currency' => 'USD', 'complete' => true],
+        ])
+        ->and($decoded['pricing']['schema_version'])->toBe(1)
+        ->and($decoded['pricing']['status'])->toBe('complete')
+        ->and($decoded['pricing']['known_subtotals'])->toBe([['amount' => '0.07', 'currency' => 'USD']])
+        ->and($decoded['pricing']['hard_ceiling_available'])->toBeTrue()
+        ->and($decoded['pricing']['quotes'])->toHaveCount(2)
+        ->and($decoded['pricing']['quotes'][0])->toMatchArray([
+            'profile' => 'eligible',
+            'role' => 'primary',
+            'reachable_from' => ['eligible'],
+            'maximum_invocations' => 1,
+            'identity' => ['provider' => 'provider-a', 'model' => 'test-model'],
+            'usage' => ['requests' => '1'],
+            'conservative_usage_bound' => true,
+            'freshness' => ['status' => 'current', 'retrieved_at' => null],
+        ])
+        ->and($decoded['pricing']['quotes'][0]['quote'])->toMatchArray([
+            'completeness' => 'complete',
+            'cost' => ['amount' => '0.05', 'currency' => 'USD'],
+            'source' => 'configured',
+            'missing_units' => [],
+        ])
+        ->and($decoded['pricing']['quotes'][1])->toMatchArray([
+            'profile' => 'backup',
+            'role' => 'fallback',
+            'reachable_from' => ['eligible'],
+            'maximum_invocations' => 1,
+            'identity' => ['provider' => 'provider-b', 'model' => 'test-model'],
+            'usage' => ['requests' => '1'],
+            'conservative_usage_bound' => true,
+            'freshness' => ['status' => 'current', 'retrieved_at' => null],
+        ])
+        ->and($decoded['pricing']['quotes'][1]['quote'])->toMatchArray([
+            'completeness' => 'complete',
+            'cost' => ['amount' => '0.02', 'currency' => 'USD'],
+            'source' => 'configured',
+            'missing_units' => [],
         ]);
 
     $fake->assertNeverQueried()->assertNeverQueued();
@@ -429,6 +466,12 @@ function consoleResponse(string $fixture): ResearchResponse
 /** @return array<string, mixed> */
 function consoleProfileConfig(string $provider, string $cost, bool $enabled = true): array
 {
+    $prices = config('ai-pricing.prices', []);
+    $prices["{$provider}:test-model"] = [
+        'requests' => ['amount' => $cost, 'currency' => 'USD'],
+    ];
+    config()->set('ai-pricing.prices', $prices);
+
     return [
         'driver' => FakeProfileDriver::class,
         'provider' => $provider,
@@ -441,6 +484,11 @@ function consoleProfileConfig(string $provider, string $cost, bool $enabled = tr
         'prompt' => 'Research carefully: {{ query }}',
         'enabled' => $enabled,
         'options' => ['temperature' => 0.2],
-        'estimated_cost' => ['amount' => $cost, 'currency' => 'USD'],
+        'pricing' => [
+            'provider' => $provider,
+            'model' => 'test-model',
+            'usage' => ['requests' => 1],
+            'conservative' => true,
+        ],
     ];
 }

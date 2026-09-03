@@ -85,6 +85,48 @@ Preview, queued, status, and profile-listing JSON use small envelopes with
 Validation and command errors leave stdout empty and write a bounded,
 credential-safe message to stderr when it is available.
 
+### Pricing previews
+
+Librarium resolves preview costs through `jkudish/laravel-ai-pricing`; it does
+not maintain a second rate table. Every selected primary and every compatible
+fallback receives a `CostQuote`. A fallback quote is multiplied by the number
+of times the runtime may execute it. The current global fallback reserve tries
+each Profile at most once, while `reachable_from` records every compatible
+primary. The human preview summarizes known currency subtotals, unknown
+profiles or units, whether usage assumptions are conservative, and pricing
+source freshness. Agent previews expose the same details beneath the versioned
+`pricing.schema_version: 1` object.
+
+Preview resolution is offline by default. It can use configured rates, the
+pricing package's reviewed snapshot, and previously synchronized last-known-good
+catalog data, but it does not fetch a catalog or call a research provider.
+Refreshing remote catalogs remains an explicit operator action:
+
+```bash
+php artisan ai:pricing:sync
+```
+
+Profiles declare a pricing `provider`, `model`, explicit usage units, and
+whether those units are a true conservative bound. Known cost from a partial or
+non-conservative quote remains useful preview information, but it is not a hard
+ceiling. `--max-cost` fails before dispatch unless every reachable quote is
+complete, current, conservative, and in one currency; unknown cost is never
+treated as zero. Configured rates are considered current until the application
+changes them. Other catalog prices must be no older than
+`librarium.pricing.max_age_days` (30 by default).
+
+SearchAPI remains configured-only. To price its built-in
+`searchapi:search` identity, applications must define the
+`successful_search_request` rate in `config/ai-pricing.php`; otherwise its quote
+is unavailable. Provider-reported actual totals continue to take precedence in
+the pricing resolver after execution.
+
+The legacy preview `cost` JSON member and the corresponding
+`maximumEstimatedCost`, `currency`, and `costEstimateComplete` properties are a
+narrow compatibility bridge. They are derived only from the aggregated
+`CostQuote` values and are populated as complete only when the same true hard
+ceiling is available. New consumers should use the versioned `pricing` object.
+
 Agent-mode exit codes are stable:
 
 | Code | Meaning |
@@ -160,7 +202,7 @@ provider's current documentation convention. Answer and inline Research are
 explicit opt-in and outside all curated groups; durable standard Research
 participates only in the non-default derived `deep` group. See
 [the You.com Profile guide](docs/you-com-profiles.md) for options, evidence
-mapping, exact request estimates, failed-call billing uncertainty, and the
+mapping, pricing-quote assumptions, failed-call billing uncertainty, and the
 paid live gate.
 
 The package also ships SearchAPI.io Profiles served by a small Laravel HTTP
@@ -264,6 +306,18 @@ Provider-native polling, resumable handles, and webhook verification stay inside
 - PHP 8.4+
 - Laravel 13
 - Laravel AI SDK >=0.10.3,<0.11.0
+
+Development currently pins the unmerged `jkudish/laravel-ai-pricing` PR #8
+candidate exactly at
+`c6153d2be99ee745bc557053b836e135ebcc04f0` through the temporary Composer
+package version
+`dev-task-3311-c6153d2be99ee745bc557053b836e135ebcc04f0`. Its dist and source
+references both pin that SHA, and its temporary package metadata mirrors the
+candidate's requirements, autoloading, and Laravel provider declaration. This
+is an integration pin, not a released package constraint. Librarium must not
+be released or published with that package repository; replace it with the
+corresponding stable published constraint only after the pricing change is
+merged and released.
 
 ## Development
 

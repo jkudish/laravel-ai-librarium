@@ -16,6 +16,50 @@
             "role": "Developer"
         }
     ],
+    "repositories": [
+        {
+            "type": "package",
+            "canonical": true,
+            "package": {
+                "name": "jkudish/laravel-ai-pricing",
+                "description": "Provider-agnostic cost calculation and pricing resolution for Laravel AI applications.",
+                "version": "dev-task-3311-c6153d2be99ee745bc557053b836e135ebcc04f0",
+                "type": "library",
+                "dist": {
+                    "type": "zip",
+                    "url": "https://api.github.com/repos/jkudish/laravel-ai-pricing/zipball/c6153d2be99ee745bc557053b836e135ebcc04f0",
+                    "reference": "c6153d2be99ee745bc557053b836e135ebcc04f0"
+                },
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/jkudish/laravel-ai-pricing.git",
+                    "reference": "c6153d2be99ee745bc557053b836e135ebcc04f0"
+                },
+                "require": {
+                    "php": "^8.4",
+                    "brick/math": "^0.14",
+                    "spatie/laravel-package-tools": "^1.16",
+                    "illuminate/cache": "^12.0||^13.0",
+                    "illuminate/console": "^12.0||^13.0",
+                    "illuminate/contracts": "^12.0||^13.0",
+                    "illuminate/http": "^12.0||^13.0",
+                    "illuminate/support": "^12.0||^13.0"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Jkudish\\LaravelAiPricing\\": "src/"
+                    }
+                },
+                "extra": {
+                    "laravel": {
+                        "providers": [
+                            "Jkudish\\LaravelAiPricing\\LaravelAiPricingServiceProvider"
+                        ]
+                    }
+                }
+            }
+        }
+    ],
     "require": {
         "php": "^8.4",
         "illuminate/console": "^13.0",
@@ -24,6 +68,7 @@
         "illuminate/routing": "^13.0",
         "illuminate/support": "^13.0",
         "illuminate/validation": "^13.0",
+        "jkudish/laravel-ai-pricing": "dev-task-3311-c6153d2be99ee745bc557053b836e135ebcc04f0",
         "laravel/ai": "^0.10.3",
         "laravel/prompts": "^0.3.24",
         "league/commonmark": "^2.8",

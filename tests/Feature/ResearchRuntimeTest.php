@@ -518,7 +518,12 @@ function runtimeProfileConfig(
         'prompt' => 'Research carefully: {{ query }}',
         'enabled' => true,
         'options' => [],
-        'estimated_cost' => ['amount' => '0.01', 'currency' => 'USD'],
+        'pricing' => [
+            'provider' => $provider,
+            'model' => 'test-model',
+            'usage' => ['requests' => 1],
+            'conservative' => true,
+        ],
     ];
 
     if ($credential !== null) {

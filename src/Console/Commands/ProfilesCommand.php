@@ -75,10 +75,6 @@ final class ProfilesCommand extends LibrariumCommand
             'result_kind' => $profile->resultKind->value,
             'eligible' => $item->isEligible(),
             'reasons' => $item->reasons,
-            'estimated_cost' => [
-                'micros' => $profile->estimatedCostMicros,
-                'currency' => $profile->currency,
-            ],
         ];
     }
 }
