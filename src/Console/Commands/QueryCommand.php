@@ -13,8 +13,6 @@ use Jkudish\LaravelAiLibrarium\ProfileCatalog;
 use Jkudish\LaravelAiLibrarium\ResearchPreview;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResponseStatus;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResponse;
-use Jkudish\LaravelAiPricing\Enums\CostCompleteness;
-use Jkudish\LaravelAiPricing\Enums\PricingSource;
 use League\CommonMark\CommonMarkConverter;
 use Throwable;
 
@@ -295,7 +293,7 @@ final class QueryCommand extends LibrariumCommand
         if (! $preview->hardCostCeilingAvailable
             || $preview->maximumEstimatedCost === null
             || $preview->currency === null) {
-            warning('A safe cost ceiling cannot be set for this selection. No research will be dispatched.');
+            warning("A cost ceiling isn't available for this selection.");
 
             return false;
         }
@@ -435,72 +433,17 @@ final class QueryCommand extends LibrariumCommand
 
     private function pricingSummary(ResearchPreview $preview): string
     {
-        $subtotals = $preview->knownCostSubtotals
-            ->map(fn (string $amount, string $currency): string => "{$amount} {$currency}")
-            ->values()
-            ->implode(' + ');
-        $unknown = $preview->pricingQuotes
-            ->filter(fn (array $entry): bool => $entry['quote']->completeness !== CostCompleteness::Complete)
-            ->pluck('profile')
-            ->values()
-            ->implode(', ');
-        $unbounded = $preview->pricingQuotes
-            ->reject(fn (array $entry): bool => $entry['conservative'])
-            ->pluck('profile')
-            ->values()
-            ->implode(', ');
-        $sources = $preview->pricingQuotes
-            ->reject(fn (array $entry): bool => $entry['quote']->source === PricingSource::Unavailable)
-            ->map(function (array $entry): string {
-                $retrievedAt = $entry['quote']->provenance?->retrievedAt?->format('Y-m-d');
-
-                return $this->pricingSourceLabel($entry['quote']->source).', '
-                    .($retrievedAt === null ? $entry['freshness'] : $entry['freshness'].' as of '.$retrievedAt);
-            })
-            ->unique()
-            ->values()
-            ->implode(', ');
-
         if ($preview->hardCostCeilingAvailable
             && $preview->maximumEstimatedCost !== null
             && $preview->currency !== null) {
-            return "Estimated maximum: {$preview->maximumEstimatedCost} {$preview->currency} ({$sources}; safe ceiling).";
+            $amount = $preview->currency === 'USD'
+                ? '$'.$preview->maximumEstimatedCost
+                : $preview->maximumEstimatedCost.' '.$preview->currency;
+
+            return "Estimated cost: {$amount} max";
         }
 
-        $details = [];
-        if ($unknown !== '' && $unknown === $unbounded) {
-            $details[] = 'pricing or usage bounds incomplete';
-        } elseif ($unknown !== '') {
-            $details[] = 'pricing incomplete';
-        } elseif ($unbounded !== '') {
-            $details[] = 'usage bounds incomplete';
-        }
-        if ($preview->knownCostSubtotals->count() > 1) {
-            $details[] = 'multiple currencies';
-        }
-
-        $profiles = $preview->pricingQuotes
-            ->filter(fn (array $entry): bool => $entry['quote']->completeness !== CostCompleteness::Complete || ! $entry['conservative'])
-            ->pluck('profile')
-            ->unique()
-            ->values()
-            ->implode(', ');
-        $reason = $details === [] ? 'quote not current and verified' : implode('; ', $details);
-
-        return $subtotals === ''
-            ? "Cost estimate unavailable for {$profiles} ({$reason})."
-            : "Known cost: at least {$subtotals} ({$reason} for {$profiles}; no safe ceiling).";
-    }
-
-    private function pricingSourceLabel(PricingSource $source): string
-    {
-        return match ($source) {
-            PricingSource::Configured => 'configured rate',
-            PricingSource::ProviderNative => 'provider snapshot',
-            PricingSource::ProviderReported => 'provider-reported cost',
-            PricingSource::Portkey => 'Portkey',
-            PricingSource::Unavailable => 'unavailable',
-        };
+        return 'Estimated cost: unavailable';
     }
 
     private function availabilitySummary(ResearchPreview $preview): ?string
