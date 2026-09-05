@@ -44,7 +44,7 @@ it('shows an interactive compiled preview and allows exiting without dispatch', 
         ->expectsQuestion('Add safeguards (optional)', [])
         ->expectsPromptsInfo('Compiled research preview')
         ->expectsOutputToContain('eligible')
-        ->expectsOutputToContain('Known subtotal: 0.05 USD.')
+        ->expectsOutputToContain('Pricing: up to 0.05 USD · hard ceiling available · configured rate, current.')
         ->expectsQuestion('What would you like to do?', 'exit')
         ->expectsPromptsOutro('No research was dispatched.')
         ->assertSuccessful();
@@ -86,14 +86,51 @@ it('runs by default when the interactive action menu is accepted', function (): 
         ->and($fake->queuedQueries())->toBeEmpty();
 });
 
-it('summarizes unavailable Profiles in one compact preview warning', function (): void {
+it('summarizes unavailable Profiles in one compact neutral note', function (): void {
     $fake = Librarium::fake()->preventStrayQueries();
 
     $this->artisan('librarium:query', ['query' => 'Summarize availability.'])
         ->expectsQuestion('How should Librarium select Profiles?', 'default')
         ->expectsQuestion('Add safeguards (optional)', [])
-        ->expectsPromptsWarning("Preview notes:\n• Skipped unavailable: Profile is disabled.")
+        ->expectsOutputToContain('Unavailable Profiles (1): unavailable — profile is disabled.')
+        ->doesntExpectOutputToContain('Preview notes:')
         ->expectsQuestion('What would you like to do?', 'exit')
+        ->assertSuccessful();
+
+    $fake->assertNeverQueried()->assertNeverQueued();
+});
+
+it('suggests a verified conservative quote after preview when adding a cost ceiling', function (): void {
+    $fake = Librarium::fake()->preventStrayQueries();
+
+    $this->artisan('librarium:query', [
+        'query' => 'Set a useful ceiling.',
+        '--profile' => ['eligible'],
+    ])
+        ->expectsQuestion('Add safeguards (optional)', ['max_cost'])
+        ->expectsPromptsInfo('Compiled research preview')
+        ->expectsOutputToContain('Pricing: up to 0.05 USD · hard ceiling available · configured rate, current.')
+        ->expectsQuestion('Maximum cost in USD', '0.05')
+        ->expectsOutputToContain('Cost ceiling set to 0.05 USD.')
+        ->expectsQuestion('What would you like to do?', 'exit')
+        ->assertSuccessful();
+
+    $fake->assertNeverQueried()->assertNeverQueued();
+});
+
+it('stops safely when a requested cost ceiling cannot be suggested', function (): void {
+    config()->set('librarium.profiles.unknown', consoleProfileConfig('unknown-provider', '0.01'));
+    config()->set('ai-pricing.prices', []);
+    $fake = Librarium::fake()->preventStrayQueries();
+
+    $this->artisan('librarium:query', [
+        'query' => 'Do not invent a ceiling.',
+        '--profile' => ['unknown'],
+    ])
+        ->expectsQuestion('Add safeguards (optional)', ['max_cost'])
+        ->expectsOutputToContain('Pricing unavailable: incomplete pricing for unknown. No safe ceiling available.')
+        ->expectsPromptsWarning('A safe cost ceiling cannot be set for this selection. No research will be dispatched.')
+        ->expectsPromptsOutro('No research was dispatched.')
         ->assertSuccessful();
 
     $fake->assertNeverQueried()->assertNeverQueued();

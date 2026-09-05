@@ -30,13 +30,13 @@ $research = Librarium::query('Compare current agent memory architectures.')
 `librarium:query` provides a guided Laravel Prompts workflow for operators. It
 collects a missing query, lets the operator choose one eligible Profile, a
 group, or multiple Profiles, and offers the existing fallback, timeout, and
-cost controls. Group choices explain their purpose and show how many Profiles
-are ready, while custom fan-out is available near the top of the selection
-menu. It always displays a compact compiled Profile, availability, warning,
-and cost preview before offering the default `Run now`, `Queue`, or
-`Exit without dispatching` action. Human-mode string results render Markdown
-headings, emphasis, lists, links, tables, and code for readable terminal output;
-agent-mode JSON preserves the original Markdown string.
+cost-ceiling safeguards. Group choices explain their purpose and show how many
+Profiles are ready, while custom fan-out is available near the top of the
+selection menu. It always displays a compact compiled Profile, grouped
+availability, and pricing preview before offering the default `Run now`,
+`Queue`, or `Exit without dispatching` action. Human-mode string results render
+Markdown headings, emphasis, lists, links, tables, and code for readable
+terminal output; agent-mode JSON preserves the original Markdown string.
 
 ```bash
 php artisan librarium:query
@@ -94,8 +94,12 @@ of times the runtime may execute it. The current global fallback reserve tries
 each Profile at most once, while `reachable_from` records every compatible
 primary. The human preview summarizes known currency subtotals, unknown
 profiles or units, whether usage assumptions are conservative, and pricing
-source freshness. Agent previews expose the same details beneath the versioned
-`pricing.schema_version: 1` object.
+source freshness in one compact statement. When the operator selects the
+interactive cost-ceiling safeguard, Librarium compiles and displays pricing
+first, then suggests the verified conservative bound as the default. If no safe
+bound exists, it explains why and exits without dispatching rather than asking
+the operator to invent one. Agent previews expose the same details beneath the
+versioned `pricing.schema_version: 1` object.
 
 Preview resolution is offline by default. It can use configured rates, the
 pricing package's reviewed snapshot, and previously synchronized last-known-good

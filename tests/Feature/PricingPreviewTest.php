@@ -280,10 +280,10 @@ it('summarizes many pricing uncertainties once in human output without dispatch'
     $output = Artisan::output();
 
     expect($exit)->toBe(0)
-        ->and(substr_count($output, 'Unknown pricing:'))->toBe(1)
-        ->and($output)->toContain('Unknown pricing: unknown-a, unknown-b, unknown-c.')
-        ->and($output)->toContain('Hard ceiling: unavailable.')
-        ->and($output)->toContain('Sources / freshness: unavailable / unverified.')
+        ->and(substr_count($output, 'Pricing unavailable:'))->toBe(1)
+        ->and($output)->toContain('incomplete pricing for unknown-a, unknown-b, unknown-c.')
+        ->and($output)->toContain('No safe ceiling available.')
+        ->and($output)->not->toContain('Sources:')
         ->and($output)->toContain('No research was dispatched.');
 
     Http::assertNothingSent();

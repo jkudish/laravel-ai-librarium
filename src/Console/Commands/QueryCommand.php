@@ -14,6 +14,7 @@ use Jkudish\LaravelAiLibrarium\ResearchPreview;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResponseStatus;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResponse;
 use Jkudish\LaravelAiPricing\Enums\CostCompleteness;
+use Jkudish\LaravelAiPricing\Enums\PricingSource;
 use League\CommonMark\CommonMarkConverter;
 use Throwable;
 
@@ -72,7 +73,7 @@ final class QueryCommand extends LibrariumCommand
             $pending = $this->librarium->query($query);
 
             $this->applySelection($pending, $interactive);
-            $this->applyControls($pending, $interactive);
+            $promptForCostCeiling = $this->applyControls($pending, $interactive);
 
             $preview = $pending->preview();
 
@@ -84,6 +85,12 @@ final class QueryCommand extends LibrariumCommand
 
             if ($interactive) {
                 $this->showPreview($pending, $preview);
+
+                if ($promptForCostCeiling && ! $this->applyInteractiveCostCeiling($pending, $preview)) {
+                    outro('No research was dispatched.');
+
+                    return self::SUCCESS;
+                }
             } elseif (! $this->agentMode()) {
                 $this->showPlainPreview($pending, $preview);
             }
@@ -241,12 +248,13 @@ final class QueryCommand extends LibrariumCommand
         $pending->using(substr($choice, 8));
     }
 
-    private function applyControls(PendingResearch $pending, bool $interactive): void
+    private function applyControls(PendingResearch $pending, bool $interactive): bool
     {
         $fallbacks = $this->stringListOption('fallback');
         $timeout = $this->stringOption('timeout');
         $maximumCost = $this->stringOption('max-cost');
         $currency = $this->stringOption('currency');
+        $promptForCostCeiling = false;
 
         if ($interactive && $fallbacks === [] && $timeout === null && $maximumCost === null && $currency === null) {
             $controls = multiselect('Add safeguards (optional)', [
@@ -262,8 +270,7 @@ final class QueryCommand extends LibrariumCommand
                 $timeout = text('Timeout in seconds', required: true, validate: fn (string $value): ?string => ctype_digit($value) ? null : 'Enter a whole number of seconds.');
             }
             if (in_array('max_cost', $controls, true)) {
-                $maximumCost = text('Maximum cost', required: true);
-                $currency = text('Currency', default: 'USD', required: true);
+                $promptForCostCeiling = true;
             }
         }
 
@@ -279,6 +286,31 @@ final class QueryCommand extends LibrariumCommand
         if ($maximumCost !== null) {
             $pending->maxCost($maximumCost, $currency ?? 'USD');
         }
+
+        return $promptForCostCeiling;
+    }
+
+    private function applyInteractiveCostCeiling(PendingResearch $pending, ResearchPreview $preview): bool
+    {
+        if (! $preview->hardCostCeilingAvailable
+            || $preview->maximumEstimatedCost === null
+            || $preview->currency === null) {
+            warning('A safe cost ceiling cannot be set for this selection. No research will be dispatched.');
+
+            return false;
+        }
+
+        $maximumCost = text(
+            "Maximum cost in {$preview->currency}",
+            default: $preview->maximumEstimatedCost,
+            required: true,
+            hint: "Suggested from the conservative bound: {$preview->maximumEstimatedCost} {$preview->currency}.",
+        );
+        $pending->maxCost($maximumCost, $preview->currency);
+
+        note("Cost ceiling set to {$maximumCost} {$preview->currency}.");
+
+        return true;
     }
 
     private function action(bool $interactive): string
@@ -311,10 +343,12 @@ final class QueryCommand extends LibrariumCommand
             ],
         );
 
-        $previewNotes = [];
-        foreach ($preview->unavailable as $profile => $reasons) {
-            $previewNotes[] = "• Skipped {$profile}: ".$this->sentenceFragment($reasons).'.';
+        $availability = $this->availabilitySummary($preview);
+        if ($availability !== null) {
+            note($availability);
         }
+
+        $previewNotes = [];
         foreach ($preview->warnings as $message) {
             $previewNotes[] = '• '.rtrim($message, ". \t\n\r\0\x0B").'.';
         }
@@ -407,11 +441,7 @@ final class QueryCommand extends LibrariumCommand
             ->implode(' + ');
         $unknown = $preview->pricingQuotes
             ->filter(fn (array $entry): bool => $entry['quote']->completeness !== CostCompleteness::Complete)
-            ->map(function (array $entry): string {
-                $units = $entry['quote']->missingUnits;
-
-                return $entry['profile'].($units === [] ? '' : ' ('.implode(', ', $units).')');
-            })
+            ->pluck('profile')
             ->values()
             ->implode(', ');
         $unbounded = $preview->pricingQuotes
@@ -420,23 +450,73 @@ final class QueryCommand extends LibrariumCommand
             ->values()
             ->implode(', ');
         $sources = $preview->pricingQuotes
+            ->reject(fn (array $entry): bool => $entry['quote']->source === PricingSource::Unavailable)
             ->map(function (array $entry): string {
                 $retrievedAt = $entry['quote']->provenance?->retrievedAt?->format('Y-m-d');
 
-                return $entry['quote']->source->value.' / '.$entry['freshness']
-                    .($retrievedAt === null ? '' : " ({$retrievedAt})");
+                return $this->pricingSourceLabel($entry['quote']->source).', '
+                    .($retrievedAt === null ? $entry['freshness'] : $entry['freshness'].' as of '.$retrievedAt);
             })
             ->unique()
             ->values()
             ->implode(', ');
 
-        return implode("\n", [
-            'Known subtotal: '.($subtotals === '' ? 'none' : $subtotals).'.',
-            'Unknown pricing: '.($unknown === '' ? 'none' : $unknown).'.',
-            'Unbounded assumptions: '.($unbounded === '' ? 'none' : $unbounded).'.',
-            'Hard ceiling: '.($preview->hardCostCeilingAvailable ? 'available' : 'unavailable').'.',
-            'Sources / freshness: '.$sources.'.',
-        ]);
+        if ($preview->hardCostCeilingAvailable
+            && $preview->maximumEstimatedCost !== null
+            && $preview->currency !== null) {
+            return "Pricing: up to {$preview->maximumEstimatedCost} {$preview->currency} · hard ceiling available · {$sources}.";
+        }
+
+        $reasons = [];
+        if ($unknown !== '' && $unknown === $unbounded) {
+            $reasons[] = 'no current quote or conservative usage bound for '.$unknown;
+        } elseif ($unknown !== '') {
+            $reasons[] = 'incomplete pricing for '.$unknown;
+        } elseif ($unbounded !== '') {
+            $reasons[] = 'usage is not conservatively bounded for '.$unbounded;
+        }
+        if ($preview->knownCostSubtotals->count() > 1) {
+            $reasons[] = 'quotes use multiple currencies';
+        }
+
+        $known = $subtotals === '' ? 'Pricing unavailable' : "Pricing: at least {$subtotals} known";
+        $reason = $reasons === [] ? 'quotes are not current and verified' : implode('; ', $reasons);
+        $source = $sources === '' ? '' : " Sources: {$sources}.";
+
+        return "{$known}: {$reason}. No safe ceiling available.{$source}";
+    }
+
+    private function pricingSourceLabel(PricingSource $source): string
+    {
+        return match ($source) {
+            PricingSource::Configured => 'configured rate',
+            PricingSource::ProviderNative => 'provider snapshot',
+            PricingSource::ProviderReported => 'provider-reported cost',
+            PricingSource::Portkey => 'Portkey',
+            PricingSource::Unavailable => 'unavailable',
+        };
+    }
+
+    private function availabilitySummary(ResearchPreview $preview): ?string
+    {
+        if ($preview->unavailable->isEmpty()) {
+            return null;
+        }
+
+        /** @var array<string, list<string>> $grouped */
+        $grouped = [];
+        foreach ($preview->unavailable as $profile => $reasons) {
+            $reason = $this->sentenceFragment($reasons);
+            $grouped[$reason] ??= [];
+            $grouped[$reason][] = $profile;
+        }
+
+        $details = collect($grouped)
+            ->map(fn (array $profiles, string $reason): string => implode(', ', $profiles).' — '.lcfirst($reason))
+            ->values()
+            ->implode('; ');
+
+        return 'Unavailable Profiles ('.$preview->unavailable->count().'): '.$details.'.';
     }
 
     /** @return array<string, mixed> */
