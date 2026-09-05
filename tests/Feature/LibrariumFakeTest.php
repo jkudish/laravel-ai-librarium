@@ -7,8 +7,11 @@ use Illuminate\Support\Facades\Queue;
 use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
 use Jkudish\LaravelAiLibrarium\Contracts\Librarium as LibrariumContract;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
+use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\QueuedResearchResponse;
 use Jkudish\LaravelAiLibrarium\ResearchPlan;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResponse;
 use Jkudish\LaravelAiLibrarium\Testing\LibrariumFake;
 
@@ -30,6 +33,24 @@ it('returns a generated response when no response was supplied', function (): vo
     expect($response->requestId)->toBe($query->requestId)
         ->and($response->results->sole()->content)->toBe('Fake response for query: Explain fake research responses.')
         ->and($fake->queries()->sole())->toBeInstanceOf(ResearchPlan::class);
+});
+
+it('uses explicitly synthetic provenance for generated surface responses', function (): void {
+    config()->set('librarium.profiles.searchapi-chatgpt.credential', 'testing-searchapi-key');
+    Librarium::fake();
+
+    $provenance = Librarium::query('Observe this surface.')
+        ->using('searchapi-chatgpt')
+        ->run()
+        ->results
+        ->sole()
+        ->provenance;
+
+    expect($provenance->resultKind)->toBe(ResultKind::SurfaceObservation)
+        ->and($provenance->retrievalMethods->all())->toBe([RetrievalMethod::SurfaceCollector])
+        ->and($provenance->observationMode)->toBe(ObservationMode::SurfaceSnapshot)
+        ->and($provenance->collector)->toBe('librarium-fake')
+        ->and($provenance->surface)->toBe('synthetic-surface');
 });
 
 it('prevents stray synchronous queries after supplied responses are exhausted', function (): void {

@@ -10,4 +10,5 @@ enum ResultKind: string
     case GroundedAnswer = 'grounded_answer';
     case ResearchReport = 'research_report';
     case ModelAnswer = 'model_answer';
+    case SurfaceObservation = 'surface_observation';
 }

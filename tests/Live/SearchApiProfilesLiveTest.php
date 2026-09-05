@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 use Jkudish\LaravelAiLibrarium\Drivers\SearchApi\SearchApiDriver;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
+use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResponseStatus;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 
 beforeEach(function (): void {
     $key = getenv('SEARCHAPI_KEY');
@@ -44,7 +47,10 @@ it('runs a live SearchAPI query through each profile', function (string $profile
             ->and($result->provenance->surface)->toBeNull();
     } else {
         expect($result->provenance->collector)->toBe('searchapi')
-            ->and($result->provenance->surface)->not->toBeNull();
+            ->and($result->provenance->surface)->not->toBeNull()
+            ->and($result->provenance->resultKind)->toBe(ResultKind::SurfaceObservation)
+            ->and($result->provenance->retrievalMethods->all())->toBe([RetrievalMethod::SurfaceCollector])
+            ->and($result->provenance->observationMode)->toBe(ObservationMode::SurfaceSnapshot);
     }
 })->with([
     'raw google' => ['searchapi'],

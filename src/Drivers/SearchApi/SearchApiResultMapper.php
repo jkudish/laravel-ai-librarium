@@ -7,6 +7,7 @@ namespace Jkudish\LaravelAiLibrarium\Drivers\SearchApi;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
+use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Responses\Citation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ContentFormat;
@@ -114,6 +115,7 @@ final readonly class SearchApiResultMapper
                 observedAt: $now,
                 collector: $surface === null ? null : 'searchapi',
                 surface: $surface,
+                observationMode: $surface === null ? null : ObservationMode::SurfaceSnapshot,
             ),
             citations: $citations,
             completedAt: $now,

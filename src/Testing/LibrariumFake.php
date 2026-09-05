@@ -10,6 +10,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
 use Jkudish\LaravelAiLibrarium\Profile;
+use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\QueuedResearchResponse;
 use Jkudish\LaravelAiLibrarium\ResearchPlan;
 use Jkudish\LaravelAiLibrarium\Responses\Citation;
@@ -169,6 +170,9 @@ final class LibrariumFake implements ExecutesResearch
                         retrievalMethods: $profile->retrievalMethods,
                         corpora: $profile->corpora,
                         observedAt: $completedAt,
+                        collector: $profile->observation === ObservationMode::SurfaceSnapshot ? 'librarium-fake' : null,
+                        surface: $profile->observation === ObservationMode::SurfaceSnapshot ? 'synthetic-surface' : null,
+                        observationMode: $profile->observation === ObservationMode::SurfaceSnapshot ? ObservationMode::SurfaceSnapshot : null,
                     ),
                     citations: $citations,
                     completedAt: $completedAt,

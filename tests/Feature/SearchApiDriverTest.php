@@ -11,6 +11,7 @@ use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\ProfileCatalog;
+use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ContentFormat;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
@@ -46,6 +47,19 @@ it('registers the seven SearchAPI Profiles with explicit configured-only pricing
         'searchapi-bing-copilot' => ['searchapi:search', ['successful_search_request' => '1'], true],
         'searchapi-google-ai-overview' => ['searchapi:search', ['successful_search_request' => '2'], true],
     ]);
+});
+
+it('declares canonical surface semantics for all six SearchAPI surface Profiles', function (): void {
+    $profiles = app(ProfileCatalog::class)->group('visibility')['profiles']
+        ->filter(fn ($profile): bool => $profile->driver === SearchApiDriver::class)
+        ->filter(fn ($profile): bool => $profile->observation === ObservationMode::SurfaceSnapshot);
+
+    expect($profiles)->toHaveCount(6);
+    $profiles->each(function ($profile): void {
+        expect($profile->resultKind)->toBe(ResultKind::SurfaceObservation)
+            ->and($profile->observation)->toBe(ObservationMode::SurfaceSnapshot)
+            ->and($profile->retrievalMethods->map->value->all())->toBe(['surface_collector']);
+    });
 });
 
 it('keeps SearchAPI pricing unavailable until the operator configures its rate', function (): void {
@@ -166,9 +180,10 @@ it('maps a surface answer from provider Markdown with collector-extracted citati
     expect($result->content)->toBe('ChatGPT [says](https://example.com/answer) hello.')
         ->and($result->provider)->toBe('searchapi')
         ->and($result->model)->toBe('gpt-observed')
-        ->and($result->provenance->resultKind)->toBe(ResultKind::GroundedAnswer)
-        ->and($result->provenance->retrievalMethods->map->value->all())->toBe(['model_search_tool'])
+        ->and($result->provenance->resultKind)->toBe(ResultKind::SurfaceObservation)
+        ->and($result->provenance->retrievalMethods->map->value->all())->toBe(['surface_collector'])
         ->and($result->provenance->corpora->map->value->all())->toBe(['web'])
+        ->and($result->provenance->observationMode)->toBe(ObservationMode::SurfaceSnapshot)
         ->and($result->provenance->collector)->toBe('searchapi')
         ->and($result->provenance->surface)->toBe('chatgpt')
         ->and($result->citations)->toHaveCount(1)
@@ -244,6 +259,10 @@ it('runs Google AI Overview as exactly two calls, passing zero retention on both
     $result = searchApiDriver()->run(searchApiRequest('searchapi-google-ai-overview'));
 
     expect($result->content)->toBe('Overview answer [source](https://example.com/o).')
+        ->and($result->provenance->resultKind)->toBe(ResultKind::SurfaceObservation)
+        ->and($result->provenance->retrievalMethods->map->value->all())->toBe(['surface_collector'])
+        ->and($result->provenance->observationMode)->toBe(ObservationMode::SurfaceSnapshot)
+        ->and($result->provenance->collector)->toBe('searchapi')
         ->and($result->provenance->surface)->toBe('google_ai_overview')
         ->and($result->citations->pluck('source.url')->all())->toBe(['https://example.com/o']);
 

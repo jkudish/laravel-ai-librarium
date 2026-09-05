@@ -9,6 +9,7 @@ use Jkudish\LaravelAiLibrarium\Responses\Citation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ContentFormat;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\Personalization;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResponseStatus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
@@ -93,6 +94,7 @@ it('rejects every invalid terminal response fixture through Laravel validation',
     'cost missing currency' => ['usage-cost-no-currency.json'],
     'provenance context' => ['provenance-context-unknown.json'],
     'surface missing collector' => ['provenance-surface-no-collector.json'],
+    'surface snapshot wrong result' => ['provenance-surface-snapshot-wrong-result.json'],
     'closed enum' => ['invalid-enum.json'],
     'timestamp' => ['invalid-timestamp.json'],
     'identifier' => ['invalid-id.json'],
@@ -114,6 +116,7 @@ it('does not introduce an interchange mapper or terminal execution model', funct
         'CitationDerivation',
         'ContentFormat',
         'Corpus',
+        'Personalization',
         'ResearchError',
         'ResearchResponse',
         'ResearchResult',
@@ -161,6 +164,44 @@ it('preserves accepted fractional UTC timestamp precision at every terminal leve
 
     expect(ResearchResponse::fromArray($fixture)->toArray())->toBe($fixture);
 });
+
+it('preserves legacy provenance without inventing an observation mode or changing its result kind', function (): void {
+    $fixture = responseFixture('valid/markdown-success.json');
+
+    $serialized = ResearchResponse::fromArray($fixture)->toArray();
+
+    expect($serialized['results'][0]['provenance'])
+        ->not->toHaveKey('observation_mode')
+        ->and($serialized['results'][0]['provenance']['result_kind'])->toBe('grounded_answer');
+});
+
+it('preserves a strict empty context object and rejects list-shaped context', function (): void {
+    $fixture = responseFixture('valid/markdown-success.json');
+    $fixture['results'][0]['provenance']['context'] = new stdClass;
+
+    $context = ResearchResponse::fromArray($fixture)->toArray()['results'][0]['provenance']['context'];
+
+    expect($context)->toBeInstanceOf(stdClass::class)
+        ->and(get_object_vars($context))->toBe([]);
+
+    $fixture['results'][0]['provenance']['context'] = [];
+
+    expect(fn (): ResearchResponse => ResearchResponse::fromArray($fixture))
+        ->toThrow(ValidationException::class);
+});
+
+it('accepts each bounded personalization value and rejects arbitrary values', function (Personalization $personalization): void {
+    $fixture = responseFixture('valid/surface-context-authentication-unknown.json');
+    $fixture['results'][0]['provenance']['context']['personalization'] = $personalization->value;
+
+    expect(ResearchResponse::fromArray($fixture)->results->sole()->provenance->context['personalization'])
+        ->toBe($personalization);
+
+    $fixture['results'][0]['provenance']['context']['personalization'] = 'tailored';
+
+    expect(fn (): ResearchResponse => ResearchResponse::fromArray($fixture))
+        ->toThrow(ValidationException::class);
+})->with(Personalization::cases());
 
 it('normalizes caller-created Carbon timestamps to UTC without exposing wire timestamp parameters', function (): void {
     $source = new Source(SourceKind::WebPage, url: 'https://example.com', publishedAt: CarbonImmutable::parse('2026-08-09T12:00:00.123400-07:00'));
@@ -342,6 +383,8 @@ it('rejects explicit null for every optional property while allowing omission', 
     ['surface-context-authentication-authenticated.json', 'results.0.provenance.context.country'],
     ['surface-context-authentication-authenticated.json', 'results.0.provenance.context.device'],
     ['surface-context-authentication-authenticated.json', 'results.0.provenance.context.authentication'],
+    ['surface-context-authentication-authenticated.json', 'results.0.provenance.context.personalization'],
+    ['surface-context-authentication-authenticated.json', 'results.0.provenance.observation_mode'],
     ['markdown-success.json', 'results.0.citations.0.excerpt'],
     ['markdown-success.json', 'results.0.citations.0.locator'],
     ['markdown-success.json', 'results.0.citations.0.source.url'],
