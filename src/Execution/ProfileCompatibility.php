@@ -41,6 +41,7 @@ final readonly class ProfileCompatibility
                 && $provenance->corpora->isEmpty()
                 && $provenance->retrievalMethods->count() === 1
                 && $provenance->retrievalMethods->containsStrict(RetrievalMethod::ModelOnly)
+                && $provenance->observationMode !== ObservationMode::SurfaceSnapshot
                 && $provenance->surface === null;
         }
 
@@ -49,7 +50,6 @@ final readonly class ProfileCompatibility
             && $this->sameValues($profile->retrievalMethods, $provenance->retrievalMethods)
             && match ($profile->observation) {
                 ObservationMode::ApiOutput => $provenance->observationMode !== ObservationMode::SurfaceSnapshot
-                    && $provenance->collector === null
                     && $provenance->surface === null,
                 ObservationMode::SurfaceSnapshot => $provenance->observationMode === ObservationMode::SurfaceSnapshot
                     && $provenance->resultKind === ResultKind::SurfaceObservation
