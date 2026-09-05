@@ -44,7 +44,7 @@ it('shows an interactive compiled preview and allows exiting without dispatch', 
         ->expectsQuestion('Add safeguards (optional)', [])
         ->expectsPromptsInfo('Compiled research preview')
         ->expectsOutputToContain('eligible')
-        ->expectsOutputToContain('Pricing: up to 0.05 USD · hard ceiling available · configured rate, current.')
+        ->expectsOutputToContain('Estimated maximum: 0.05 USD (configured rate, current; safe ceiling).')
         ->expectsQuestion('What would you like to do?', 'exit')
         ->expectsPromptsOutro('No research was dispatched.')
         ->assertSuccessful();
@@ -109,7 +109,7 @@ it('suggests a verified conservative quote after preview when adding a cost ceil
     ])
         ->expectsQuestion('Add safeguards (optional)', ['max_cost'])
         ->expectsPromptsInfo('Compiled research preview')
-        ->expectsOutputToContain('Pricing: up to 0.05 USD · hard ceiling available · configured rate, current.')
+        ->expectsOutputToContain('Estimated maximum: 0.05 USD (configured rate, current; safe ceiling).')
         ->expectsQuestion('Maximum cost in USD', '0.05')
         ->expectsOutputToContain('Cost ceiling set to 0.05 USD.')
         ->expectsQuestion('What would you like to do?', 'exit')
@@ -128,7 +128,7 @@ it('stops safely when a requested cost ceiling cannot be suggested', function ()
         '--profile' => ['unknown'],
     ])
         ->expectsQuestion('Add safeguards (optional)', ['max_cost'])
-        ->expectsOutputToContain('Pricing unavailable: incomplete pricing for unknown. No safe ceiling available.')
+        ->expectsOutputToContain('Cost estimate unavailable for unknown (pricing incomplete).')
         ->expectsPromptsWarning('A safe cost ceiling cannot be set for this selection. No research will be dispatched.')
         ->expectsPromptsOutro('No research was dispatched.')
         ->assertSuccessful();

@@ -464,26 +464,32 @@ final class QueryCommand extends LibrariumCommand
         if ($preview->hardCostCeilingAvailable
             && $preview->maximumEstimatedCost !== null
             && $preview->currency !== null) {
-            return "Pricing: up to {$preview->maximumEstimatedCost} {$preview->currency} · hard ceiling available · {$sources}.";
+            return "Estimated maximum: {$preview->maximumEstimatedCost} {$preview->currency} ({$sources}; safe ceiling).";
         }
 
-        $reasons = [];
+        $details = [];
         if ($unknown !== '' && $unknown === $unbounded) {
-            $reasons[] = 'no current quote or conservative usage bound for '.$unknown;
+            $details[] = 'pricing or usage bounds incomplete';
         } elseif ($unknown !== '') {
-            $reasons[] = 'incomplete pricing for '.$unknown;
+            $details[] = 'pricing incomplete';
         } elseif ($unbounded !== '') {
-            $reasons[] = 'usage is not conservatively bounded for '.$unbounded;
+            $details[] = 'usage bounds incomplete';
         }
         if ($preview->knownCostSubtotals->count() > 1) {
-            $reasons[] = 'quotes use multiple currencies';
+            $details[] = 'multiple currencies';
         }
 
-        $known = $subtotals === '' ? 'Pricing unavailable' : "Pricing: at least {$subtotals} known";
-        $reason = $reasons === [] ? 'quotes are not current and verified' : implode('; ', $reasons);
-        $source = $sources === '' ? '' : " Sources: {$sources}.";
+        $profiles = $preview->pricingQuotes
+            ->filter(fn (array $entry): bool => $entry['quote']->completeness !== CostCompleteness::Complete || ! $entry['conservative'])
+            ->pluck('profile')
+            ->unique()
+            ->values()
+            ->implode(', ');
+        $reason = $details === [] ? 'quote not current and verified' : implode('; ', $details);
 
-        return "{$known}: {$reason}. No safe ceiling available.{$source}";
+        return $subtotals === ''
+            ? "Cost estimate unavailable for {$profiles} ({$reason})."
+            : "Known cost: at least {$subtotals} ({$reason} for {$profiles}; no safe ceiling).";
     }
 
     private function pricingSourceLabel(PricingSource $source): string

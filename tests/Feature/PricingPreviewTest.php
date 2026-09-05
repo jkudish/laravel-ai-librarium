@@ -280,10 +280,8 @@ it('summarizes many pricing uncertainties once in human output without dispatch'
     $output = Artisan::output();
 
     expect($exit)->toBe(0)
-        ->and(substr_count($output, 'Pricing unavailable:'))->toBe(1)
-        ->and($output)->toContain('incomplete pricing for unknown-a, unknown-b, unknown-c.')
-        ->and($output)->toContain('No safe ceiling available.')
-        ->and($output)->not->toContain('Sources:')
+        ->and(substr_count($output, 'Cost estimate unavailable'))->toBe(1)
+        ->and($output)->toContain('Cost estimate unavailable for unknown-a, unknown-b, unknown-c (pricing incomplete).')
         ->and($output)->toContain('No research was dispatched.');
 
     Http::assertNothingSent();
