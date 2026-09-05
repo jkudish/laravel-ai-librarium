@@ -89,10 +89,10 @@ it('preserves the curated visibility order while skipping unavailable Profiles',
     $profiles = config('librarium.profiles');
     $profiles['searchapi-chatgpt'] = profileConfig(
         provider: 'searchapi',
-        resultKind: ResultKind::GroundedAnswer,
+        resultKind: ResultKind::SurfaceObservation,
         cost: '0.01',
         observation: ObservationMode::SurfaceSnapshot,
-        retrievalMethod: RetrievalMethod::SearchEndpoint,
+        retrievalMethod: RetrievalMethod::SurfaceCollector,
     );
     $profiles['perplexity-sonar-pro'] = profileConfig('perplexity', ResultKind::GroundedAnswer, cost: '0.02');
     $profiles['grok'] = profileConfig('xai', ResultKind::GroundedAnswer, cost: '0.03');
@@ -164,6 +164,25 @@ it('rejects unavailable explicit Profiles before execution', function (): void {
     expect(FakeProfileDriver::$constructorCalls)->toBe(0)
         ->and(app(ExecutesResearch::class)->plans)->toBe([]);
 });
+
+it('rejects contradictory surface Profile semantics before Driver construction', function (ResultKind $kind, ObservationMode $observation, RetrievalMethod $retrieval): void {
+    config()->set('librarium.profiles.gemini-grounded', profileConfig(
+        provider: 'gemini',
+        resultKind: $kind,
+        observation: $observation,
+        retrievalMethod: $retrieval,
+    ));
+
+    expect(fn () => Librarium::query('Observe this.')->using('gemini-grounded')->preview())
+        ->toThrow(ValidationException::class, 'Surface Profiles must use');
+
+    expect(FakeProfileDriver::$constructorCalls)->toBe(0)
+        ->and(app(ExecutesResearch::class)->plans)->toBe([]);
+})->with([
+    'snapshot with answer kind' => [ResultKind::GroundedAnswer, ObservationMode::SurfaceSnapshot, RetrievalMethod::SurfaceCollector],
+    'surface kind with API output' => [ResultKind::SurfaceObservation, ObservationMode::ApiOutput, RetrievalMethod::SurfaceCollector],
+    'snapshot with model retrieval' => [ResultKind::SurfaceObservation, ObservationMode::SurfaceSnapshot, RetrievalMethod::ModelSearchTool],
+]);
 
 it('uses resolved config credentials without exposing them in Profiles or previews', function (): void {
     config()->set('services.librarium.key', 'resolved-secret-value');

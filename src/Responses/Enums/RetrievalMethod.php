@@ -10,4 +10,5 @@ enum RetrievalMethod: string
     case ModelSearchTool = 'model_search_tool';
     case ResearchAgent = 'research_agent';
     case ModelOnly = 'model_only';
+    case SurfaceCollector = 'surface_collector';
 }

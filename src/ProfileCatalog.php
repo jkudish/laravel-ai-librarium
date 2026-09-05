@@ -228,6 +228,7 @@ final class ProfileCatalog
 
         $resultKindValue = ResultKind::from($resultKind);
         $groundingPolicy = GroundingPolicy::from($grounding);
+        $observationMode = ObservationMode::from($observation);
         $corpusValues = collect($corpora)->map(fn (string $corpus): Corpus => Corpus::from($corpus));
         $retrievalMethodValues = collect($retrievalMethods)->map(fn (string $method): RetrievalMethod => RetrievalMethod::from($method));
 
@@ -240,6 +241,18 @@ final class ProfileCatalog
             $retrievalMethodValues = $this->modelOnlyRetrievalMethods();
         }
 
+        $surfaceSemantics = $resultKindValue === ResultKind::SurfaceObservation
+            || $retrievalMethodValues->containsStrict(RetrievalMethod::SurfaceCollector)
+            || $observationMode === ObservationMode::SurfaceSnapshot;
+        if ($surfaceSemantics && ($resultKindValue !== ResultKind::SurfaceObservation
+            || $observationMode !== ObservationMode::SurfaceSnapshot
+            || $retrievalMethodValues->count() !== 1
+            || ! $retrievalMethodValues->containsStrict(RetrievalMethod::SurfaceCollector))) {
+            throw ValidationException::withMessages([
+                'profile' => 'Surface Profiles must use surface_observation, surface_snapshot, and only surface_collector retrieval.',
+            ]);
+        }
+
         return new Profile(
             id: $id,
             driver: $driver,
@@ -247,7 +260,7 @@ final class ProfileCatalog
             model: $model,
             resultKind: $resultKindValue,
             grounding: $groundingPolicy,
-            observation: ObservationMode::from($observation),
+            observation: $observationMode,
             corpora: $corpusValues,
             retrievalMethods: $retrievalMethodValues,
             prompt: $prompt,

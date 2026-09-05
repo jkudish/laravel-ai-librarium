@@ -208,8 +208,18 @@ it('rejects semantically incompatible reserves and transient TTLs before Driver 
     config()->set('librarium.profiles', [
         'primary' => runtimeProfileConfig('primary'),
         'wrong-kind' => runtimeProfileConfig('wrong-kind', resultKind: ResultKind::ResearchReport),
-        'surface-primary' => runtimeProfileConfig('surface-primary', observation: ObservationMode::SurfaceSnapshot),
-        'surface-fallback' => runtimeProfileConfig('surface-fallback', observation: ObservationMode::SurfaceSnapshot),
+        'surface-primary' => runtimeProfileConfig(
+            'surface-primary',
+            resultKind: ResultKind::SurfaceObservation,
+            observation: ObservationMode::SurfaceSnapshot,
+            retrievalMethods: [RetrievalMethod::SurfaceCollector],
+        ),
+        'surface-fallback' => runtimeProfileConfig(
+            'surface-fallback',
+            resultKind: ResultKind::SurfaceObservation,
+            observation: ObservationMode::SurfaceSnapshot,
+            retrievalMethods: [RetrievalMethod::SurfaceCollector],
+        ),
     ]);
 
     expect(fn () => Librarium::query('Research this.')
@@ -244,7 +254,12 @@ it('rejects Driver results outside the effective Profile semantics', function (s
     $observation = $mismatch === 'missing surface facts'
         ? ObservationMode::SurfaceSnapshot
         : ObservationMode::ApiOutput;
-    config()->set('librarium.profiles.primary', runtimeProfileConfig('primary', observation: $observation));
+    config()->set('librarium.profiles.primary', runtimeProfileConfig(
+        'primary',
+        resultKind: $observation === ObservationMode::SurfaceSnapshot ? ResultKind::SurfaceObservation : ResultKind::GroundedAnswer,
+        observation: $observation,
+        retrievalMethods: $observation === ObservationMode::SurfaceSnapshot ? [RetrievalMethod::SurfaceCollector] : [RetrievalMethod::ModelSearchTool],
+    ));
     FakeRuntimeDriver::$outcomes['primary'] = [function (DriverRequest $request) use ($mismatch): ResearchResult {
         $provenance = match ($mismatch) {
             'result kind' => new ResultProvenance(
@@ -271,6 +286,13 @@ it('rejects Driver results outside the effective Profile semantics', function (s
                 corpora: $request->profile->corpora,
                 observedAt: CarbonImmutable::now(),
             ),
+            'snapshot mode on API output' => new ResultProvenance(
+                resultKind: $request->profile->resultKind,
+                retrievalMethods: $request->profile->retrievalMethods,
+                corpora: $request->profile->corpora,
+                observedAt: CarbonImmutable::now(),
+                observationMode: ObservationMode::SurfaceSnapshot,
+            ),
         };
 
         return runtimeResult($request, 'Mismatched answer.', $provenance);
@@ -278,14 +300,55 @@ it('rejects Driver results outside the effective Profile semantics', function (s
 
     expect(fn () => Librarium::query('Research this.')->using('primary')->run())
         ->toThrow(LogicException::class, 'outside Profile [primary] semantics');
-})->with(['result kind', 'retrieval method', 'corpus', 'missing surface facts']);
+})->with(['result kind', 'retrieval method', 'corpus', 'missing surface facts', 'snapshot mode on API output']);
 
-it('does not accept model answers for unrelated optional Profile semantics', function (ResultKind $resultKind, ObservationMode $observation): void {
+it('rejects snapshot claims on optional model-only answers at the compatibility boundary', function (): void {
+    config()->set('librarium.profiles.primary', runtimeProfileConfig('primary', grounding: GroundingPolicy::Optional));
+    FakeRuntimeDriver::$outcomes['primary'] = [fn (DriverRequest $request): ResearchResult => runtimeResult(
+        $request,
+        'Plain model answer.',
+        new ResultProvenance(
+            resultKind: ResultKind::ModelAnswer,
+            retrievalMethods: collect([RetrievalMethod::ModelOnly]),
+            corpora: collect(),
+            observedAt: CarbonImmutable::now(),
+            observationMode: ObservationMode::SurfaceSnapshot,
+        ),
+    )];
+
+    expect(fn () => Librarium::query('Research this.')->using('primary')->run())
+        ->toThrow(LogicException::class, 'outside Profile [primary] semantics');
+});
+
+it('preserves collector-only API provenance without inventing surface claims', function (ResultKind $kind): void {
+    config()->set('librarium.profiles.primary', runtimeProfileConfig('primary', grounding: GroundingPolicy::Optional));
+    FakeRuntimeDriver::$outcomes['primary'] = [fn (DriverRequest $request): ResearchResult => runtimeResult(
+        $request,
+        'API answer.',
+        new ResultProvenance(
+            resultKind: $kind,
+            retrievalMethods: $kind === ResultKind::ModelAnswer ? collect([RetrievalMethod::ModelOnly]) : $request->profile->retrievalMethods,
+            corpora: $kind === ResultKind::ModelAnswer ? collect() : $request->profile->corpora,
+            observedAt: CarbonImmutable::now(),
+            collector: 'custom-api-collector',
+        ),
+    )];
+
+    $response = Librarium::query('Research this.')->using('primary')->run();
+    $provenance = $response->toArray()['results'][0]['provenance'];
+
+    expect($response->status)->toBe(ResponseStatus::Succeeded)
+        ->and($provenance['collector'])->toBe('custom-api-collector')
+        ->and($provenance)->not->toHaveKeys(['surface', 'observation_mode']);
+})->with([ResultKind::GroundedAnswer, ResultKind::ModelAnswer]);
+
+it('does not accept model answers for unrelated optional Profile semantics', function (ResultKind $resultKind, ObservationMode $observation, RetrievalMethod $retrievalMethod): void {
     config()->set('librarium.profiles.primary', runtimeProfileConfig(
         'primary',
         resultKind: $resultKind,
         grounding: GroundingPolicy::Optional,
         observation: $observation,
+        retrievalMethods: [$retrievalMethod],
     ));
     FakeRuntimeDriver::$outcomes['primary'] = [function (DriverRequest $request): ResearchResult {
         return runtimeResult(
@@ -303,14 +366,16 @@ it('does not accept model answers for unrelated optional Profile semantics', fun
     expect(fn () => Librarium::query('Research this.')->using('primary')->run())
         ->toThrow(LogicException::class, 'outside Profile [primary] semantics');
 })->with([
-    'research report' => [ResultKind::ResearchReport, ObservationMode::ApiOutput],
-    'surface observation' => [ResultKind::GroundedAnswer, ObservationMode::SurfaceSnapshot],
+    'research report' => [ResultKind::ResearchReport, ObservationMode::ApiOutput, RetrievalMethod::ModelSearchTool],
+    'surface observation' => [ResultKind::SurfaceObservation, ObservationMode::SurfaceSnapshot, RetrievalMethod::SurfaceCollector],
 ]);
 
 it('accepts a surface result with explicit collector and surface provenance', function (): void {
     config()->set('librarium.profiles.primary', runtimeProfileConfig(
         'primary',
+        resultKind: ResultKind::SurfaceObservation,
         observation: ObservationMode::SurfaceSnapshot,
+        retrievalMethods: [RetrievalMethod::SurfaceCollector],
     ));
     FakeRuntimeDriver::$outcomes['primary'] = [function (DriverRequest $request): ResearchResult {
         return runtimeResult(
@@ -323,6 +388,7 @@ it('accepts a surface result with explicit collector and surface provenance', fu
                 observedAt: CarbonImmutable::now(),
                 collector: 'searchapi',
                 surface: 'chatgpt',
+                observationMode: ObservationMode::SurfaceSnapshot,
             ),
         );
     }];

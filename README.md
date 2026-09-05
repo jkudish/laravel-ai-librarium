@@ -230,6 +230,22 @@ provider metadata, or results. Set an optional `options.zero_retention` boolean
 to require SearchAPI zero retention; the request fails closed with a clear error
 when the account does not support it.
 
+### Surface provenance migration
+
+SearchAPI surface Profiles now declare and emit `surface_observation`,
+`surface_collector`, and `surface_snapshot`. Applications that copied an older
+Profile configuration must update all three values together; contradictory
+surface semantics are rejected during Profile-catalog preflight before a Driver
+is constructed. The raw `searchapi` Google search Profile is unchanged.
+
+Previously stored terminal responses remain readable. When historical
+provenance omits `observation_mode`, Librarium preserves that absence and the
+original result kind instead of retroactively claiming a surface observation.
+Surface context is limited to locale, country, device, authentication, and
+personalization (`present`, `absent`, or `unknown`). Unknown facts should remain
+unknown or omitted; this field does not resolve the broader declared-versus-
+measured account-context design tracked in #2994.
+
 Configure provider credentials through Laravel AI's normal provider
 configuration. Librarium resolves values such as
 `config('ai.providers.gemini.key')`; it never stores configuration paths or
