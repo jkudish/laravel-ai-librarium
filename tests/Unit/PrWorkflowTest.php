@@ -97,7 +97,7 @@ function prRunner(
             return prSuccess($root."\n");
         }
 
-        if ($command === 'git' && $arguments[0] === 'rev-parse' && in_array('--git-path', $arguments, true)) {
+        if ($command === 'git' && $arguments[1] === 'rev-parse' && in_array('--git-path', $arguments, true)) {
             return prSuccess($path."\n");
         }
 
@@ -627,6 +627,7 @@ it('pins selectors and maps the dedicated token only for one exact unforced sign
         ->and($pullRequestCalls)->toHaveCount(2)
         ->and($gitPathCalls)->toHaveCount(2)
         ->and($gitPathCalls[0]['arguments'])->toBe([
+            '--git-dir='.$mock['root'],
             'rev-parse',
             '--path-format=absolute',
             '--git-path',

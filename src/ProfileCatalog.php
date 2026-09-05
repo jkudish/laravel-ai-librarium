@@ -15,6 +15,8 @@ use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
+use Jkudish\LaravelAiPricing\ValueObjects\ModelIdentity;
+use Jkudish\LaravelAiPricing\ValueObjects\Usage;
 
 final class ProfileCatalog
 {
@@ -157,7 +159,7 @@ final class ProfileCatalog
     private function profile(string $id, array $value): Profile
     {
         $this->validator->make(['profile' => $value], [
-            'profile' => ['array:driver,provider,model,result_kind,grounding,observation,corpora,retrieval_methods,prompt,enabled,options,credential,estimated_cost'],
+            'profile' => ['array:driver,provider,model,result_kind,grounding,observation,corpora,retrieval_methods,prompt,enabled,options,credential,pricing'],
             'profile.driver' => ['required', 'string', 'min:1'],
             'profile.provider' => ['required', 'string', 'min:1'],
             'profile.model' => ['nullable', 'string', 'min:1'],
@@ -172,9 +174,11 @@ final class ProfileCatalog
             'profile.enabled' => ['sometimes', 'boolean'],
             'profile.options' => ['sometimes', 'array'],
             'profile.credential' => ['nullable', 'string', 'min:1'],
-            'profile.estimated_cost' => ['nullable', 'array:amount,currency'],
-            'profile.estimated_cost.amount' => ['required_with:profile.estimated_cost', 'decimal:0,6', 'min:0', 'lte:1000000'],
-            'profile.estimated_cost.currency' => ['required_with:profile.estimated_cost', 'string', 'size:3', 'uppercase'],
+            'profile.pricing' => ['nullable', 'array:provider,model,usage,conservative'],
+            'profile.pricing.provider' => ['required_with:profile.pricing', 'string', 'min:1'],
+            'profile.pricing.model' => ['required_with:profile.pricing', 'string', 'min:1'],
+            'profile.pricing.usage' => ['required_with:profile.pricing', 'array', 'min:1'],
+            'profile.pricing.conservative' => ['required_with:profile.pricing', 'boolean'],
         ])->validate();
 
         $driver = $this->string($value, 'driver');
@@ -189,15 +193,37 @@ final class ProfileCatalog
         $enabled = data_get($value, 'enabled', true);
         $options = $this->associativeArray(data_get($value, 'options', []), 'options');
         $credential = $this->nullableString($value, 'credential');
-        $estimatedCost = data_get($value, 'estimated_cost.amount');
-        $currency = data_get($value, 'estimated_cost.currency');
+        $pricing = data_get($value, 'pricing');
 
         if (! is_bool($enabled)) {
             throw ValidationException::withMessages(['enabled' => 'The enabled value must be true or false.']);
         }
 
-        if ($currency !== null && ! is_string($currency)) {
-            throw ValidationException::withMessages(['estimated_cost.currency' => 'The currency must be a string.']);
+        $pricingIdentity = null;
+        $pricingUsage = null;
+        $pricingUsageConservative = false;
+
+        if ($pricing !== null) {
+            $pricing = $this->associativeArray($pricing, 'pricing');
+            $pricingIdentity = new ModelIdentity(
+                $this->pricingIdentityComponent($pricing, 'provider'),
+                $this->pricingIdentityComponent($pricing, 'model'),
+            );
+            $usage = $this->associativeArray(data_get($pricing, 'usage'), 'pricing.usage');
+
+            foreach ($usage as $unit => $quantity) {
+                if (preg_match('/^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/D', $unit) !== 1
+                    || (is_int($quantity)
+                        ? $quantity < 0
+                        : (! is_string($quantity) || preg_match('/^(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$/D', $quantity) !== 1))) {
+                    throw ValidationException::withMessages([
+                        'pricing.usage' => 'Usage must contain snake-case units with non-negative integer or decimal-string quantities.',
+                    ]);
+                }
+            }
+
+            $pricingUsage = new Usage($usage);
+            $pricingUsageConservative = data_get($pricing, 'conservative') === true;
         }
 
         $resultKindValue = ResultKind::from($resultKind);
@@ -228,8 +254,9 @@ final class ProfileCatalog
             enabled: $enabled,
             options: $options,
             credential: $credential,
-            estimatedCostMicros: is_string($estimatedCost) || is_numeric($estimatedCost) ? $this->micros((string) $estimatedCost) : null,
-            currency: $currency,
+            pricingIdentity: $pricingIdentity,
+            pricingUsage: $pricingUsage,
+            pricingUsageConservative: $pricingUsageConservative,
         );
     }
 
@@ -244,6 +271,12 @@ final class ProfileCatalog
 
         if ($requiresCredential && blank($profile->credential)) {
             $reasons[] = 'Credential is not configured.';
+        }
+
+        if ($requiresCredential
+            && is_string($profile->credential)
+            && preg_match('/[\x00-\x1F\x7F]/', $profile->credential) === 1) {
+            $reasons[] = 'Credential contains invalid control characters.';
         }
 
         if ($profile->driver === LaravelAiDriver::class
@@ -272,13 +305,6 @@ final class ProfileCatalog
         }
 
         return $this->stringList($members, 'group');
-    }
-
-    private function micros(string $amount): int
-    {
-        [$whole, $fraction] = array_pad(explode('.', $amount, 2), 2, '');
-
-        return ((int) $whole * 1_000_000) + (int) str_pad(substr($fraction, 0, 6), 6, '0');
     }
 
     /** @return Collection<int, RetrievalMethod> */
@@ -317,6 +343,20 @@ final class ProfileCatalog
         }
 
         return $item;
+    }
+
+    /** @param array<string, mixed> $value */
+    private function pricingIdentityComponent(array $value, string $key): string
+    {
+        $component = $this->string($value, $key);
+
+        if ($component !== trim($component) || preg_match('/[\x00-\x1F\x7F]/', $component) === 1) {
+            throw ValidationException::withMessages([
+                "pricing.{$key}" => 'Pricing identity values must be trimmed and contain no control characters.',
+            ]);
+        }
+
+        return $component;
     }
 
     /** @return list<string> */

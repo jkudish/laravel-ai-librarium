@@ -26,23 +26,23 @@ beforeEach(function (): void {
         'gemini-grounded' => profileConfig(
             provider: 'gemini',
             resultKind: ResultKind::GroundedAnswer,
-            estimatedCost: '0.05',
+            cost: '0.05',
         ),
         'openrouter-grounded' => profileConfig(
             provider: 'openrouter',
             resultKind: ResultKind::GroundedAnswer,
-            estimatedCost: '0.10',
+            cost: '0.10',
         ),
         'deep-report' => profileConfig(
             provider: 'openai',
             resultKind: ResultKind::ResearchReport,
-            estimatedCost: '0.25',
+            cost: '0.25',
         ),
         'disabled-report' => profileConfig(
             provider: 'future',
             resultKind: ResultKind::ResearchReport,
             enabled: false,
-            estimatedCost: '0.30',
+            cost: '0.30',
         ),
     ]);
     config()->set('librarium.groups.custom:focused', ['deep-report', 'disabled-report']);
@@ -90,12 +90,12 @@ it('preserves the curated visibility order while skipping unavailable Profiles',
     $profiles['searchapi-chatgpt'] = profileConfig(
         provider: 'searchapi',
         resultKind: ResultKind::GroundedAnswer,
-        estimatedCost: '0.01',
+        cost: '0.01',
         observation: ObservationMode::SurfaceSnapshot,
         retrievalMethod: RetrievalMethod::SearchEndpoint,
     );
-    $profiles['perplexity-sonar-pro'] = profileConfig('perplexity', ResultKind::GroundedAnswer, estimatedCost: '0.02');
-    $profiles['grok'] = profileConfig('xai', ResultKind::GroundedAnswer, estimatedCost: '0.03');
+    $profiles['perplexity-sonar-pro'] = profileConfig('perplexity', ResultKind::GroundedAnswer, cost: '0.02');
+    $profiles['grok'] = profileConfig('xai', ResultKind::GroundedAnswer, cost: '0.03');
     config()->set('librarium.profiles', $profiles);
 
     $preview = Librarium::query('Research this.')->group('visibility')->preview();
@@ -133,7 +133,7 @@ it('selects compatible fallback Profiles', function (): void {
     $profiles['backup-grounded'] = profileConfig(
         provider: 'backup',
         resultKind: ResultKind::GroundedAnswer,
-        estimatedCost: '0.04',
+        cost: '0.04',
     );
     config()->set('librarium.profiles', $profiles);
 
@@ -185,6 +185,20 @@ it('marks a Profile unavailable when its resolved credential is missing', functi
 
     expect($preview->profiles->pluck('id')->all())->toBe(['openrouter-grounded'])
         ->and($preview->unavailable->get('gemini-grounded'))->toBe(['Credential is not configured.']);
+});
+
+it('marks a Profile unavailable when its credential contains control characters', function (): void {
+    $credential = "resolved-secret-value\n";
+    config()->set('librarium.profiles.gemini-grounded.credential', $credential);
+
+    $preview = Librarium::query('Research this.')->preview();
+    $encoded = json_encode($preview, JSON_THROW_ON_ERROR);
+
+    expect($preview->profiles->pluck('id')->all())->toBe(['openrouter-grounded'])
+        ->and($preview->unavailable->get('gemini-grounded'))->toBe(['Credential contains invalid control characters.'])
+        ->and($encoded)->not->toContain($credential)
+        ->and(FakeProfileDriver::$constructorCalls)->toBe(0)
+        ->and(app(ExecutesResearch::class)->plans)->toBe([]);
 });
 
 it('lets the Driver validate bounded options before execution', function (array $options): void {
@@ -257,20 +271,43 @@ it('rejects malformed configured Profile IDs in derived groups', function (strin
         ->toThrow(ValidationException::class);
 })->with(['', '   ', 'not/a/profile']);
 
-it('rejects incomplete and over-budget hard cost ceilings', function (): void {
-    config()->set('librarium.profiles.gemini-grounded.estimated_cost', null);
+it('rejects malformed Profile pricing usage before execution', function (array $usage): void {
+    config()->set('librarium.profiles.gemini-grounded.pricing.usage', $usage);
+
+    expect(fn () => Librarium::query('Research this.')->using('gemini-grounded')->preview())
+        ->toThrow(ValidationException::class, 'snake-case units with non-negative integer or decimal-string quantities');
+
+    expect(app(ExecutesResearch::class)->plans)->toBe([]);
+})->with([
+    'non-snake-case unit' => [['request-units' => 1]],
+    'negative integer' => [['requests' => -1]],
+    'floating-point quantity' => [['requests' => 1.5]],
+    'scientific notation' => [['requests' => '1e3']],
+]);
+
+it('rejects unsafe Profile pricing identities before execution', function (string $key, string $value): void {
+    config()->set("librarium.profiles.gemini-grounded.pricing.{$key}", $value);
+
+    expect(fn () => Librarium::query('Research this.')->using('gemini-grounded')->preview())
+        ->toThrow(ValidationException::class);
+
+    expect(app(ExecutesResearch::class)->plans)->toBe([]);
+})->with([
+    'untrimmed provider' => ['provider', ' gemini'],
+    'model control character' => ['model', "test\nmodel"],
+]);
+
+it('rejects incomplete hard cost ceilings', function (): void {
+    config()->set('librarium.profiles.gemini-grounded.pricing', null);
 
     expect(fn () => Librarium::query('Research this.')
         ->using('gemini-grounded')
         ->maxCost('1.00')
         ->preview())
         ->toThrow(ValidationException::class);
+});
 
-    config()->set('librarium.profiles.gemini-grounded.estimated_cost', [
-        'amount' => '0.05',
-        'currency' => 'USD',
-    ]);
-
+it('rejects over-budget hard cost ceilings', function (): void {
     expect(fn () => Librarium::query('Research this.')
         ->using('gemini-grounded')
         ->maxCost('0.04')
@@ -285,7 +322,7 @@ it('hands the same compiled plan shape to run and queue', function (): void {
     $profiles['backup-grounded'] = profileConfig(
         provider: 'backup',
         resultKind: ResultKind::GroundedAnswer,
-        estimatedCost: '0.04',
+        cost: '0.04',
     );
     config()->set('librarium.profiles', $profiles);
 
@@ -350,10 +387,18 @@ function profileConfig(
     string $provider,
     ResultKind $resultKind,
     bool $enabled = true,
-    ?string $estimatedCost = null,
+    ?string $cost = null,
     ObservationMode $observation = ObservationMode::ApiOutput,
     RetrievalMethod $retrievalMethod = RetrievalMethod::ModelSearchTool,
 ): array {
+    if ($cost !== null) {
+        $prices = config('ai-pricing.prices', []);
+        $prices["{$provider}:test-model"] = [
+            'requests' => ['amount' => $cost, 'currency' => 'USD'],
+        ];
+        config()->set('ai-pricing.prices', $prices);
+    }
+
     return [
         'driver' => FakeProfileDriver::class,
         'provider' => $provider,
@@ -366,9 +411,11 @@ function profileConfig(
         'prompt' => 'Research carefully: {{ query }}',
         'enabled' => $enabled,
         'options' => ['temperature' => 0.2],
-        'estimated_cost' => $estimatedCost === null ? null : [
-            'amount' => $estimatedCost,
-            'currency' => 'USD',
+        'pricing' => $cost === null ? null : [
+            'provider' => $provider,
+            'model' => 'test-model',
+            'usage' => ['requests' => 1],
+            'conservative' => true,
         ],
     ];
 }

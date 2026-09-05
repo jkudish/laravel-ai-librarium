@@ -4,11 +4,11 @@ Librarium exposes all three accepted You.com semantic Profiles. They share
 credential resolution, while preserving separate package-native selectors,
 depth, result identity, and execution behavior.
 
-| Laravel Profile | Cross-language semantic target | Endpoint | Effort | Execution | Estimate |
+| Laravel Profile | Cross-language semantic target | Endpoint | Effort | Execution | Pricing usage |
 | --- | --- | --- | --- | --- | --- |
-| `you-answer` | `you-answer/grounded` | `POST https://api.you.com/v1/answer` | single search | inline | exact $0.005/request |
-| `you-research-grounded` | `you-research/grounded` | `POST https://api.you.com/v1/research` | `standard` | inline | exact $0.05/request |
-| `you-research-research` | `you-research/research` | `POST https://api.you.com/v1/research` | `standard` | background provider task | exact $0.05/request |
+| `you-answer` | `you-answer/grounded` | `POST https://api.you.com/v1/answer` | single search | inline | one request unit |
+| `you-research-grounded` | `you-research/grounded` | `POST https://api.you.com/v1/research` | `standard` | inline | one request unit |
+| `you-research-research` | `you-research/research` | `POST https://api.you.com/v1/research` | `standard` | background provider task | one request unit |
 
 These mappings follow the accepted Librarium task #2693 identities and terminal
 semantics without importing its TypeScript coordinator or background-worker
@@ -84,11 +84,12 @@ of You.com's consumer UI.
 
 ## Pricing, billing, and privacy
 
-The Answer guide documents $5 per 1,000 calls, so preview reserves exactly 5,000
-micro-USD per request. The current billing page documents standard Research at
-$50 per 1,000 calls, so each Research Profile estimates exactly 50,000
-micro-USD. These network-free estimates make hard `maxCost()` preflight
-possible.
+The Profiles declare one explicit request unit. `laravel-ai-pricing` is the
+single source of rates, source provenance, and freshness; Librarium does not
+repeat those rates here or in Profile configuration. The reviewed package
+snapshot currently resolves each identity offline. A hard `maxCost()`
+preflight is available only while the resulting quote is complete, current,
+conservative, and in the requested currency.
 
 The official documentation reviewed on 2026-08-23 does not state whether every
 non-2xx Answer or Research attempt is billed. Librarium therefore does not
@@ -115,15 +116,17 @@ approved Profile:
 
 ```bash
 LIBRARIUM_LIVE_TESTS=1 \
-LIBRARIUM_YOU_LIVE_SPEND_USD=0.005 \
+LIBRARIUM_YOU_LIVE_SPEND_USD='CURRENT_PREVIEW_BOUND' \
 YOU_COM_API_KEY=... \
 vendor/bin/pest tests/Live/YouProfilesLiveTest.php \
   --filter='You Answer' --fail-on-skipped
 ```
 
-Use `LIBRARIUM_YOU_LIVE_SPEND_USD=0.05` with the exact `You Research grounded`
-or `You Research durable` dataset filter for either Research canary. Approval
-for one dataset does not authorize either other dataset. `YDC_API_KEY` may
-replace `YOU_COM_API_KEY`. Do not run these commands as part of ordinary CI.
-Capture only redacted latency, evidence, error, and spend proof for the release
-gate; do not persist provider secrets or raw responses.
+Replace `CURRENT_PREVIEW_BOUND` with that Profile's current offline
+`maximumEstimatedCost`. The live test derives the same value from its pricing
+quote and skips unless the acknowledgement matches exactly; it also skips when
+no hard bound is available. Approval for one dataset does not authorize either
+other dataset. `YDC_API_KEY` may replace `YOU_COM_API_KEY`. Do not run these
+commands as part of ordinary CI. Capture only redacted latency, evidence,
+error, and spend proof for the release gate; do not persist provider secrets or
+raw responses.

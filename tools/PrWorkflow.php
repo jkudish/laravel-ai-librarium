@@ -491,6 +491,7 @@ final class PrWorkflow
     {
         $gitDirectory = rtrim($this->git(['rev-parse', '--path-format=absolute', '--git-common-dir'], $environment), '/');
         $path = $this->git([
+            '--git-dir='.$gitDirectory,
             'rev-parse',
             '--path-format=absolute',
             '--git-path',

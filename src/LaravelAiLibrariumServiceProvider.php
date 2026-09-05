@@ -4,7 +4,12 @@ declare(strict_types=1);
 
 namespace Jkudish\LaravelAiLibrarium;
 
+use Illuminate\Cache\CacheManager;
+use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Support\ServiceProvider;
+use Jkudish\LaravelAiLibrarium\Console\Commands\ProfilesCommand;
+use Jkudish\LaravelAiLibrarium\Console\Commands\QueryCommand;
+use Jkudish\LaravelAiLibrarium\Console\Commands\StatusCommand;
 use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
 use Jkudish\LaravelAiLibrarium\Contracts\Librarium;
 use Jkudish\LaravelAiLibrarium\Drivers\Brave\BraveAnswersDriver;
@@ -18,17 +23,32 @@ use Jkudish\LaravelAiLibrarium\Drivers\Xai\XaiGrokDriver;
 use Jkudish\LaravelAiLibrarium\Execution\ProfileCompatibility;
 use Jkudish\LaravelAiLibrarium\Execution\ResearchRuntime;
 use Jkudish\LaravelAiLibrarium\Webhooks\WebhookSignalStore;
+use Jkudish\LaravelAiPricing\Contracts\CostResolver;
+use Jkudish\LaravelAiPricing\LaravelAiPricingServiceProvider as PricingServiceProvider;
+use Jkudish\LaravelAiPricing\PricingResolver;
+use Jkudish\LaravelAiPricing\Sources\ConfiguredPricingSource;
+use Jkudish\LaravelAiPricing\Sources\OpenRouterPricingSource;
+use Jkudish\LaravelAiPricing\Sources\PackagePricingSource;
+use Jkudish\LaravelAiPricing\Sources\PortkeyPricingSource;
+use LogicException;
 
 final class LaravelAiLibrariumServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        // Discovery order is not guaranteed, but Librarium's compiler requires
+        // pricing configuration while its contextual resolver is constructed.
+        $this->app->register(PricingServiceProvider::class);
+
         $this->mergeConfigFrom(__DIR__.'/../config/librarium.php', 'librarium');
 
         $this->app->singleton(LibrariumManager::class);
         $this->app->singleton(ProfileCatalog::class);
         $this->app->singleton(ProfileCompatibility::class);
         $this->app->singleton(ResearchCompiler::class);
+        $this->app->when(ResearchCompiler::class)
+            ->needs(CostResolver::class)
+            ->give(fn (): CostResolver => $this->offlineCostResolver());
         $this->app->singleton(ExecutesResearch::class, ResearchRuntime::class);
         $this->app->singleton(
             ResearchStatusStore::class,
@@ -67,6 +87,12 @@ final class LaravelAiLibrariumServiceProvider extends ServiceProvider
         if (! $this->app->runningInConsole()) {
             return;
         }
+
+        $this->commands([
+            QueryCommand::class,
+            StatusCommand::class,
+            ProfilesCommand::class,
+        ]);
 
         $this->publishes([
             __DIR__.'/../config/librarium.php' => config_path('librarium.php'),
@@ -114,5 +140,59 @@ final class LaravelAiLibrariumServiceProvider extends ServiceProvider
         if ($changed) {
             config()->set('librarium.profiles', $profiles);
         }
+    }
+
+    private function offlineCostResolver(): CostResolver
+    {
+        $store = config('ai-pricing.cache_store');
+        if ($store !== null && ! is_string($store)) {
+            throw new LogicException('Configuration [ai-pricing.cache_store] must be null or a string.');
+        }
+
+        $cache = $this->app->make(CacheManager::class)->store($store);
+        $http = $this->app->make(HttpFactory::class);
+        $ttl = $this->pricingInteger('ai-pricing.cache_ttl');
+
+        return new PricingResolver(
+            configured: $this->app->make(ConfiguredPricingSource::class),
+            native: new OpenRouterPricingSource(
+                http: $http,
+                cache: $cache,
+                endpoint: $this->pricingString('ai-pricing.openrouter.endpoint'),
+                ttlSeconds: $ttl,
+                offline: true,
+            ),
+            fallback: new PortkeyPricingSource(
+                http: $http,
+                cache: $cache,
+                endpoint: $this->pricingString('ai-pricing.portkey.endpoint'),
+                ttlSeconds: $ttl,
+                offline: true,
+            ),
+            currency: $this->pricingString('ai-pricing.currency'),
+            snapshot: $this->app->make(PackagePricingSource::class),
+        );
+    }
+
+    private function pricingString(string $key): string
+    {
+        $value = config($key);
+
+        if (! is_string($value)) {
+            throw new LogicException("Configuration [{$key}] must be a string.");
+        }
+
+        return $value;
+    }
+
+    private function pricingInteger(string $key): int
+    {
+        $value = config($key);
+
+        if (! is_int($value)) {
+            throw new LogicException("Configuration [{$key}] must be an integer.");
+        }
+
+        return $value;
     }
 }

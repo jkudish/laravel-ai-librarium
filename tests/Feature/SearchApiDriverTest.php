@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Http;
 use Jkudish\LaravelAiLibrarium\Drivers\SearchApi\SearchApiDriver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
+use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\ProfileCatalog;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ContentFormat;
@@ -27,24 +28,54 @@ afterEach(function (): void {
     CarbonImmutable::setTestNow();
 });
 
-it('registers the seven SearchAPI Profiles with complete network-free estimates', function (): void {
+it('registers the seven SearchAPI Profiles with explicit configured-only pricing assumptions', function (): void {
     $profiles = app(ProfileCatalog::class)->all()
         ->filter(fn ($item): bool => $item->profile->driver === SearchApiDriver::class)
         ->mapWithKeys(fn ($item, string $id): array => [$id => [
-            $item->profile->estimatedCostMicros,
-            $item->profile->currency,
+            $item->profile->pricingIdentity?->key(),
+            $item->profile->pricingUsage?->toArray(),
+            $item->profile->pricingUsageConservative,
         ]]);
 
     expect($profiles->all())->toBe([
-        'searchapi' => [4_000, 'USD'],
-        'searchapi-chatgpt' => [4_000, 'USD'],
-        'searchapi-gemini' => [4_000, 'USD'],
-        'searchapi-perplexity' => [4_000, 'USD'],
-        'searchapi-google-ai-mode' => [4_000, 'USD'],
-        'searchapi-bing-copilot' => [4_000, 'USD'],
-        'searchapi-google-ai-overview' => [8_000, 'USD'],
+        'searchapi' => ['searchapi:search', ['successful_search_request' => '1'], true],
+        'searchapi-chatgpt' => ['searchapi:search', ['successful_search_request' => '1'], true],
+        'searchapi-gemini' => ['searchapi:search', ['successful_search_request' => '1'], true],
+        'searchapi-perplexity' => ['searchapi:search', ['successful_search_request' => '1'], true],
+        'searchapi-google-ai-mode' => ['searchapi:search', ['successful_search_request' => '1'], true],
+        'searchapi-bing-copilot' => ['searchapi:search', ['successful_search_request' => '1'], true],
+        'searchapi-google-ai-overview' => ['searchapi:search', ['successful_search_request' => '2'], true],
     ]);
 });
+
+it('keeps SearchAPI pricing unavailable until the operator configures its rate', function (): void {
+    $preview = Librarium::query('What changed?')->using('searchapi')->preview();
+
+    expect($preview->pricingStatus)->toBe('unavailable')
+        ->and($preview->hardCostCeilingAvailable)->toBeFalse()
+        ->and($preview->knownCostSubtotals)->toBeEmpty()
+        ->and($preview->pricingQuotes->sole()['quote']->completeness->value)->toBe('unavailable');
+
+    Http::assertNothingSent();
+});
+
+it('quotes SearchAPI offline after the operator configures its request rate', function (string $profile, string $cost): void {
+    config()->set('ai-pricing.prices.searchapi:search', [
+        'successful_search_request' => ['amount' => '0.004', 'currency' => 'USD'],
+    ]);
+
+    $preview = Librarium::query('What changed?')->using($profile)->preview();
+
+    expect($preview->pricingStatus)->toBe('complete')
+        ->and($preview->maximumEstimatedCost)->toBe($cost)
+        ->and($preview->hardCostCeilingAvailable)->toBeTrue()
+        ->and($preview->pricingQuotes->sole()['quote']->source->value)->toBe('configured');
+
+    Http::assertNothingSent();
+})->with([
+    'one SearchAPI request' => ['searchapi', '0.004'],
+    'two SearchAPI requests' => ['searchapi-google-ai-overview', '0.008'],
+]);
 
 it('sends one bearer-authenticated GET with the built-in engine and query and no URL credential', function (string $profile, string $engine): void {
     Http::fake(['https://www.searchapi.io/*' => Http::response([

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jkudish\LaravelAiLibrarium;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
@@ -13,6 +14,14 @@ use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
+use Jkudish\LaravelAiPricing\Contracts\CostResolver;
+use Jkudish\LaravelAiPricing\Enums\CostCompleteness;
+use Jkudish\LaravelAiPricing\Enums\PricingSource;
+use Jkudish\LaravelAiPricing\ValueObjects\CostQuote;
+use Jkudish\LaravelAiPricing\ValueObjects\ModelIdentity;
+use Jkudish\LaravelAiPricing\ValueObjects\Money;
+use Jkudish\LaravelAiPricing\ValueObjects\PricingObservation;
+use Jkudish\LaravelAiPricing\ValueObjects\Usage;
 
 final readonly class ResearchCompiler
 {
@@ -20,6 +29,7 @@ final readonly class ResearchCompiler
         private ProfileCatalog $catalog,
         private ConfigRepository $config,
         private ProfileCompatibility $compatibility,
+        private CostResolver $costResolver,
     ) {}
 
     public function compile(PendingResearch $research): ResearchPlan
@@ -57,8 +67,8 @@ final readonly class ResearchCompiler
             ]);
         }
 
+        $pricing = $this->pricing($profiles, $fallbacks, $research->maximumCost());
         $all = $profiles->concat($fallbacks);
-        [$estimatedCost, $currency, $complete, $warnings] = $this->estimate($all, $research->maximumCost());
         $prompts = $all->mapWithKeys(fn (Profile $profile): array => [
             $profile->id => $profile->renderPrompt($research->input),
         ]);
@@ -81,6 +91,9 @@ final readonly class ResearchCompiler
         $this->validateTransientTtl('status_ttl', $jobTimeout);
         $this->validateTransientTtl('webhook_signal_ttl', $jobTimeout);
 
+        /** @var Collection<int, string> $warnings */
+        $warnings = collect();
+
         return new ResearchPlan(
             requestId: $research->requestId,
             preview: new ResearchPreview(
@@ -89,10 +102,14 @@ final readonly class ResearchCompiler
                 fallbacks: $fallbacks,
                 prompts: $prompts,
                 unavailable: collect($unavailable),
-                warnings: collect($warnings),
-                maximumEstimatedCost: $estimatedCost,
-                currency: $currency,
-                costEstimateComplete: $complete,
+                warnings: $warnings,
+                pricingQuotes: $pricing['quotes'],
+                knownCostSubtotals: $pricing['known_subtotals'],
+                pricingStatus: $pricing['status'],
+                hardCostCeilingAvailable: $pricing['hard_ceiling_available'],
+                maximumEstimatedCost: $pricing['maximum_estimated_cost'],
+                currency: $pricing['currency'],
+                costEstimateComplete: $pricing['hard_ceiling_available'],
             ),
             timeout: $timeout,
             jobTimeout: $jobTimeout,
@@ -180,72 +197,169 @@ final readonly class ResearchCompiler
 
     /**
      * @param  Collection<int, Profile>  $profiles
+     * @param  Collection<int, Profile>  $fallbacks
      * @param  array{amount: string, currency: string}|null  $maximum
-     * @return array{string|null, string|null, bool, list<string>}
+     * @return array{
+     *     quotes: Collection<int, array{
+     *         profile: string,
+     *         role: string,
+     *         reachable_from: list<string>,
+     *         maximum_invocations: int,
+     *         identity: ModelIdentity|null,
+     *         usage: Usage|null,
+     *         conservative: bool,
+     *         quote: CostQuote,
+     *         freshness: string
+     *     }>,
+     *     known_subtotals: Collection<string, string>,
+     *     status: string,
+     *     hard_ceiling_available: bool,
+     *     maximum_estimated_cost: string|null,
+     *     currency: string|null
+     * }
      */
-    private function estimate(Collection $profiles, ?array $maximum): array
+    private function pricing(Collection $profiles, Collection $fallbacks, ?array $maximum): array
     {
-        $complete = $profiles->every(fn (Profile $profile): bool => $profile->estimatedCostMicros !== null && $profile->currency !== null);
-        $currencies = $profiles
-            ->map(fn (Profile $profile): ?string => $profile->currency)
-            ->filter(fn (?string $currency): bool => $currency !== null)
-            ->unique()
-            ->values();
-        $currency = $currencies->count() === 1 ? $currencies->first() : null;
-        $singleCurrency = is_string($currency) ? $currency : null;
-        $warnings = [];
-
-        if (! $complete) {
-            $warnings[] = 'The cost estimate is incomplete because one or more Profiles have no network-free estimate.';
+        $maxAgeDays = $this->config->get('librarium.pricing.max_age_days', 30);
+        if (! is_int($maxAgeDays) || $maxAgeDays < 1 || $maxAgeDays > 3650) {
+            throw ValidationException::withMessages([
+                'pricing.max_age_days' => 'The pricing max age must be between 1 and 3650 days.',
+            ]);
         }
 
-        if ($currencies->count() > 1) {
-            $warnings[] = 'The cost estimate spans multiple currencies and cannot be totaled.';
+        $cutoff = CarbonImmutable::now()->subDays($maxAgeDays);
+        $quotes = $profiles->map(fn (Profile $profile): array => $this->pricingEntry(
+            profile: $profile,
+            role: 'primary',
+            reachableFrom: [$profile->id],
+            cutoff: $cutoff,
+        ));
+
+        foreach ($fallbacks as $fallback) {
+            $reachableFrom = $profiles
+                ->filter(fn (Profile $primary): bool => $this->compatibility->allows($primary, $fallback))
+                ->map(fn (Profile $primary): string => $primary->id)
+                ->values()
+                ->all();
+            $reachableFrom = array_values($reachableFrom);
+            $quotes->push($this->pricingEntry(
+                profile: $fallback,
+                role: 'fallback',
+                reachableFrom: $reachableFrom,
+                cutoff: $cutoff,
+            ));
         }
 
-        $totalMicros = $complete && $singleCurrency !== null
-            ? $profiles->sum(fn (Profile $profile): int => $profile->estimatedCostMicros ?? 0)
-            : null;
+        /** @var array<string, Money> $subtotals */
+        $subtotals = [];
+        foreach ($quotes as $entry) {
+            $cost = $entry['quote']->cost;
+            if ($cost === null) {
+                continue;
+            }
+
+            $amount = $cost->amount->multipliedBy($entry['maximum_invocations']);
+            $line = new Money($amount, $cost->currency);
+            $subtotals[$cost->currency] = isset($subtotals[$cost->currency])
+                ? $subtotals[$cost->currency]->plus($line)
+                : $line;
+        }
+        ksort($subtotals);
+
+        $knownSubtotals = collect($subtotals)
+            ->map(fn (Money $subtotal): string => (string) $subtotal->amount);
+        $quotesComplete = $quotes->every(
+            fn (array $entry): bool => $entry['quote']->completeness === CostCompleteness::Complete
+                && $entry['quote']->cost !== null,
+        );
+        $fresh = $quotes->every(fn (array $entry): bool => $entry['freshness'] === 'current');
+        $conservative = $quotes->every(fn (array $entry): bool => $entry['conservative']);
+        $singleCurrency = count($subtotals) === 1;
+        $hardCeilingAvailable = $quotesComplete && $fresh && $conservative && $singleCurrency;
+        $currency = $singleCurrency ? array_key_first($subtotals) : null;
+        $status = $quotesComplete
+            ? CostCompleteness::Complete->value
+            : ($subtotals === [] ? CostCompleteness::Unavailable->value : CostCompleteness::Partial->value);
 
         if ($maximum !== null) {
-            if (! $complete || $singleCurrency === null) {
+            if (! $hardCeilingAvailable || $currency === null) {
                 throw ValidationException::withMessages([
-                    'maxCost' => 'A hard cost ceiling requires a complete network-free estimate in one currency.',
+                    'maxCost' => 'A hard cost ceiling requires complete, current, single-currency quotes from conservative usage bounds for every primary and reachable fallback.',
                 ]);
             }
 
-            if ($singleCurrency !== $maximum['currency']) {
+            if ($currency !== $maximum['currency']) {
                 throw ValidationException::withMessages([
-                    'maxCost.currency' => "The estimate uses {$singleCurrency}, not {$maximum['currency']}.",
+                    'maxCost.currency' => "The conservative quote uses {$currency}, not {$maximum['currency']}.",
                 ]);
             }
 
-            if ($totalMicros !== null && $totalMicros > $this->micros($maximum['amount'])) {
+            if ($subtotals[$currency]->amount->isGreaterThan($maximum['amount'])) {
                 throw ValidationException::withMessages([
-                    'maxCost' => 'The maximum estimated cost exceeds the configured hard ceiling.',
+                    'maxCost' => 'The maximum quoted cost exceeds the configured hard ceiling.',
                 ]);
             }
         }
 
         return [
-            $totalMicros === null ? null : $this->formatMicros($totalMicros),
-            $singleCurrency,
-            $complete && $singleCurrency !== null,
-            $warnings,
+            'quotes' => $quotes,
+            'known_subtotals' => $knownSubtotals,
+            'status' => $status,
+            'hard_ceiling_available' => $hardCeilingAvailable,
+            'maximum_estimated_cost' => $hardCeilingAvailable && $currency !== null
+                ? (string) $subtotals[$currency]->amount
+                : null,
+            'currency' => $hardCeilingAvailable ? $currency : null,
         ];
     }
 
-    private function micros(string $amount): int
+    /**
+     * @param  list<string>  $reachableFrom
+     * @return array{
+     *     profile: string,
+     *     role: string,
+     *     reachable_from: list<string>,
+     *     maximum_invocations: int,
+     *     identity: ModelIdentity|null,
+     *     usage: Usage|null,
+     *     conservative: bool,
+     *     quote: CostQuote,
+     *     freshness: string
+     * }
+     */
+    private function pricingEntry(Profile $profile, string $role, array $reachableFrom, CarbonImmutable $cutoff): array
     {
-        [$whole, $fraction] = array_pad(explode('.', $amount, 2), 2, '');
+        $quote = $profile->pricingIdentity === null || $profile->pricingUsage === null
+            ? CostQuote::unavailable()
+            : $this->costResolver->resolve(new PricingObservation(
+                identity: $profile->pricingIdentity,
+                usage: $profile->pricingUsage,
+            ));
 
-        return ((int) $whole * 1_000_000) + (int) str_pad(substr($fraction, 0, 6), 6, '0');
+        return [
+            'profile' => $profile->id,
+            'role' => $role,
+            'reachable_from' => $reachableFrom,
+            'maximum_invocations' => 1,
+            'identity' => $profile->pricingIdentity,
+            'usage' => $profile->pricingUsage,
+            'conservative' => $profile->pricingUsageConservative,
+            'quote' => $quote,
+            'freshness' => $this->freshness($quote, $cutoff),
+        ];
     }
 
-    private function formatMicros(int $micros): string
+    private function freshness(CostQuote $quote, CarbonImmutable $cutoff): string
     {
-        $amount = intdiv($micros, 1_000_000).'.'.str_pad((string) ($micros % 1_000_000), 6, '0', STR_PAD_LEFT);
+        if (in_array($quote->source, [PricingSource::Configured, PricingSource::ProviderReported], true)) {
+            return 'current';
+        }
 
-        return rtrim(rtrim($amount, '0'), '.');
+        $retrievedAt = $quote->provenance?->retrievedAt;
+        if ($retrievedAt === null) {
+            return 'unverified';
+        }
+
+        return $retrievedAt < $cutoff ? 'stale' : 'current';
     }
 }

@@ -25,6 +25,132 @@ $research = Librarium::query('Compare current agent memory architectures.')
     ->catch(fn ($exception) => /* report the infrastructure failure */);
 ```
 
+## Artisan commands
+
+`librarium:query` provides a guided Laravel Prompts workflow for operators. It
+collects a missing query, lets the operator choose one eligible Profile, a
+group, or multiple Profiles, and offers the existing fallback, timeout, and
+cost-ceiling safeguards. Group choices explain their purpose and show how many
+Profiles are ready, while custom fan-out is available near the top of the
+selection menu. It always displays a compact compiled Profile, grouped
+availability, and pricing preview before offering the default `Run now`,
+`Queue`, or `Exit without dispatching` action. Human-mode string results render
+Markdown headings, emphasis, lists, links, tables, and code for readable
+terminal output; agent-mode JSON preserves the original Markdown string.
+
+```bash
+php artisan librarium:query
+php artisan librarium:query 'Compare current agent memory architectures.' \
+    --profile=gemini-grounded \
+    --fallback=openrouter-grounded \
+    --timeout=600 \
+    --max-cost=0.25 \
+    --currency=USD
+```
+
+Supplying a query or selection does not bypass the preview or interactive
+action menu. `--run` and `--queue` select and dispatch that action immediately
+after displaying the preview, without asking the operator to repeat the
+choice. With neither flag, the interactive action menu defaults to `Run now`;
+choose `Exit without dispatching` for preview-only use. A non-TTY process must
+use either `--agent` or Laravel's `--no-interaction`; otherwise the command
+exits instead of waiting for input. `--no-interaction` uses plain human output
+and never implies JSON.
+
+Use `--agent` for automation. It disables prompts, ANSI decoration, and
+spinners, writes one deterministic JSON value to stdout on success, and never
+dispatches unless `--run` or `--queue` is explicit. Repeat `--profile` to fan
+out, and repeat `--fallback` to preserve fallback priority:
+
+```bash
+# Preview only
+php artisan librarium:query 'Compare memory systems.' \
+    --agent --profile=gemini-grounded
+
+# Explicit synchronous dispatch
+php artisan librarium:query 'Compare memory systems.' \
+    --agent --profile=gemini-grounded --run
+
+# Explicit queued dispatch
+php artisan librarium:query 'Compare memory systems.' \
+    --agent --group=deep --queue
+
+php artisan librarium:status 01M13EXAMPLEREQUESTID --agent
+php artisan librarium:profiles --agent
+```
+
+Preview, queued, status, and profile-listing JSON use small envelopes with
+`schema_version: 1` and a matching `type`. A completed `--run` writes the public
+`ResearchResponse::toArray()` value directly, without a command envelope.
+Validation and command errors leave stdout empty and write a bounded,
+credential-safe message to stderr when it is available.
+
+### Pricing previews
+
+Librarium resolves preview costs through `jkudish/laravel-ai-pricing`; it does
+not maintain a second rate table. Every selected primary and every compatible
+fallback receives a `CostQuote`. A fallback quote is multiplied by the number
+of times the runtime may execute it. The current global fallback reserve tries
+each Profile at most once, while `reachable_from` records every compatible
+primary. The human preview summarizes known currency subtotals, unknown
+profiles or units, whether usage assumptions are conservative, and pricing
+source freshness in one compact statement. When the operator selects the
+interactive cost-ceiling safeguard, Librarium compiles and displays pricing
+first, then suggests the verified conservative bound as the default. If no safe
+bound exists, it explains why and exits without dispatching rather than asking
+the operator to invent one. Agent previews expose the same details beneath the
+versioned `pricing.schema_version: 1` object.
+
+Preview resolution is offline by default. It can use configured rates, the
+pricing package's reviewed snapshot, and previously synchronized last-known-good
+catalog data, but it does not fetch a catalog or call a research provider.
+Refreshing remote catalogs remains an explicit operator action:
+
+```bash
+php artisan ai:pricing:sync
+```
+
+Profiles declare a pricing `provider`, `model`, explicit usage units, and
+whether those units are a true conservative bound. Known cost from a partial or
+non-conservative quote remains useful preview information, but it is not a hard
+ceiling. `--max-cost` fails before dispatch unless every reachable quote is
+complete, current, conservative, and in one currency; unknown cost is never
+treated as zero. Configured rates are considered current until the application
+changes them. Other catalog prices must be no older than
+`librarium.pricing.max_age_days` (30 by default).
+
+SearchAPI remains configured-only. To price its built-in
+`searchapi:search` identity, applications must define the
+`successful_search_request` rate in `config/ai-pricing.php`; otherwise its quote
+is unavailable. Provider-reported actual totals continue to take precedence in
+the pricing resolver after execution.
+
+The legacy preview `cost` JSON member and the corresponding
+`maximumEstimatedCost`, `currency`, and `costEstimateComplete` properties are a
+narrow compatibility bridge. They are derived only from the aggregated
+`CostQuote` values and are populated as complete only when the same true hard
+ceiling is available. New consumers should use the versioned `pricing` object.
+
+Agent-mode exit codes are stable:
+
+| Code | Meaning |
+| ---: | --- |
+| `0` | Preview, queue submission, status/profile lookup, or succeeded research completed |
+| `1` | Unexpected command/infrastructure failure |
+| `2` | Invalid or conflicting input |
+| `3` | Requested status was not found |
+| `4` | Research completed with a partial terminal response |
+| `5` | Research completed with a failed terminal response |
+
+`librarium:status {requestId?}` is a read-only lookup of the package's
+transient queue status; it is not persisted history. `librarium:profiles` is a
+read-only availability view and omits credentials, Profile options, prompts,
+and secret-bearing configuration. Queue workers and the configured queue
+backend remain application responsibilities. These commands can make paid
+provider calls only when an operator explicitly runs or queues a query, so the
+consuming application remains responsible for provider credentials, budgets,
+and authorization to make live calls.
+
 The package ships these Laravel AI SDK Profiles:
 
 | Profile | Provider | Model | Web search |
@@ -80,7 +206,7 @@ provider's current documentation convention. Answer and inline Research are
 explicit opt-in and outside all curated groups; durable standard Research
 participates only in the non-default derived `deep` group. See
 [the You.com Profile guide](docs/you-com-profiles.md) for options, evidence
-mapping, exact request estimates, failed-call billing uncertainty, and the
+mapping, pricing-quote assumptions, failed-call billing uncertainty, and the
 paid live gate.
 
 The package also ships SearchAPI.io Profiles served by a small Laravel HTTP
@@ -184,6 +310,18 @@ Provider-native polling, resumable handles, and webhook verification stay inside
 - PHP 8.4+
 - Laravel 13
 - Laravel AI SDK >=0.10.3,<0.11.0
+
+Development currently pins the unmerged `jkudish/laravel-ai-pricing` PR #8
+candidate exactly at
+`c6153d2be99ee745bc557053b836e135ebcc04f0` through the temporary Composer
+package version
+`dev-task-3311-c6153d2be99ee745bc557053b836e135ebcc04f0`. Its dist and source
+references both pin that SHA, and its temporary package metadata mirrors the
+candidate's requirements, autoloading, and Laravel provider declaration. This
+is an integration pin, not a released package constraint. Librarium must not
+be released or published with that package repository; replace it with the
+corresponding stable published constraint only after the pricing change is
+merged and released.
 
 ## Development
 
