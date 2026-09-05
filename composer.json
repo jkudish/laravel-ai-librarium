@@ -69,7 +69,7 @@
         "illuminate/support": "^13.0",
         "illuminate/validation": "^13.0",
         "jkudish/laravel-ai-pricing": "dev-task-3311-c6153d2be99ee745bc557053b836e135ebcc04f0",
-        "laravel/ai": "^0.10.3",
+        "laravel/ai": "^0.10.3 || ^0.11.0",
         "laravel/prompts": "^0.3.24",
         "league/commonmark": "^2.8",
         "standard-webhooks/standard-webhooks": "^1.0.2"

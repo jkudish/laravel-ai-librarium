@@ -9,7 +9,7 @@ use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
 use Jkudish\LaravelAiLibrarium\QueuedResearchResponse;
 use Jkudish\LaravelAiLibrarium\ResearchPlan;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResponse;
-use Laravel\Ai\FakePendingDispatch;
+use Jkudish\LaravelAiLibrarium\Testing\FakePendingDispatch;
 
 final class FakeResearchExecutor implements ExecutesResearch
 {

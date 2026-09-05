@@ -14,5 +14,6 @@ All notable changes to this project will be documented in this file.
 - Pin and verify the accepted TypeScript terminal-interchange snapshot offline.
 - Replace static Profile cost estimates with offline, provenance-aware
   `laravel-ai-pricing` quotes and fail-closed conservative cost ceilings.
+- Support Laravel AI SDK 0.11 with a package-owned queued research test fake.
 - Document the reconciled 40-row TypeScript/PHP binding matrix and separately
   approval-gated live provider canaries.

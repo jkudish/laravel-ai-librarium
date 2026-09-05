@@ -6,7 +6,7 @@ namespace Jkudish\LaravelAiLibrarium;
 
 use Closure;
 use Illuminate\Foundation\Bus\PendingDispatch;
-use Laravel\Ai\FakePendingDispatch;
+use Jkudish\LaravelAiLibrarium\Testing\FakePendingDispatch;
 use LogicException;
 
 /** @mixin PendingDispatch */
