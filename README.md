@@ -388,9 +388,12 @@ eligibility and dedicated-token readiness, it reruns the complete ordered
 `pr:check` plan in the same credential-free candidate environment, replaces and
 revalidates the exact-SHA receipt, then repeats remote, PR, worktree, branch, and
 HEAD checks immediately before one exact unforced `gh signoff --commit <sha>`
-write. Read-only GitHub checks use the existing GitHub CLI login. Only the final
-status-writing subprocess maps the dedicated `GH_SIGNOFF_TOKEN` to `GH_TOKEN`;
-ambient `GH_TOKEN` and `GH_REPO` cannot redirect earlier checks or selectors.
+write. The command requires a nonblank `GH_SIGNOFF_TOKEN` before GitHub access
+and maps it to `GH_TOKEN` only for the pinned extension lookup, read-only remote
+ref and PR checks, and final status write. Local Git operations and every
+candidate subprocess remain credential-free. It never falls back to ambient
+`GH_TOKEN`, `GH_REPO`, provider credentials, or saved GitHub CLI login; the
+repository and all remote selectors remain pinned.
 
 Install the extension with `gh extension install basecamp/gh-signoff`. Store
 `GH_SIGNOFF_TOKEN` as an orb secret and limit its fine-grained access to this

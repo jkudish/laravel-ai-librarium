@@ -28,6 +28,7 @@ function prFailure(string $stderr): array
  * @param  list<string>  $branchSequence
  * @param  list<string>  $remoteSequence
  * @param  list<array<string, mixed>|string>  $pullRequestSequence
+ * @param  null|array{status: int, stdout: string, stderr: string}  $failingResult
  * @return array{calls: ArrayObject<int, array{command: string, arguments: list<string>, options: array<string, mixed>}>, directory: string, path: string, root: string, run: Closure}
  */
 function prRunner(
@@ -44,6 +45,7 @@ function prRunner(
     string $extension = "gh signoff\tbasecamp/gh-signoff\tv1.0.0",
     ?string $failingCheck = null,
     string $phpVersion = '8.5.9',
+    ?array $failingResult = null,
 ): array {
     $root = sys_get_temp_dir().'/librarium-pr-workflow-test-'.bin2hex(random_bytes(8));
     $directory = $root.'/librarium/pr-check';
@@ -65,6 +67,7 @@ function prRunner(
         $calls,
         $extension,
         $failingCheck,
+        $failingResult,
         $headSequence,
         &$headIndex,
         $path,
@@ -108,6 +111,10 @@ function prRunner(
             return prSuccess($value."\n");
         }
 
+        if ($failingCheck === $command.' '.implode(' ', $arguments)) {
+            return $failingResult ?? prFailure('intentional failure');
+        }
+
         if ($command === 'php' && $arguments[0] === '-r') {
             return prSuccess(json_encode(['Linux', 'x86_64', $phpVersion], JSON_THROW_ON_ERROR));
         }
@@ -132,10 +139,6 @@ function prRunner(
             $pullRequestIndex++;
 
             return prSuccess(is_string($value) ? $value : json_encode($value, JSON_THROW_ON_ERROR));
-        }
-
-        if ($failingCheck === $command.' '.implode(' ', $arguments)) {
-            return prFailure('intentional failure');
         }
 
         return prSuccess();
@@ -495,16 +498,61 @@ it('requires a valid current branch before pinned remote and PR lookups', functi
     expect(fn () => $workflow->signoff(PR_SHA))->toThrow(RuntimeException::class, 'valid current branch');
 });
 
-it('requires the dedicated token only after read-only eligibility checks', function (): void {
+it('requires the dedicated token before GitHub access without ambient or saved-login fallback', function (?string $token): void {
     $mock = prRunner();
-    $workflow = new PrWorkflow($mock['run'], ['PATH' => '/usr/bin', 'HOME' => '/home/user']);
-    prWriteReceipt($mock['path'], prValidReceipt($workflow));
+    $environment = [
+        'PATH' => '/usr/bin',
+        'HOME' => '/home/user-with-saved-login',
+        'GH_TOKEN' => 'synthetic-ambient-token',
+        'GH_REPO' => 'attacker/redirect',
+    ];
 
-    expect(fn () => $workflow->signoff(PR_SHA))->toThrow(RuntimeException::class, 'GH_SIGNOFF_TOKEN is required');
+    if ($token !== null) {
+        $environment['GH_SIGNOFF_TOKEN'] = $token;
+    }
+
+    $workflow = new PrWorkflow($mock['run'], $environment);
+    prWriteReceipt($mock['path'], prValidReceipt($workflow));
+    $originalReceipt = file_get_contents($mock['path']);
+
+    expect(fn () => $workflow->signoff(PR_SHA))
+        ->toThrow(RuntimeException::class, 'GH_SIGNOFF_TOKEN is required for authenticated GitHub preflight and final signoff');
 
     $githubCalls = array_values(array_filter($mock['calls']->getArrayCopy(), fn (array $call): bool => $call['command'] === 'gh'));
-    expect(array_map(fn (array $call): string => $call['arguments'][0], $githubCalls))->toBe(['extension', 'api', 'pr']);
-});
+    expect($githubCalls)->toBe([])
+        ->and(file_get_contents($mock['path']))->toBe($originalReceipt);
+})->with([
+    'missing' => [null],
+    'blank' => [" \t\n"],
+]);
+
+it('redacts the dedicated token from captured authenticated GitHub failures', function (Closure $failure): void {
+    $token = 'synthetic-dedicated-token-for-redaction';
+    $mock = prRunner(
+        failingCheck: 'gh extension list',
+        failingResult: $failure($token),
+    );
+    $workflow = new PrWorkflow($mock['run'], [
+        'PATH' => '/usr/bin',
+        'HOME' => '/home/user',
+        'GH_SIGNOFF_TOKEN' => $token,
+    ]);
+    prWriteReceipt($mock['path'], prValidReceipt($workflow));
+
+    try {
+        $workflow->signoff(PR_SHA);
+        $exception = null;
+    } catch (RuntimeException $caught) {
+        $exception = $caught;
+    }
+
+    expect($exception)->toBeInstanceOf(RuntimeException::class)
+        ->and($exception?->getMessage())->toContain('[redacted]')
+        ->and($exception?->getMessage())->not->toContain($token);
+})->with([
+    'stderr' => [fn (string $token): array => ['status' => 1, 'stdout' => '', 'stderr' => 'failure echoed '.$token]],
+    'stdout' => [fn (string $token): array => ['status' => 1, 'stdout' => 'failure echoed '.$token, 'stderr' => '']],
+]);
 
 it('reruns every credential-free check in order and stops before signoff when one fails', function (): void {
     $mock = prRunner(failingCheck: 'composer test');
@@ -657,6 +705,16 @@ it('pins selectors and maps the dedicated token only for one exact unforced sign
         ])->and($call['options']['env']['HOME'])->toStartWith(sys_get_temp_dir().'/librarium-pr-check-home-');
     }
 
+    foreach ($githubCalls as $call) {
+        expect($call['options']['env'])->toBe([
+            'PATH' => '/usr/bin',
+            'HOME' => '/home/user',
+            'CI' => '1',
+            'GH_TOKEN' => 'status-token',
+            'GH_REPO' => PrWorkflow::EXPECTED_REPOSITORY,
+        ])->and($call['options'])->not->toHaveKey('inherit');
+    }
+
     $signoffCall = $signoffCalls[0];
     expect($signoffCall['arguments'])->toBe(['signoff', '--commit', PR_SHA])
         ->and($signoffCall['arguments'])->not->toContain('--force')
@@ -697,7 +755,7 @@ it('pins selectors and maps the dedicated token only for one exact unforced sign
         ]);
     }
 
-    foreach (array_slice($calls, 0, -1) as $call) {
+    foreach (array_filter($calls, fn (array $call): bool => $call['command'] !== 'gh') as $call) {
         expect($call['options']['env'])->not->toHaveKeys(['GH_TOKEN', 'GH_SIGNOFF_TOKEN', 'OPENAI_API_KEY', 'GH_REPO']);
     }
 });
