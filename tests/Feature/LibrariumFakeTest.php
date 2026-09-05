@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Queue;
 use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
 use Jkudish\LaravelAiLibrarium\Contracts\Librarium as LibrariumContract;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
@@ -62,6 +63,34 @@ it('records compiled run and queue plans separately with Laravel-style assertion
         ->assertQueued('Queued query')
         ->assertQueued(fn (ResearchPlan $plan): bool => $plan->timeout === 321)
         ->assertNotQueued('Missing query');
+});
+
+it('keeps fake queued dispatch fluent without dispatching jobs or invoking callbacks', function (): void {
+    Queue::fake();
+    $thenCalled = false;
+    $catchCalled = false;
+    $fake = Librarium::fake();
+
+    $response = Librarium::query('Queued query')->queue();
+
+    expect($response->onQueue('research'))->toBe($response)
+        ->and($response->onConnection('redis'))->toBe($response)
+        ->and($response->delay(5))->toBe($response)
+        ->and($response->afterCommit())->toBe($response)
+        ->and($response->then(function () use (&$thenCalled): void {
+            $thenCalled = true;
+        }))->toBe($response)
+        ->and($response->catch(function () use (&$catchCalled): void {
+            $catchCalled = true;
+        }))->toBe($response);
+
+    unset($response);
+    gc_collect_cycles();
+
+    expect($thenCalled)->toBeFalse()
+        ->and($catchCalled)->toBeFalse()
+        ->and($fake->queuedQueries()->sole()->preview->input)->toBe('Queued query');
+    Queue::assertNothingPushed();
 });
 
 it('can assert that no synchronous or queued queries were executed', function (): void {

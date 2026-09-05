@@ -19,7 +19,6 @@ use Jkudish\LaravelAiLibrarium\Responses\ResearchError;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResponse;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 use Jkudish\LaravelAiLibrarium\Responses\ResultProvenance;
-use Laravel\Ai\FakePendingDispatch;
 use PHPUnit\Framework\Assert as PHPUnit;
 use RuntimeException;
 
