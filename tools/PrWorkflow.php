@@ -117,16 +117,20 @@ final class PrWorkflow
         $path = $this->receiptPathFor($sha, $readEnvironment);
         $receipt = $this->readReceipt($path);
         $this->requireValidReceipt($receipt, $sha, $this->currentRuntime());
-        $this->requireSignoffExtension($readEnvironment);
-        $branch = $this->currentBranch($readEnvironment);
-        $this->requirePushedBranchAtSha($branch, $sha, $readEnvironment);
-        $this->requireOpenPullRequestAtSha($branch, $sha, $readEnvironment);
 
         $token = $this->environment['GH_SIGNOFF_TOKEN'] ?? '';
 
         if (trim($token) === '') {
-            throw new RuntimeException('GH_SIGNOFF_TOKEN is required for the final signoff status write.');
+            throw new RuntimeException('GH_SIGNOFF_TOKEN is required for authenticated GitHub preflight and final signoff.');
         }
+
+        $githubEnvironment = $readEnvironment;
+        $githubEnvironment['GH_TOKEN'] = $token;
+        $githubEnvironment['GH_REPO'] = self::EXPECTED_REPOSITORY;
+        $this->requireSignoffExtension($githubEnvironment);
+        $branch = $this->currentBranch($readEnvironment);
+        $this->requirePushedBranchAtSha($branch, $sha, $githubEnvironment);
+        $this->requireOpenPullRequestAtSha($branch, $sha, $githubEnvironment);
 
         $repeatedCheck = $this->check();
         $repeatedReceipt = $this->readReceipt($path);
@@ -137,8 +141,8 @@ final class PrWorkflow
 
         $this->requireValidReceipt($repeatedReceipt, $sha, $this->currentRuntime());
 
-        $this->requirePushedBranchAtSha($branch, $sha, $readEnvironment);
-        $this->requireOpenPullRequestAtSha($branch, $sha, $readEnvironment);
+        $this->requirePushedBranchAtSha($branch, $sha, $githubEnvironment);
+        $this->requireOpenPullRequestAtSha($branch, $sha, $githubEnvironment);
         $this->requireCleanWorktree($readEnvironment);
 
         if ($this->headSha($readEnvironment) !== $sha) {
@@ -149,14 +153,9 @@ final class PrWorkflow
             throw new RuntimeException('The current Git branch changed while signoff eligibility was being checked.');
         }
 
-        $signoffEnvironment = $readEnvironment;
-        $signoffEnvironment['GH_TOKEN'] = $token;
-        $signoffEnvironment['GH_REPO'] = self::EXPECTED_REPOSITORY;
-        $this->successful(
-            ($this->runner)('gh', ['signoff', '--commit', $sha], [
-                'env' => $signoffEnvironment,
-                'inherit' => true,
-            ]),
+        $this->gh(
+            ['signoff', '--commit', $sha],
+            $githubEnvironment,
             'gh signoff --commit '.$sha,
         );
 
@@ -509,8 +508,9 @@ final class PrWorkflow
     /** @param array<string, string> $environment */
     private function requireSignoffExtension(array $environment): void
     {
-        $extensions = $this->successful(
-            ($this->runner)('gh', ['extension', 'list'], ['env' => $environment]),
+        $extensions = $this->gh(
+            ['extension', 'list'],
+            $environment,
             'gh extension list',
         );
 
@@ -522,8 +522,8 @@ final class PrWorkflow
     /** @param array<string, string> $environment */
     private function requirePushedBranchAtSha(string $branch, string $sha, array $environment): void
     {
-        $remoteSha = $this->successful(
-            ($this->runner)('gh', [
+        $remoteSha = $this->gh(
+            [
                 'api',
                 '--hostname',
                 'github.com',
@@ -532,7 +532,8 @@ final class PrWorkflow
                 'repos/'.self::EXPECTED_REPOSITORY.'/git/ref/heads/'.rawurlencode($branch),
                 '--jq',
                 '.object.sha',
-            ], ['env' => $environment]),
+            ],
+            $environment,
             'pushed branch lookup',
         );
 
@@ -544,8 +545,8 @@ final class PrWorkflow
     /** @param array<string, string> $environment */
     private function requireOpenPullRequestAtSha(string $branch, string $sha, array $environment): void
     {
-        $output = $this->successful(
-            ($this->runner)('gh', [
+        $output = $this->gh(
+            [
                 'pr',
                 'view',
                 '--repo',
@@ -554,7 +555,8 @@ final class PrWorkflow
                 'headRefName,headRefOid,headRepositoryOwner,state',
                 '--',
                 $branch,
-            ], ['env' => $environment]),
+            ],
+            $environment,
             'gh pr view',
         );
 
@@ -626,6 +628,24 @@ final class PrWorkflow
             ($this->runner)('git', $arguments, ['env' => $environment]),
             'git '.implode(' ', $arguments),
         );
+    }
+
+    /**
+     * @param  list<string>  $arguments
+     * @param  array<string, string>  $environment
+     */
+    private function gh(array $arguments, array $environment, string $label): string
+    {
+        $result = ($this->runner)('gh', $arguments, [
+            'env' => $environment,
+        ]);
+
+        if ($result['status'] !== 0) {
+            // Truncated or encoded credentials cannot be safely removed by exact matching.
+            throw new RuntimeException($label.' failed (exit code '.$result['status'].'). Authenticated command output withheld.');
+        }
+
+        return trim($result['stdout']);
     }
 
     /** @param array{status: int, stdout: string, stderr: string} $result */

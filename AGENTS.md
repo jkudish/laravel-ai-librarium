@@ -62,9 +62,11 @@ dedicated to this repository with Contents read, Pull requests read, and Commit
 statuses read/write. Do not print or inspect the credential. Signoff reruns the
 complete ordered `pr:check` plan after initial eligibility and token readiness,
 then revalidates its replacement exact-SHA receipt before final drift guards.
-Candidate checks and all pre-write subprocesses receive neither ambient GitHub
-credentials nor the dedicated token; only the final exact unforced signoff
-subprocess maps it to `GH_TOKEN`. Signoff approval grants no merge, ruleset,
+Candidate checks and local Git subprocesses receive neither ambient GitHub
+credentials nor the dedicated token. Only the pinned extension lookup,
+read-only remote ref and PR checks, and final exact unforced signoff subprocess
+map the dedicated token to `GH_TOKEN`; no call may fall back to ambient GitHub
+credentials or saved CLI login. Signoff approval grants no merge, ruleset,
 release, publish, deploy, production, database, or provider-call authority.
 
 ## Git workflow
