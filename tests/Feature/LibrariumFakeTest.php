@@ -65,7 +65,7 @@ it('records compiled run and queue plans separately with Laravel-style assertion
         ->assertNotQueued('Missing query');
 });
 
-it('keeps fake queued dispatch fluent without dispatching jobs or invoking callbacks', function (): void {
+it('keeps fake queued dispatch fluent without dispatching queueable jobs or invoking callbacks', function (): void {
     Queue::fake();
     $thenCalled = false;
     $catchCalled = false;

@@ -309,7 +309,7 @@ Provider-native polling, resumable handles, and webhook verification stay inside
 
 - PHP 8.4+
 - Laravel 13
-- Laravel AI SDK >=0.10.3,<0.11.0
+- Laravel AI SDK >=0.10.3,<0.12.0
 
 Development currently pins the unmerged `jkudish/laravel-ai-pricing` PR #8
 candidate exactly at
