@@ -311,17 +311,10 @@ Provider-native polling, resumable handles, and webhook verification stay inside
 - Laravel 13
 - Laravel AI SDK >=0.10.3,<0.12.0
 
-Development currently pins the unmerged `jkudish/laravel-ai-pricing` PR #8
-candidate exactly at
-`c6153d2be99ee745bc557053b836e135ebcc04f0` through the temporary Composer
-package version
-`dev-task-3311-c6153d2be99ee745bc557053b836e135ebcc04f0`. Its dist and source
-references both pin that SHA, and its temporary package metadata mirrors the
-candidate's requirements, autoloading, and Laravel provider declaration. This
-is an integration pin, not a released package constraint. Librarium must not
-be released or published with that package repository; replace it with the
-corresponding stable published constraint only after the pricing change is
-merged and released.
+Development currently follows the latest `jkudish/laravel-ai-pricing`
+`dev-main` through Packagist. Librarium must not be released or published with
+this development constraint; replace it with the corresponding stable version
+after the pricing package is released.
 
 ## Development
 
