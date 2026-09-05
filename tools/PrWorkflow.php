@@ -639,14 +639,13 @@ final class PrWorkflow
         $result = ($this->runner)('gh', $arguments, [
             'env' => $environment,
         ]);
-        $token = $environment['GH_TOKEN'] ?? '';
 
-        if ($token !== '') {
-            $result['stdout'] = str_replace($token, '[redacted]', $result['stdout']);
-            $result['stderr'] = str_replace($token, '[redacted]', $result['stderr']);
+        if ($result['status'] !== 0) {
+            // Truncated or encoded credentials cannot be safely removed by exact matching.
+            throw new RuntimeException($label.' failed (exit code '.$result['status'].'). Authenticated command output withheld.');
         }
 
-        return $this->successful($result, $label);
+        return trim($result['stdout']);
     }
 
     /** @param array{status: int, stdout: string, stderr: string} $result */

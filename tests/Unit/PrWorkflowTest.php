@@ -526,11 +526,16 @@ it('requires the dedicated token before GitHub access without ambient or saved-l
     'blank' => [" \t\n"],
 ]);
 
-it('redacts the dedicated token from captured authenticated GitHub failures', function (Closure $failure): void {
+it('withholds authenticated GitHub failure output even when capture truncates a token', function (string $stream, bool $truncated): void {
     $token = 'synthetic-dedicated-token-for-redaction';
+    $capture = new ReflectionMethod(PrWorkflow::class, 'runProcess');
+    $failure = $capture->invoke(null, PHP_BINARY, [
+        '-r',
+        'fwrite('.$stream.', str_repeat(".", '.($truncated ? '65530' : '0').').getenv("GH_TOKEN")); exit(1);',
+    ], ['env' => ['GH_TOKEN' => $token]]);
     $mock = prRunner(
         failingCheck: 'gh extension list',
-        failingResult: $failure($token),
+        failingResult: $failure,
     );
     $workflow = new PrWorkflow($mock['run'], [
         'PATH' => '/usr/bin',
@@ -547,11 +552,13 @@ it('redacts the dedicated token from captured authenticated GitHub failures', fu
     }
 
     expect($exception)->toBeInstanceOf(RuntimeException::class)
-        ->and($exception?->getMessage())->toContain('[redacted]')
-        ->and($exception?->getMessage())->not->toContain($token);
+        ->and($exception?->getMessage())->toBe('gh extension list failed (exit code 1). Authenticated command output withheld.')
+        ->and($exception?->getMessage())->not->toContain(substr($token, 0, 6));
 })->with([
-    'stderr' => [fn (string $token): array => ['status' => 1, 'stdout' => '', 'stderr' => 'failure echoed '.$token]],
-    'stdout' => [fn (string $token): array => ['status' => 1, 'stdout' => 'failure echoed '.$token, 'stderr' => '']],
+    'stderr' => ['STDERR', false],
+    'stdout' => ['STDOUT', false],
+    'truncated stderr' => ['STDERR', true],
+    'truncated stdout' => ['STDOUT', true],
 ]);
 
 it('reruns every credential-free check in order and stops before signoff when one fails', function (): void {

@@ -394,6 +394,8 @@ ref and PR checks, and final status write. Local Git operations and every
 candidate subprocess remain credential-free. It never falls back to ambient
 `GH_TOKEN`, `GH_REPO`, provider credentials, or saved GitHub CLI login; the
 repository and all remote selectors remain pinned.
+Authenticated command failures report only the operation and exit code, not
+raw command output, so truncated or encoded credentials cannot leak into errors.
 
 Install the extension with `gh extension install basecamp/gh-signoff`. Store
 `GH_SIGNOFF_TOKEN` as an orb secret and limit its fine-grained access to this
