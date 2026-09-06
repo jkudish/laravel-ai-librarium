@@ -30,11 +30,33 @@ Pest test locks that result without introducing a TypeScript runtime dependency.
 | **Total** | **40** | Every implemented TypeScript Profile appears exactly once below. |
 
 The TypeScript inventory contains 15 grounded answers, 10 search-result
-Profiles, 9 durable research reports, and 6 surface observations. The landed
+Profiles, 9 durable research reports, and 6 surface observations. Its landed
 PHP subset contains 12 grounded answers, 2 search-result Profiles, 3 durable
-research reports, and 6 surface observations. PHP `quick` has five curated
-members, `visibility` has nine, `deep` derives its three configured research
-Profiles, and `all` derives all 23 configured Profiles.
+research reports, and 6 surface observations. PHP additionally ships six
+provider-local DataForSEO surface Profiles approved under #3481; they extend
+the PHP catalog without rewriting this frozen TypeScript reconciliation.
+`quick` has five curated members, `visibility` has nine, `deep` derives its
+three configured research Profiles, and `all` derives all 29 configured
+Profiles.
+
+## Provider-local PHP extension
+
+The following disabled-by-default Profiles implement DataForSEO collection
+modes that are not rows in the frozen TypeScript inventory above:
+
+| PHP Profile | Surface and mode | Offline evidence |
+| --- | --- | --- |
+| `dataforseo-chatgpt` | ChatGPT LLM Scraper Standard | `DataForSeoDriverTest` |
+| `dataforseo-chatgpt-live` | ChatGPT LLM Scraper Live | `DataForSeoDriverTest` |
+| `dataforseo-gemini` | Gemini LLM Scraper Standard | `DataForSeoDriverTest` |
+| `dataforseo-gemini-live` | Gemini LLM Scraper Live | `DataForSeoDriverTest` |
+| `dataforseo-google-ai-mode` | Google AI Mode Standard | `DataForSeoDriverTest` |
+| `dataforseo-google-ai-mode-live` | Google AI Mode Live | `DataForSeoDriverTest` |
+
+All six are `surface_observation` / `surface_snapshot` Profiles collected by
+`dataforseo`. They do not join `quick` or `visibility`; enabled Profiles join
+the derived `all` group. See [`dataforseo-profiles.md`](dataforseo-profiles.md)
+for the endpoint, configuration, polling, pricing, and worker-loss contracts.
 
 ## Landed PHP reconciliation
 

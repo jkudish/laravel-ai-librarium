@@ -177,7 +177,15 @@ it('reconciles every TypeScript matrix row with the landed PHP catalog', functio
 
     $configuredProfiles = array_keys(config('librarium.profiles'));
     sort($configuredProfiles);
-    $expectedProfiles = array_values($landed);
+    $expectedProfiles = [
+        ...array_values($landed),
+        'dataforseo-chatgpt',
+        'dataforseo-chatgpt-live',
+        'dataforseo-gemini',
+        'dataforseo-gemini-live',
+        'dataforseo-google-ai-mode',
+        'dataforseo-google-ai-mode-live',
+    ];
     sort($expectedProfiles);
 
     expect($matches)->toHaveCount(40)
@@ -205,13 +213,13 @@ it('keeps one separately gated live canary for every landed PHP Profile', functi
     sort($profiles);
     sort($configuredProfiles);
 
-    expect($matches)->toHaveCount(23)
-        ->and($ids)->toBe(array_map(static fn (int $id): string => sprintf('%02d', $id), range(1, 23)))
+    expect($matches)->toHaveCount(29)
+        ->and($ids)->toBe(array_map(static fn (int $id): string => sprintf('%02d', $id), range(1, 29)))
         ->and($profiles)->toBe($configuredProfiles)
         ->and($canaries)->toContain('Approval for one ID does')
         ->toContain('No live provider or')
         ->toContain('Unknown cost is not zero.')
         ->toContain('C01–C13 passed separately authorized live checks')
-        ->toContain('C14–C23 remain unverified live.')
+        ->toContain('C14–C29 remain unverified live.')
         ->toContain("--filter='<exact dataset name from the table>' --fail-on-skipped");
 });

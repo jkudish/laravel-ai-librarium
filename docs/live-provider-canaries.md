@@ -1,7 +1,7 @@
 # Live provider canary approval gates
 
 This is the release-candidate inventory of materially unique live checks for the
-23 Profiles landed in PHP. It is a plan, not authorization. No live provider or
+29 Profiles landed in PHP. It is a plan, not authorization. No live provider or
 paid call was made while producing or verifying this document.
 
 ## Approval contract
@@ -57,10 +57,16 @@ provider/model and truthful search-on terminal projection differ materially.
 | C21 | `you-answer` | You.com Answer endpoint and citation mapping | `YOU_COM_API_KEY` or `YDC_API_KEY` | `YouProfilesLiveTest` — You Answer; not run | Current conservative resolver quote and exact acknowledgement required |
 | C22 | `you-research-grounded` | You.com synchronous standard Research without background mode | `YOU_COM_API_KEY` or `YDC_API_KEY` | `YouProfilesLiveTest` — You Research grounded; not run | Current conservative resolver quote and exact acknowledgement required |
 | C23 | `you-research-research` | You.com background standard Research submit/poll/retrieve | `YOU_COM_API_KEY` or `YDC_API_KEY` | `YouProfilesLiveTest` — You Research durable; not run | Current conservative resolver quote and exact acknowledgement required |
+| C24 | `dataforseo-chatgpt` | DataForSEO ChatGPT LLM Scraper Standard submit/poll/get | `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` | `DataForSeoProfilesLiveTest` — DataForSEO ChatGPT Standard; not run | Current conservative USD 0.0012 quote and exact acknowledgement required |
+| C25 | `dataforseo-chatgpt-live` | DataForSEO ChatGPT LLM Scraper Live Advanced | `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` | `DataForSeoProfilesLiveTest` — DataForSEO ChatGPT Live; not run | Current conservative USD 0.004 quote and exact acknowledgement required |
+| C26 | `dataforseo-gemini` | DataForSEO Gemini LLM Scraper Standard submit/poll/get | `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` | `DataForSeoProfilesLiveTest` — DataForSEO Gemini Standard; not run | Current conservative USD 0.0012 quote and exact acknowledgement required |
+| C27 | `dataforseo-gemini-live` | DataForSEO Gemini LLM Scraper Live Advanced | `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` | `DataForSeoProfilesLiveTest` — DataForSEO Gemini Live; not run | Current conservative USD 0.004 quote and exact acknowledgement required |
+| C28 | `dataforseo-google-ai-mode` | DataForSEO Google AI Mode Standard submit/poll/get | `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` | `DataForSeoProfilesLiveTest` — DataForSEO Google AI Mode Standard; not run | Current conservative USD 0.0012 quote and exact acknowledgement required |
+| C29 | `dataforseo-google-ai-mode-live` | DataForSEO Google AI Mode Live Advanced | `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` | `DataForSeoProfilesLiveTest` — DataForSEO Google AI Mode Live; not run | Current conservative USD 0.004 quote and exact acknowledgement required |
 
 ## Narrow invocation
 
-For C01–C06 and C14–C23, invoke only the named dataset after approval rather
+For C01–C06 and C14–C29, invoke only the named dataset after approval rather
 than a bulk Composer script:
 
 ```bash
@@ -80,7 +86,7 @@ command itself is not authorization.
   implementation heads. PlanMode tasks #2834, #2836, and #2901 retain the
   frozen SHAs and redacted receipts. That evidence does not authorize a rerun or
   claim that a later release-candidate SHA was exercised.
-- C14–C23 remain unverified live. Their committed opt-in harness is runnable one
+- C14–C29 remain unverified live. Their committed opt-in harness is runnable one
   dataset at a time after the approval contract above is satisfied.
 - Any rerun, including a final-release revalidation, needs current provider-doc
   review, credentials, a spend cap, and an approved SHA. The bulk
