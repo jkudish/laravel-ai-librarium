@@ -298,6 +298,20 @@ final readonly class DataForSeoDriver implements Driver
             throw self::invalidResponse('DataForSEO returned an invalid response envelope.');
         }
 
+        $credentials = DataForSeoCredential::decode($request->profile->credential);
+        if ($credentials !== null) {
+            $secrets = [...$credentials, (string) $request->profile->credential, base64_encode(implode(':', $credentials))];
+            array_walk_recursive($json, static function (mixed $value) use ($secrets): void {
+                if (is_string($value)) {
+                    foreach ($secrets as $secret) {
+                        if (str_contains($value, $secret)) {
+                            throw self::invalidResponse('DataForSEO returned unsafe response content.');
+                        }
+                    }
+                }
+            });
+        }
+
         /** @var array<string, mixed> $receipt */
         $receipt = $json['tasks'][0];
         $id = $receipt['id'] ?? null;
@@ -344,6 +358,8 @@ final readonly class DataForSeoDriver implements Driver
     private function assertIdentity(mixed $data, array $descriptor, string $operation, DriverRequest $request): void
     {
         $function = match (true) {
+            $descriptor['api'] === 'ai_optimization'
+                && ! ($descriptor['surface'] === 'chatgpt' && $operation === 'task_post') => 'llm_scraper',
             $operation === 'task_post' => 'task_post',
             str_starts_with($operation, 'task_get/') => 'task_get',
             default => 'live',
@@ -352,7 +368,8 @@ final readonly class DataForSeoDriver implements Driver
             || ($data['api'] ?? null) !== $descriptor['api']
             || ($data['function'] ?? null) !== $function
             || ! in_array($data['se'] ?? null, [$descriptor['se'], ...($descriptor['se_aliases'] ?? [])], true)
-            || (isset($descriptor['se_type']) && ($data['se_type'] ?? null) !== $descriptor['se_type'])
+            || (($descriptor['api'] === 'serp' || array_key_exists('se_type', $data))
+                && ($data['se_type'] ?? null) !== ($descriptor['se_type'] ?? null))
             || ($data['keyword'] ?? null) !== $request->prompt
             || ($data['location_code'] ?? null) !== data_get($request->profile->options, 'location_code')
             || ($data['language_code'] ?? null) !== data_get($request->profile->options, 'language_code')) {
@@ -361,6 +378,7 @@ final readonly class DataForSeoDriver implements Driver
 
         foreach (['force_web_search', 'device', 'os'] as $control) {
             if (array_key_exists($control, $request->profile->options)
+                && array_key_exists($control, $data)
                 && ($data[$control] ?? null) !== $request->profile->options[$control]) {
                 throw self::invalidResponse('DataForSEO returned a receipt with mismatched request controls.');
             }

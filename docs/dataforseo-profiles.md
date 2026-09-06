@@ -34,6 +34,8 @@ Credentials belong only in `librarium.providers.dataforseo.login` and
 `librarium.providers.dataforseo.password`; do not put them in Profile options.
 Librarium excludes raw and encoded Basic credentials from Profile, preview,
 status, event, error, and terminal-result serialization.
+Receipts containing configured raw or encoded credential values are rejected
+with a fixed diagnostic, including otherwise successful provider responses.
 
 Every Profile requires an explicit positive `location_code` and a
 `language_code`. ChatGPT additionally requires the boolean
@@ -48,6 +50,9 @@ of these complete pairs:
 Unknown controls and incompatible combinations fail before HTTP. Scraper
 queries are limited to 2,000 characters and AI Mode queries to 700 characters;
 Librarium rejects longer rendered prompts instead of truncating them.
+Use the location/language lists linked from each surface's endpoint documentation
+below; supported values differ by product. Librarium does not discover them at
+runtime or translate application location records automatically.
 
 ## Choose Standard or Live explicitly
 
@@ -132,6 +137,11 @@ authentication, or personalization facts. The task ID is a terminal receipt
 reference only; no public resumption or account-wide task-list API is exposed.
 Consumers own persistence, evidence policy, and verification thresholds.
 
+Aggregate answer Markdown is preferred. When it is absent, the mapper projects
+supported text/table or AI overview elements and reports dropped rich child
+types in `provider_meta.omitted_item_types`. That key is absent when aggregate
+Markdown is retained: rich content may already be represented there.
+
 ## Queue safety and worker loss
 
 `queue()` executes the same operation in one encrypted job with one total
@@ -144,6 +154,12 @@ provider execution under every worker failure. If a worker dies after a
 Standard POST, the DataForSEO task can remain billable and retrievable in the
 provider account while Librarium loses its private in-process handle. The
 Driver does not persist, resume, list, or resubmit that task.
+
+Multiple selected Profiles execute serially within one shared deadline. For
+routine three-surface Standard collection, enqueue a separate query per Profile;
+the application owns concurrency and rate limits. Queue waiting time before a
+worker starts is not part of the execution deadline. Polling waits 15 seconds
+initially, then 30 seconds, capped by that deadline; there is no randomized jitter.
 
 ## Endpoint references
 

@@ -192,6 +192,26 @@ it('maps supported scraper text and table blocks when full Markdown is absent wi
         ->and((array) $result->providerMeta)->toMatchArray(['omitted_item_types' => ['chat_gpt_images']]);
 });
 
+it('reports rich item omissions only when projecting structured fallback content', function (bool $aiMode, bool $aggregate): void {
+    $profile = $aiMode ? 'dataforseo-google-ai-mode-live' : 'dataforseo-chatgpt-live';
+    $family = $aiMode ? 'serp/google/ai_mode' : 'ai_optimization/chat_gpt/llm_scraper';
+    $surface = $aiMode ? 'google_ai_mode' : 'chatgpt';
+    $richType = $aiMode ? 'ai_overview_shopping' : 'chat_gpt_images';
+    $payload = dataForSeoEnvelope($profile, $family, 'live/advanced', $surface, 'rich answer', 20000, true, '0.004');
+    $answerPath = 'tasks.0.result.0'.($aiMode ? '.items.0' : '');
+    data_set($payload, $answerPath.'.markdown', $aggregate ? 'Answer with rich content' : null);
+    data_set($payload, $answerPath.'.items', [
+        ['type' => $aiMode ? 'ai_overview_element' : 'chat_gpt_text', 'markdown' => 'Projected text'],
+        ['type' => $richType, 'markdown' => 'Rich content'],
+    ]);
+    Http::fake(fn () => Http::response($payload));
+
+    $result = Librarium::query('rich answer')->using($profile)->run()->results->sole();
+
+    expect($result->content)->toBe($aggregate ? 'Answer with rich content' : 'Projected text')
+        ->and(data_get($result->providerMeta, 'omitted_item_types'))->toBe($aggregate ? null : [$richType]);
+})->with([false, true])->with([false, true]);
+
 it('never substitutes organic AI Mode results for a missing AI overview answer', function (): void {
     Http::fake(fn () => Http::response(dataForSeoEnvelope(
         profile: 'dataforseo-google-ai-mode-live',
@@ -325,6 +345,25 @@ it('accepts the documented ChatGPT receipt alias while keeping the request route
     Http::assertSent(fn (Request $request): bool => $request->url() === 'https://api.dataforseo.com/v3/ai_optimization/chat_gpt/llm_scraper/live/advanced');
 });
 
+it('accepts omitted optional scraper echoes but rejects contradictory product or control echoes', function (array $echo, bool $accepted): void {
+    $payload = dataForSeoEnvelope('dataforseo-chatgpt-live', 'ai_optimization/chat_gpt/llm_scraper', 'live/advanced', 'chatgpt', 'echo', 20000, true, '0.004');
+    unset($payload['tasks'][0]['data']['force_web_search']);
+    $payload['tasks'][0]['data'] = [...$payload['tasks'][0]['data'], ...$echo];
+    Http::fake(fn () => Http::response($payload));
+
+    $response = Librarium::query('echo')->using('dataforseo-chatgpt-live')->run();
+
+    expect($response->status)->toBe($accepted ? ResponseStatus::Succeeded : ResponseStatus::Failed);
+    if (! $accepted) {
+        expect($response->errors->sole()->code)->toBe('dataforseo.invalid_response');
+    }
+})->with([
+    'omitted controls are not measured facts' => [[], true],
+    'matching optional product' => [['se_type' => 'llm_scraper'], true],
+    'contradictory product' => [['se_type' => 'llm_responses'], false],
+    'contradictory sent control' => [['force_web_search' => false], false],
+]);
+
 it('rejects a calendar-invalid provider observation time rather than normalizing it', function (): void {
     $payload = dataForSeoEnvelope('dataforseo-gemini-live', 'ai_optimization/gemini/llm_scraper', 'live/advanced', 'gemini', 'bad date', 20000, true, '0.004');
     $payload['tasks'][0]['result'][0]['datetime'] = '2026-02-30 11:59:58 +00:00';
@@ -424,6 +463,34 @@ it('keeps both raw and encoded credentials out of previews, terminal values, and
     expect($wire)->not->toContain('secret-login', 'secret-password', (string) $credential)
         ->and($response->errors->sole()->code)->toBe('dataforseo.invalid_response');
 });
+
+it('rejects successful receipts that expose configured credentials in retained fields', function (string $path, string $secretForm): void {
+    $login = 'canary-login@example.test';
+    $password = 'canary-password/é';
+    $credential = DataForSeoCredential::encode($login, $password);
+    config()->set('librarium.profiles.dataforseo-gemini-live.credential', $credential);
+    $secret = match ($secretForm) {
+        'login' => $login,
+        'password' => $password,
+        'basic' => base64_encode($login.':'.$password),
+        default => $credential,
+    };
+    $payload = dataForSeoEnvelope('dataforseo-gemini-live', 'ai_optimization/gemini/llm_scraper', 'live/advanced', 'gemini', 'safe query', 20000, true, '0.004');
+    data_set($payload, $path, $secret);
+    Http::fake(fn () => Http::response($payload));
+
+    $response = Librarium::query('safe query')->using('dataforseo-gemini-live')->run();
+
+    expect($response->status)->toBe(ResponseStatus::Failed)
+        ->and($response->errors->sole()->code)->toBe('dataforseo.invalid_response')
+        ->and(json_encode($response, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES))
+        ->not->toContain($login, $password, (string) $credential, base64_encode($login.':'.$password));
+})->with([
+    ['version', 'login'],
+    ['tasks.0.result.0.markdown', 'password'],
+    ['tasks.0.result.0.model', 'basic'],
+    ['tasks.0.result.0.sources.0.title', 'internal'],
+]);
 
 it('quotes all six exact pricing identities offline and enforces maxCost before HTTP', function (string $profile, string $cost): void {
     $preview = Librarium::query('pricing')->using($profile)->preview();
@@ -537,15 +604,27 @@ function dataForSeoEnvelope(
     ?array $resultOverride = null,
 ): array {
     $controls = dataForSeoControls($profile);
+    // Literal identity fields from the nine public endpoint JSON examples,
+    // checked 2026-09-06; references are in docs/dataforseo-profiles.md.
+    $identities = [
+        'chatgpt' => [
+            'task_post' => ['api' => 'ai_optimization', 'function' => 'task_post', 'se' => 'chatgpt', 'se_type' => 'llm_scraper'],
+            'task_get' => ['api' => 'ai_optimization', 'function' => 'llm_scraper', 'se' => 'chat_gpt'],
+            'live' => ['api' => 'ai_optimization', 'function' => 'llm_scraper', 'se' => 'chat_gpt'],
+        ],
+        'gemini' => [
+            'task_post' => ['api' => 'ai_optimization', 'function' => 'llm_scraper', 'se' => 'gemini'],
+            'task_get' => ['api' => 'ai_optimization', 'function' => 'llm_scraper', 'se' => 'gemini'],
+            'live' => ['api' => 'ai_optimization', 'function' => 'llm_scraper', 'se' => 'gemini'],
+        ],
+        'google_ai_mode' => [
+            'task_post' => ['api' => 'serp', 'function' => 'task_post', 'se' => 'google', 'se_type' => 'ai_mode'],
+            'task_get' => ['api' => 'serp', 'function' => 'task_get', 'se' => 'google', 'se_type' => 'ai_mode'],
+            'live' => ['api' => 'serp', 'function' => 'live', 'se' => 'google', 'se_type' => 'ai_mode'],
+        ],
+    ];
     $data = [
-        'api' => str_starts_with($family, 'serp/') ? 'serp' : 'ai_optimization',
-        'function' => str_contains($operation, 'task_post') ? 'task_post' : (str_contains($operation, 'live') ? 'live' : 'task_get'),
-        'se' => match ($surface) {
-            'chatgpt' => 'chat_gpt',
-            'gemini' => 'gemini',
-            default => 'google',
-        },
-        ...($surface === 'google_ai_mode' ? ['se_type' => 'ai_mode'] : ['se_type' => 'llm_scraper']),
+        ...$identities[$surface][explode('/', $operation)[0]],
         'keyword' => $query,
         ...$controls,
     ];

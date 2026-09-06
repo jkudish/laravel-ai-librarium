@@ -94,7 +94,9 @@ final readonly class DataForSeoResultMapper
         $content = $this->str($result['markdown'] ?? null);
         $supported = ["{$prefix}_text", "{$prefix}_table"];
         $items = $this->records($result['items'] ?? null);
+        $omitted = [];
         if ($content === null) {
+            $omitted = $this->omittedTypes($items, $supported);
             $content = collect($items)
                 ->filter(fn (array $item): bool => in_array($item['type'] ?? null, $supported, true))
                 ->map(fn (array $item): ?string => $this->str($item['markdown'] ?? null) ?? $this->str($item['original_text'] ?? null) ?? $this->str($item['text'] ?? null))
@@ -112,7 +114,7 @@ final readonly class DataForSeoResultMapper
         return [
             'content' => $content,
             'citations' => $this->citations($sources, "{$prefix}_source"),
-            'omitted_item_types' => $this->omittedTypes($items, $supported),
+            'omitted_item_types' => $omitted,
         ];
     }
 
@@ -132,7 +134,8 @@ final readonly class DataForSeoResultMapper
         }
 
         $elements = $this->records($overview['items'] ?? null);
-        $content = $this->str($overview['markdown'] ?? null) ?? collect($elements)
+        $aggregate = $this->str($overview['markdown'] ?? null);
+        $content = $aggregate ?? collect($elements)
             ->filter(fn (array $item): bool => ($item['type'] ?? null) === 'ai_overview_element')
             ->map(fn (array $item): ?string => $this->str($item['markdown'] ?? null))
             ->filter()
@@ -148,7 +151,7 @@ final readonly class DataForSeoResultMapper
         return [
             'content' => $content,
             'citations' => $this->citations($references, 'ai_overview_reference'),
-            'omitted_item_types' => $this->omittedTypes($elements, ['ai_overview_element']),
+            'omitted_item_types' => $aggregate === null ? $this->omittedTypes($elements, ['ai_overview_element']) : [],
         ];
     }
 
