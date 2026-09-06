@@ -240,7 +240,9 @@ it('never substitutes organic AI Mode results for a missing AI overview answer',
 
 it('polls documented pending states and retries only safe GET failures while preserving the POST charge', function (): void {
     $calls = 0;
-    Http::fake(function (Request $request) use (&$calls) {
+    $times = [];
+    Http::fake(function (Request $request) use (&$calls, &$times) {
+        $times[] = CarbonImmutable::now()->getTimestamp();
         $calls++;
         if ($calls === 1) {
             return Http::response(dataForSeoEnvelope('dataforseo-gemini', 'ai_optimization/gemini/llm_scraper', 'task_post', 'gemini', 'poll me', 20100, false, '0.001200'));
@@ -265,7 +267,11 @@ it('polls documented pending states and retries only safe GET failures while pre
 
     expect($result->usage?->actualCost)->toBe('0.001200')
         ->and($calls)->toBe(6);
-    Sleep::assertSequence([Sleep::for(15)->seconds(), Sleep::for(30)->seconds(), Sleep::for(30)->seconds(), Sleep::for(30)->seconds()]);
+    expect($times[1] - $times[0])->toBe(0)
+        ->and($times[2] - $times[1])->toBeBetween(10, 15);
+    foreach ([3, 4, 5] as $index) {
+        expect($times[$index] - $times[$index - 1])->toBeBetween(25, 30);
+    }
     expect(Http::recorded())->toHaveCount(5)
         ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'POST'))->toHaveCount(1);
 });

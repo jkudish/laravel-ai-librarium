@@ -158,8 +158,8 @@ Driver does not persist, resume, list, or resubmit that task.
 Multiple selected Profiles execute serially within one shared deadline. For
 routine three-surface Standard collection, enqueue a separate query per Profile;
 the application owns concurrency and rate limits. Queue waiting time before a
-worker starts is not part of the execution deadline. Polling waits 15 seconds
-initially, then 30 seconds, capped by that deadline; there is no randomized jitter.
+worker starts is not part of the execution deadline. Polling waits 10–15 seconds
+initially, then 25–30 seconds with jitter, always capped by that deadline.
 
 ## Endpoint references
 

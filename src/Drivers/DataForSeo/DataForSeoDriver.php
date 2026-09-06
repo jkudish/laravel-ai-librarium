@@ -421,7 +421,7 @@ final readonly class DataForSeoDriver implements Driver
     private function wait(DriverRequest $request, int $attempt): void
     {
         $remaining = $this->remainingSeconds($request);
-        $seconds = min($attempt === 0 ? 15 : 30, $remaining);
+        $seconds = min(($attempt === 0 ? 15 : 30) - random_int(0, 5), $remaining);
         Sleep::sleep($seconds);
         $this->remainingSeconds($request);
     }
