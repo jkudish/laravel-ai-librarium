@@ -13,6 +13,8 @@ use Jkudish\LaravelAiLibrarium\Console\Commands\StatusCommand;
 use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
 use Jkudish\LaravelAiLibrarium\Contracts\Librarium;
 use Jkudish\LaravelAiLibrarium\Drivers\Brave\BraveAnswersDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\DataForSeo\DataForSeoCredential;
+use Jkudish\LaravelAiLibrarium\Drivers\DataForSeo\DataForSeoDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Exa\ExaSearchDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Kagi\KagiFastGptDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\LaravelAiDriver;
@@ -125,6 +127,10 @@ final class LaravelAiLibrariumServiceProvider extends ServiceProvider
             $credential = match ($driver) {
                 LaravelAiDriver::class, OpenAiResearchDriver::class, XaiGrokDriver::class => config("ai.providers.{$provider}.key"),
                 BraveAnswersDriver::class => config('services.brave.key'),
+                DataForSeoDriver::class => DataForSeoCredential::encode(
+                    config('librarium.providers.dataforseo.login'),
+                    config('librarium.providers.dataforseo.password'),
+                ),
                 ExaSearchDriver::class => config('services.exa.key'),
                 KagiFastGptDriver::class => config('services.kagi.key'),
                 PerplexityAgentDriver::class => config('services.perplexity.key'),

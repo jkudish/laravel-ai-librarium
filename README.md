@@ -182,6 +182,12 @@ that Laravel AI does not expose through its prompt API:
 | `grok` | xAI `grok-4.6` with web search | Grounded answer | Inline | `ai.providers.xai.key` |
 | `openai-research` | OpenAI `gpt-5.6-sol` with web research | Research report | Background | `ai.providers.openai.key` |
 | `perplexity-sonar-deep` | Perplexity Agent preset `high` | Research report | Background | `services.perplexity.key` |
+| `dataforseo-chatgpt` | DataForSEO ChatGPT LLM Scraper Standard | Surface observation | Background poll | `librarium.providers.dataforseo.*` |
+| `dataforseo-chatgpt-live` | DataForSEO ChatGPT LLM Scraper Live | Surface observation | Inline | `librarium.providers.dataforseo.*` |
+| `dataforseo-gemini` | DataForSEO Gemini LLM Scraper Standard | Surface observation | Background poll | `librarium.providers.dataforseo.*` |
+| `dataforseo-gemini-live` | DataForSEO Gemini LLM Scraper Live | Surface observation | Inline | `librarium.providers.dataforseo.*` |
+| `dataforseo-google-ai-mode` | DataForSEO Google AI Mode Standard | Surface observation | Background poll | `librarium.providers.dataforseo.*` |
+| `dataforseo-google-ai-mode-live` | DataForSEO Google AI Mode Live | Surface observation | Inline | `librarium.providers.dataforseo.*` |
 
 OpenAI and xAI use Laravel AI's standard provider configuration even though
 these Drivers make focused HTTP requests. Add the remaining credentials to the
@@ -194,6 +200,12 @@ consuming application's `config/services.php`:
 'perplexity' => ['key' => env('PERPLEXITY_API_KEY')],
 'searchapi' => ['key' => env('SEARCHAPI_KEY')],
 ```
+
+DataForSEO login/password credentials, explicit location/language controls,
+Standard-versus-Live behavior, pricing, surface semantics, opt-in comparison
+groups, and worker-loss caveats are documented in the
+[DataForSEO Profile guide](docs/dataforseo-profiles.md). These six Profiles ship
+disabled and do not change the curated `quick` or `visibility` rosters.
 
 Librarium stores the resolved values in its in-memory Profile catalog, not the
 configuration paths. Credentials are excluded from previews, serialized
@@ -287,7 +299,7 @@ prompt events, or runs its middleware and conversation lifecycle.
 ## Live validation
 
 Live checks are paid, separately authorized release gates. See the
-[live provider canary inventory](docs/live-provider-canaries.md) for the 20
+[live provider canary inventory](docs/live-provider-canaries.md) for the 29
 materially unique checks, their current harness coverage, credentials, pricing
 uncertainty, and the approval record required before each dispatch. Approval of
 one canary does not authorize another canary, a retry, or a bulk Profile group.

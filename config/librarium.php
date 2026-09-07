@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Jkudish\LaravelAiLibrarium\Drivers\Brave\BraveAnswersDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\DataForSeo\DataForSeoDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Exa\ExaSearchDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Kagi\KagiFastGptDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\LaravelAiDriver;
@@ -32,6 +33,15 @@ return [
         'max_age_days' => 30,
     ],
 
+    'providers' => [
+        'dataforseo' => [
+            /** @phpstan-ignore larastan.noEnvCallsOutsideOfConfig (publishable package config is outside the host config path) */
+            'login' => env('DATAFORSEO_LOGIN'),
+            /** @phpstan-ignore larastan.noEnvCallsOutsideOfConfig (publishable package config is outside the host config path) */
+            'password' => env('DATAFORSEO_PASSWORD'),
+        ],
+    ],
+
     'webhooks' => [
         'openai' => [
             'secret' => config('services.openai.webhook_secret'),
@@ -45,6 +55,126 @@ return [
     ],
 
     'profiles' => [
+        'dataforseo-chatgpt' => [
+            'driver' => DataForSeoDriver::class,
+            'provider' => 'dataforseo',
+            'model' => null,
+            'result_kind' => 'surface_observation',
+            'grounding' => 'optional',
+            'observation' => 'surface_snapshot',
+            'corpora' => ['web'],
+            'retrieval_methods' => ['surface_collector'],
+            'prompt' => '{{ query }}',
+            'enabled' => false,
+            'options' => ['location_code' => null, 'language_code' => null, 'force_web_search' => true],
+            'credential' => null,
+            'pricing' => [
+                'provider' => 'dataforseo',
+                'model' => 'chatgpt-llm-scraper-standard',
+                'usage' => ['requests' => 1],
+                'conservative' => true,
+            ],
+        ],
+        'dataforseo-chatgpt-live' => [
+            'driver' => DataForSeoDriver::class,
+            'provider' => 'dataforseo',
+            'model' => null,
+            'result_kind' => 'surface_observation',
+            'grounding' => 'optional',
+            'observation' => 'surface_snapshot',
+            'corpora' => ['web'],
+            'retrieval_methods' => ['surface_collector'],
+            'prompt' => '{{ query }}',
+            'enabled' => false,
+            'options' => ['location_code' => null, 'language_code' => null, 'force_web_search' => true],
+            'credential' => null,
+            'pricing' => [
+                'provider' => 'dataforseo',
+                'model' => 'chatgpt-llm-scraper-live',
+                'usage' => ['requests' => 1],
+                'conservative' => true,
+            ],
+        ],
+        'dataforseo-gemini' => [
+            'driver' => DataForSeoDriver::class,
+            'provider' => 'dataforseo',
+            'model' => null,
+            'result_kind' => 'surface_observation',
+            'grounding' => 'optional',
+            'observation' => 'surface_snapshot',
+            'corpora' => ['web'],
+            'retrieval_methods' => ['surface_collector'],
+            'prompt' => '{{ query }}',
+            'enabled' => false,
+            'options' => ['location_code' => null, 'language_code' => null],
+            'credential' => null,
+            'pricing' => [
+                'provider' => 'dataforseo',
+                'model' => 'gemini-llm-scraper-standard',
+                'usage' => ['requests' => 1],
+                'conservative' => true,
+            ],
+        ],
+        'dataforseo-gemini-live' => [
+            'driver' => DataForSeoDriver::class,
+            'provider' => 'dataforseo',
+            'model' => null,
+            'result_kind' => 'surface_observation',
+            'grounding' => 'optional',
+            'observation' => 'surface_snapshot',
+            'corpora' => ['web'],
+            'retrieval_methods' => ['surface_collector'],
+            'prompt' => '{{ query }}',
+            'enabled' => false,
+            'options' => ['location_code' => null, 'language_code' => null],
+            'credential' => null,
+            'pricing' => [
+                'provider' => 'dataforseo',
+                'model' => 'gemini-llm-scraper-live',
+                'usage' => ['requests' => 1],
+                'conservative' => true,
+            ],
+        ],
+        'dataforseo-google-ai-mode' => [
+            'driver' => DataForSeoDriver::class,
+            'provider' => 'dataforseo',
+            'model' => null,
+            'result_kind' => 'surface_observation',
+            'grounding' => 'optional',
+            'observation' => 'surface_snapshot',
+            'corpora' => ['web'],
+            'retrieval_methods' => ['surface_collector'],
+            'prompt' => '{{ query }}',
+            'enabled' => false,
+            'options' => ['location_code' => null, 'language_code' => null],
+            'credential' => null,
+            'pricing' => [
+                'provider' => 'dataforseo',
+                'model' => 'google-ai-mode-standard',
+                'usage' => ['requests' => 1],
+                'conservative' => true,
+            ],
+        ],
+        'dataforseo-google-ai-mode-live' => [
+            'driver' => DataForSeoDriver::class,
+            'provider' => 'dataforseo',
+            'model' => null,
+            'result_kind' => 'surface_observation',
+            'grounding' => 'optional',
+            'observation' => 'surface_snapshot',
+            'corpora' => ['web'],
+            'retrieval_methods' => ['surface_collector'],
+            'prompt' => '{{ query }}',
+            'enabled' => false,
+            'options' => ['location_code' => null, 'language_code' => null],
+            'credential' => null,
+            'pricing' => [
+                'provider' => 'dataforseo',
+                'model' => 'google-ai-mode-live',
+                'usage' => ['requests' => 1],
+                'conservative' => true,
+            ],
+        ],
         'gemini-grounded' => [
             'driver' => LaravelAiDriver::class,
             'provider' => 'gemini',
