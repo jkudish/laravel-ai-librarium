@@ -17,6 +17,7 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\SourceKind;
 
 beforeEach(function (): void {
     CarbonImmutable::setTestNow('2026-08-20T12:00:00Z');
@@ -84,6 +85,102 @@ it('omits false and absent options while preserving one web search tool', functi
         'tools' => [['type' => 'web_search']],
     ]);
 });
+
+it('sends only the exact X search tool and options for the X-only profile', function (): void {
+    Http::fake(['https://api.x.ai/v1/responses' => Http::response(xaiGrokResponse())]);
+
+    $result = xaiGrokDriver()->run(xaiGrokRequest(
+        profile: 'grok-x-only',
+        corpora: [Corpus::X],
+        options: [
+            'allowed_x_handles' => ['@XAI', 'elonmusk'],
+            'from_date' => '2026-08-01',
+            'to_date' => '2026-08-20',
+            'enable_image_understanding' => true,
+            'enable_video_understanding' => true,
+            'max_turns' => 3,
+        ],
+    ));
+
+    expect($result->profile)->toBe('grok-x-only')
+        ->and($result->provenance->corpora->all())->toBe([Corpus::X]);
+
+    Http::assertSent(fn (Request $request): bool => $request->data() === [
+        'model' => 'grok-configured',
+        'input' => [[
+            'role' => 'user',
+            'content' => 'Research current xAI information.',
+        ]],
+        'tools' => [[
+            'type' => 'x_search',
+            'allowed_x_handles' => ['XAI', 'elonmusk'],
+            'from_date' => '2026-08-01',
+            'to_date' => '2026-08-20',
+            'enable_image_understanding' => true,
+            'enable_video_understanding' => true,
+        ]],
+        'max_turns' => 3,
+    ]);
+    Http::assertSentCount(1);
+});
+
+it('runs combined web and X search as one request, result, provenance origin, and metering record', function (): void {
+    $response = xaiGrokResponse();
+    data_set($response, 'output.0.content.0.annotations.0.url', 'https://x.com/xai/status/123456789');
+    data_set($response, 'output.0.content.0.annotations.1.url', 'https://x.com/xai/status/123456789');
+    Http::fake(['https://api.x.ai/v1/responses' => Http::response($response)]);
+
+    $result = xaiGrokDriver()->run(xaiGrokRequest(
+        profile: 'grok-combined',
+        corpora: [Corpus::Web, Corpus::X],
+        options: [
+            'excluded_domains' => ['Example.com'],
+            'excluded_x_handles' => ['@SpamBot'],
+            'enable_image_search' => true,
+            'enable_image_understanding' => true,
+            'enable_video_understanding' => true,
+        ],
+    ));
+
+    expect($result->profile)->toBe('grok-combined')
+        ->and($result->provenance->corpora->all())->toBe([Corpus::Web, Corpus::X])
+        ->and($result->citations)->toHaveCount(2)
+        ->and($result->citations->first()->source->kind)->toBe(SourceKind::XPost)
+        ->and($result->citations->last()->source->kind)->toBe(SourceKind::WebPage)
+        ->and($result->usage?->actualCost)->toBe('0.0300244')
+        ->and((array) $result->providerMeta)->toBe(['total_tokens' => 200]);
+
+    Http::assertSent(fn (Request $request): bool => $request->data()['tools'] === [[
+        'type' => 'web_search',
+        'filters' => ['excluded_domains' => ['example.com']],
+        'enable_image_search' => true,
+        'enable_image_understanding' => true,
+    ], [
+        'type' => 'x_search',
+        'excluded_x_handles' => ['SpamBot'],
+        'enable_image_understanding' => true,
+        'enable_video_understanding' => true,
+    ]]);
+    Http::assertSentCount(1);
+});
+
+it('classifies citation kinds from URL identity rather than configured corpus', function (string $url, SourceKind $kind): void {
+    $response = xaiGrokResponse();
+    data_set($response, 'output.0.content.0.annotations', [[
+        'type' => 'url_citation',
+        'url' => $url,
+    ]]);
+    Http::fake(['https://api.x.ai/v1/responses' => Http::response($response)]);
+
+    $result = xaiGrokDriver()->run(xaiGrokRequest(corpora: [Corpus::Web, Corpus::X]));
+
+    expect($result->citations->first()->source->kind)->toBe($kind);
+})->with([
+    'X post' => ['https://x.com/xai/status/123', SourceKind::XPost],
+    'legacy mobile X post' => ['https://mobile.twitter.com/xai/status/456/photo/1', SourceKind::XPost],
+    'X profile is not a post' => ['https://x.com/xai', SourceKind::Unknown],
+    'ordinary web page' => ['https://example.com/status/123', SourceKind::WebPage],
+]);
 
 it('normalizes output text, strict deduplicated citations, usage, total tokens, and reported cost', function (): void {
     Http::fake(['https://api.x.ai/v1/responses' => Http::response(xaiGrokResponse())]);
@@ -153,6 +250,16 @@ it('rejects invalid Profile options during preflight', function (array $options)
     ]],
     'non-boolean image search' => [['enable_image_search' => 'true']],
     'non-boolean image understanding' => [['enable_image_understanding' => 1]],
+    'twenty-one allowed X handles' => [['allowed_x_handles' => array_map(fn (int $index): string => "user{$index}", range(0, 20))]],
+    'invalid X handle' => [['allowed_x_handles' => ['not-valid']]],
+    'duplicate X handle' => [['allowed_x_handles' => ['xai', 'XAI']]],
+    'allowed and excluded X handles' => [[
+        'allowed_x_handles' => ['xai'],
+        'excluded_x_handles' => ['elonmusk'],
+    ]],
+    'invalid start date' => [['from_date' => '2025-02-29']],
+    'reversed date range' => [['from_date' => '2026-08-20', 'to_date' => '2026-08-01']],
+    'non-boolean video understanding' => [['enable_video_understanding' => 1]],
 ]);
 
 it('accepts every bounded Profile option during preflight', function (): void {
@@ -160,8 +267,12 @@ it('accepts every bounded Profile option during preflight', function (): void {
         'max_turns' => 4,
         'max_output_tokens' => 1024,
         'excluded_domains' => ['Example.com'],
+        'excluded_x_handles' => ['@XAI'],
+        'from_date' => '2026-08-01',
+        'to_date' => '2026-08-20',
         'enable_image_search' => true,
         'enable_image_understanding' => false,
+        'enable_video_understanding' => true,
     ]);
 
     expect($errors)->toBe([]);
@@ -185,8 +296,23 @@ it('rejects missing local configuration and incompatible Profile semantics befor
     'wrong result kind' => [['resultKind' => ResultKind::ResearchReport], 'xai.invalid_profile'],
     'optional grounding' => [['grounding' => GroundingPolicy::Optional], 'xai.invalid_profile'],
     'surface observation' => [['observation' => ObservationMode::SurfaceSnapshot], 'xai.invalid_profile'],
-    'wrong corpus' => [['corpora' => [Corpus::X]], 'xai.invalid_profile'],
+    'unsupported corpus order' => [['corpora' => [Corpus::X, Corpus::Web]], 'xai.invalid_profile'],
+    'unsupported corpus set' => [['corpora' => [Corpus::News]], 'xai.invalid_profile'],
     'wrong retrieval' => [['retrievalMethods' => [RetrievalMethod::ModelOnly]], 'xai.invalid_profile'],
+]);
+
+it('rejects strategy-incompatible options before requesting', function (array $corpora, array $options): void {
+    Http::fake();
+
+    expect(fn () => xaiGrokDriver()->run(xaiGrokRequest(corpora: $corpora, options: $options)))
+        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'xai.invalid_options');
+
+    Http::assertNothingSent();
+})->with([
+    'X option on web profile' => [[Corpus::Web], ['allowed_x_handles' => ['xai']]],
+    'web option on X profile' => [[Corpus::X], ['allowed_domains' => ['x.ai']]],
+    'image search on X profile' => [[Corpus::X], ['enable_image_search' => false]],
+    'video understanding on web profile' => [[Corpus::Web], ['enable_video_understanding' => false]],
 ]);
 
 it('validates every reported usage and cost scalar', function (string $path, mixed $value): void {
@@ -319,6 +445,7 @@ function xaiGrokRequest(
     ?string $credential = 'testing-xai-key',
     ?string $model = 'grok-configured',
     array $options = [],
+    string $profile = 'grok-web',
     string $provider = 'xai',
     ResultKind $resultKind = ResultKind::GroundedAnswer,
     GroundingPolicy $grounding = GroundingPolicy::Required,
@@ -327,7 +454,7 @@ function xaiGrokRequest(
     array $retrievalMethods = [RetrievalMethod::ModelSearchTool],
 ): DriverRequest {
     $profile = new Profile(
-        id: 'grok-web',
+        id: $profile,
         driver: XaiGrokDriver::class,
         provider: $provider,
         model: $model,
