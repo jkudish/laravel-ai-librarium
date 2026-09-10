@@ -146,6 +146,7 @@ final readonly class BraveSearchDriver implements Driver
                 'X-Subscription-Token' => (string) $request->profile->credential,
             ])
                 ->acceptJson()
+                ->withOptions(['allow_redirects' => false])
                 ->connectTimeout(min(self::CONNECT_TIMEOUT_SECONDS, $remaining))
                 ->timeout(min(self::REQUEST_TIMEOUT_SECONDS, $remaining))
                 ->get(self::ENDPOINT, ['q' => $request->prompt]);

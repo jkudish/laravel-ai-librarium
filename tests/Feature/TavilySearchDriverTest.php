@@ -28,7 +28,11 @@ afterEach(function (): void {
 });
 
 it('sends the exact Tavily advanced search request with documented bearer authentication', function (): void {
-    Http::fake(['https://api.tavily.com/search' => Http::response(['results' => []])]);
+    Http::fake(function (Request $request, array $options) {
+        expect($options['allow_redirects'] ?? null)->toBeFalse();
+
+        return Http::response(['results' => []]);
+    });
 
     tavilySearchDriver()->run(tavilySearchRequest());
 

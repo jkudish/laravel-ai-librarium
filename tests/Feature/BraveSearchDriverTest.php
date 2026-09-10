@@ -32,7 +32,8 @@ afterEach(function (): void {
 it('sends exactly one raw web search GET with only the query and Search credential', function (): void {
     Http::fake(function (Request $request, array $options) {
         expect($options['connect_timeout'])->toBe(3.0)
-            ->and($options['timeout'])->toBe(20.0);
+            ->and($options['timeout'])->toBe(20.0)
+            ->and($options['allow_redirects'] ?? null)->toBeFalse();
 
         return Http::response(['web' => ['results' => []]]);
     });

@@ -29,7 +29,11 @@ afterEach(function (): void {
 });
 
 it('has no profile options and sends the exact Jina Search request', function (): void {
-    Http::fake(['https://s.jina.ai/' => Http::response(['data' => []])]);
+    Http::fake(function (Request $request, array $options) {
+        expect($options['allow_redirects'] ?? null)->toBeFalse();
+
+        return Http::response(['data' => []]);
+    });
 
     expect(JinaSearchDriver::profileOptionRules())->toBe([]);
 

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Carbon\CarbonImmutable;
+use Closure;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
@@ -30,6 +31,14 @@ afterEach(function (): void {
 });
 
 it('submits, polls a known private handle, and freshly retrieves the completed report', function (): void {
+    $transports = [];
+    Http::globalMiddleware(function (callable $handler) use (&$transports): Closure {
+        return function ($request, array $options) use ($handler, &$transports) {
+            $transports[] = $options;
+
+            return $handler($request, $options);
+        };
+    });
     Http::fake(['https://api.exa.ai/agent/runs*' => Http::sequence()
         ->push(exaResearchRun('running'))
         ->push(exaResearchRun('queued'))
@@ -68,7 +77,9 @@ it('submits, polls a known private handle, and freshly retrieves the completed r
     Http::assertSentCount(4);
     Sleep::assertSleptTimes(2);
 
-    expect($result->contentFormat)->toBe(ContentFormat::Markdown)
+    expect($transports)->toHaveCount(4)
+        ->and(collect($transports)->every(fn (array $transport): bool => ($transport['allow_redirects'] ?? null) === false))->toBeTrue()
+        ->and($result->contentFormat)->toBe(ContentFormat::Markdown)
         ->and($result->content)->toBe('Authoritative final report [[1]] and [[2]].')
         ->and($result->requestedProfile)->toBe('exa-research')
         ->and($result->provider)->toBe('exa')

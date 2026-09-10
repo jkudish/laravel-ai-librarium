@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Carbon\CarbonImmutable;
+use Closure;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
@@ -30,6 +31,14 @@ afterEach(function (): void {
 });
 
 it('submits the exact Deep Research interaction and preserves provisional status ordering before canonical retrieval', function (): void {
+    $transports = [];
+    Http::globalMiddleware(function (callable $handler) use (&$transports): Closure {
+        return function ($request, array $options) use ($handler, &$transports) {
+            $transports[] = $options;
+
+            return $handler($request, $options);
+        };
+    });
     Http::fake(['https://generativelanguage.googleapis.com/v1beta/interactions*' => Http::sequence()
         ->push(geminiDeepInteraction('in_progress'), 200)
         ->push(geminiDeepInteraction('queued'))
@@ -73,7 +82,9 @@ it('submits the exact Deep Research interaction and preserves provisional status
     Http::assertSentCount(8);
     Sleep::assertSleptTimes(6);
 
-    expect($progress)->toBe(['Gemini is researching in the background.'])
+    expect($transports)->toHaveCount(8)
+        ->and(collect($transports)->every(fn (array $transport): bool => ($transport['allow_redirects'] ?? null) === false))->toBeTrue()
+        ->and($progress)->toBe(['Gemini is researching in the background.'])
         ->and($result->contentFormat)->toBe(ContentFormat::Markdown)
         ->and($result->content)->toBe('Canonical Deep Research report.')
         ->and($result->provider)->toBe('gemini-deep')

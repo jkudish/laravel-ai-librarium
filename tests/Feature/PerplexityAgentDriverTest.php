@@ -29,9 +29,11 @@ afterEach(function (): void {
 });
 
 it('runs the low preset inline with one exact POST and strictly normalizes reported facts', function (): void {
-    Http::fake([
-        'https://api.perplexity.ai/v1/agent' => Http::response(perplexityCompletedResponse()),
-    ]);
+    Http::fake(function (Request $request, array $options) {
+        expect($options['allow_redirects'] ?? null)->toBeFalse();
+
+        return Http::response(perplexityCompletedResponse());
+    });
 
     $result = perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-sonar-pro'));
 

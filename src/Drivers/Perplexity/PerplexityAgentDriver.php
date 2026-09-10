@@ -236,6 +236,7 @@ final readonly class PerplexityAgentDriver implements Driver
         $pending = Http::withToken((string) $request->profile->credential)
             ->acceptJson()
             ->asJson()
+            ->withOptions(['allow_redirects' => false])
             ->connectTimeout(min(self::CONNECT_TIMEOUT_SECONDS, $remaining))
             ->timeout(min(self::REQUEST_TIMEOUT_SECONDS, $remaining));
 

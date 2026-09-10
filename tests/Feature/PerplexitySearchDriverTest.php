@@ -28,7 +28,11 @@ afterEach(function (): void {
 });
 
 it('sends one direct raw Search request with bearer credentials and defaults', function (): void {
-    Http::fake(['https://api.perplexity.ai/search' => Http::response(perplexitySearchResponse([]))]);
+    Http::fake(function (Request $request, array $options) {
+        expect($options['allow_redirects'] ?? null)->toBeFalse();
+
+        return Http::response(perplexitySearchResponse([]));
+    });
 
     perplexitySearchDriver()->run(perplexitySearchRequest());
 

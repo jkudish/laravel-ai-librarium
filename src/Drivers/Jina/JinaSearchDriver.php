@@ -70,6 +70,7 @@ final readonly class JinaSearchDriver implements Driver
             return Http::withToken($credential)
                 ->acceptJson()
                 ->asJson()
+                ->withOptions(['allow_redirects' => false])
                 ->connectTimeout(min(self::CONNECT_TIMEOUT_SECONDS, $remaining))
                 ->timeout($remaining)
                 ->post(self::ENDPOINT, [

@@ -253,6 +253,7 @@ final readonly class ExaResearchDriver implements Driver
         $pending = Http::withHeaders(['x-api-key' => $credential])
             ->acceptJson()
             ->asJson()
+            ->withOptions(['allow_redirects' => false])
             ->connectTimeout(min(self::CONNECT_TIMEOUT_SECONDS, $remaining))
             ->timeout(min(self::REQUEST_TIMEOUT_SECONDS, $remaining));
 

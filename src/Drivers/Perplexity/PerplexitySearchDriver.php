@@ -182,6 +182,7 @@ final readonly class PerplexitySearchDriver implements Driver
             return Http::withToken((string) $request->profile->credential)
                 ->acceptJson()
                 ->asJson()
+                ->withOptions(['allow_redirects' => false])
                 ->connectTimeout(min(self::CONNECT_TIMEOUT_SECONDS, $remaining))
                 ->timeout(min(self::REQUEST_TIMEOUT_SECONDS, $remaining))
                 ->post(self::ENDPOINT, $this->requestBody($request));

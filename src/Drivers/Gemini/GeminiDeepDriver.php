@@ -252,6 +252,7 @@ final readonly class GeminiDeepDriver implements Driver
         ])
             ->acceptJson()
             ->asJson()
+            ->withOptions(['allow_redirects' => false])
             ->connectTimeout(min(self::CONNECT_TIMEOUT_SECONDS, $remaining))
             ->timeout(min($timeout, $remaining));
 

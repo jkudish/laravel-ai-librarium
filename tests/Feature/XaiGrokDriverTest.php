@@ -29,9 +29,11 @@ afterEach(function (): void {
 });
 
 it('sends the exact configured model, user input, bounded options, and web-only tool', function (): void {
-    Http::fake([
-        'https://api.x.ai/v1/responses' => Http::response(xaiGrokResponse()),
-    ]);
+    Http::fake(function (Request $request, array $transport) {
+        expect($transport['allow_redirects'] ?? null)->toBeFalse();
+
+        return Http::response(xaiGrokResponse());
+    });
 
     $options = [
         'max_turns' => 8,
