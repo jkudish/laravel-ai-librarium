@@ -200,7 +200,7 @@ it('does not send a request without a credential or before an expired deadline',
     'expired deadline' => ['deadline', 'jina.deadline_exceeded'],
 ]);
 
-it('bounds request and connection timeouts to the exact remaining deadline', function (float $remaining, float $connectTimeout): void {
+it('bounds request and connection timeouts to the request cap and remaining deadline', function (float $remaining, int|float $timeout, float $connectTimeout): void {
     $options = null;
     Http::globalMiddleware(function (callable $handler) use (&$options): Closure {
         return function ($request, array $requestOptions) use ($handler, &$options) {
@@ -216,11 +216,12 @@ it('bounds request and connection timeouts to the exact remaining deadline', fun
     ));
 
     expect($options)->toBeArray()
-        ->and($options['timeout'] ?? null)->toBe($remaining)
+        ->and($options['timeout'] ?? null)->toBe($timeout)
         ->and($options['connect_timeout'] ?? null)->toBe($connectTimeout);
 })->with([
-    'longer than connection cap' => [12.345, 3.0],
-    'shorter than connection cap' => [2.5, 2.5],
+    'longer than request cap' => [180.0, 120, 3.0],
+    'longer than connection cap' => [12.345, 12.345, 3.0],
+    'shorter than connection cap' => [2.5, 2.5, 2.5],
 ]);
 
 it('rejects a response that arrives at the deadline before mapping it', function (): void {

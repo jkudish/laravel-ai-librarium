@@ -11,14 +11,7 @@ final class EvidenceUrl
 
     private const int MAX_DECODE_DEPTH = 3;
 
-    private const int MAX_NESTED_URL_DEPTH = 3;
-
     public static function sanitize(mixed $value): ?string
-    {
-        return self::sanitizeAtDepth($value, 0);
-    }
-
-    private static function sanitizeAtDepth(mixed $value, int $depth): ?string
     {
         if (! is_string($value)
             || trim($value) !== $value
@@ -37,8 +30,11 @@ final class EvidenceUrl
             return null;
         }
 
-        foreach (['query', 'fragment'] as $component) {
-            if (self::hasCredentialParameter($parts[$component] ?? '', $depth)) {
+        foreach (['path', 'query', 'fragment'] as $component) {
+            if (self::hasCredentialMaterial(
+                $parts[$component] ?? '',
+                allowBareKey: $component !== 'path',
+            )) {
                 return null;
             }
         }
@@ -46,25 +42,25 @@ final class EvidenceUrl
         return $value;
     }
 
-    private static function hasCredentialParameter(string $parameters, int $depth): bool
+    private static function hasCredentialMaterial(string $component, bool $allowBareKey): bool
     {
-        foreach (preg_split('/[&;]/', $parameters) ?: [] as $parameter) {
-            [$rawKey, $rawValue] = array_pad(explode('=', $parameter, 2), 2, '');
-            if (self::isCredentialKey($rawKey)) {
-                return true;
-            }
+        $decoded = self::decode($component);
+        if ($decoded === null) {
+            return true;
+        }
 
-            if ($rawValue === '') {
-                continue;
+        if ($allowBareKey) {
+            foreach (preg_split('/[&;]/', $decoded) ?: [] as $parameter) {
+                [$key] = explode('=', $parameter, 2);
+                if (self::isCredentialKey($key)) {
+                    return true;
+                }
             }
+        }
 
-            $nested = self::decode($rawValue);
-            if ($nested === null) {
-                return true;
-            }
-            if (preg_match('#^https?://#i', $nested) === 1
-                && ($depth >= self::MAX_NESTED_URL_DEPTH
-                    || self::sanitizeAtDepth($nested, $depth + 1) === null)) {
+        preg_match_all('/(?:^|[?&;\/=])\K([^?&;\/=]+)(?==)/', $decoded, $matches);
+        foreach ($matches[1] as $key) {
+            if (self::isCredentialKey($key)) {
                 return true;
             }
         }
@@ -83,7 +79,7 @@ final class EvidenceUrl
         foreach ([...$segments, implode('', $segments)] as $candidate) {
             $normalized = strtolower($candidate);
             if (in_array($normalized, ['key', 'sig'], true)
-                || preg_match('/(?:signature|credential|token|secret|api(?:access)?key|accesskeyid)$/D', $normalized) === 1) {
+                || preg_match('/(?:signature|credential|token|secret|password|passwd|authorization|authentication|auth|session(?:id)?|api(?:access)?key|accesskeyid)$/D', $normalized) === 1) {
                 return true;
             }
         }

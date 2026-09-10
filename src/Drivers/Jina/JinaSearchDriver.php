@@ -33,6 +33,8 @@ final readonly class JinaSearchDriver implements Driver
 
     private const float CONNECT_TIMEOUT_SECONDS = 3.0;
 
+    private const int REQUEST_TIMEOUT_SECONDS = 120;
+
     /** @return array<string, mixed> */
     public static function profileOptionRules(): array
     {
@@ -100,7 +102,7 @@ final readonly class JinaSearchDriver implements Driver
                 ->asJson()
                 ->withOptions(['allow_redirects' => false])
                 ->connectTimeout(min(self::CONNECT_TIMEOUT_SECONDS, $remaining))
-                ->timeout($remaining)
+                ->timeout(min(self::REQUEST_TIMEOUT_SECONDS, $remaining))
                 ->post(self::ENDPOINT, [
                     'q' => $request->prompt,
                     'num' => 10,

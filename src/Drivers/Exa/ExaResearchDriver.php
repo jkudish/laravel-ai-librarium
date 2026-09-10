@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jkudish\LaravelAiLibrarium\Drivers\Exa;
 
 use Carbon\CarbonImmutable;
+use Closure;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
@@ -46,7 +47,17 @@ final readonly class ExaResearchDriver implements Driver
             'effort' => ['sometimes', 'string', 'in:'.implode(',', self::EFFORTS)],
             'system_prompt' => ['sometimes', 'string', 'min:1'],
             'output_schema' => ['sometimes', 'array', 'min:1'],
-            'max_cost_dollars' => ['sometimes', 'numeric', 'gt:0'],
+            'max_cost_dollars' => [
+                'sometimes',
+                'prohibited_if:options.effort,minimal,low,medium,high,xhigh',
+                static function (string $attribute, mixed $value, Closure $fail): void {
+                    if ((! is_int($value) && ! is_float($value))
+                        || $value <= 0
+                        || (is_float($value) && ! is_finite($value))) {
+                        $fail("The {$attribute} field must be a finite positive number.");
+                    }
+                },
+            ],
         ];
     }
 

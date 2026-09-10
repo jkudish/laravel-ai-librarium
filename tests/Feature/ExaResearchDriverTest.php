@@ -12,6 +12,7 @@ use Jkudish\LaravelAiLibrarium\Drivers\Exa\ExaResearchDriver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profile;
+use Jkudish\LaravelAiLibrarium\ProfileOptionValidator;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
@@ -242,7 +243,17 @@ it('rejects invalid credentials, input, options, and deadlines before dispatch',
     'string cost' => [['options' => ['max_cost_dollars' => '1.00']], 'exa_research.invalid_request'],
     'non-positive cost' => [['options' => ['max_cost_dollars' => 0]], 'exa_research.invalid_request'],
     'budget on fixed effort' => [['options' => ['effort' => 'high', 'max_cost_dollars' => 1]], 'exa_research.invalid_request'],
-    'expired deadline' => [['deadline' => CarbonImmutable::now()], 'exa_research.deadline_exceeded'],
+    'expired deadline' => [['deadline' => CarbonImmutable::parse('2026-09-10T11:59:59Z')], 'exa_research.deadline_exceeded'],
+]);
+
+it('rejects configured options that runtime preflight would reject', function (array $options): void {
+    $errors = app(ProfileOptionValidator::class)->errors(ExaResearchDriver::class, $options);
+
+    expect($errors)->not->toBeEmpty();
+})->with([
+    'string budget' => [['max_cost_dollars' => '1.00']],
+    'non-finite budget' => [['max_cost_dollars' => INF]],
+    'budget with fixed effort' => [['effort' => 'high', 'max_cost_dollars' => 1]],
 ]);
 
 it('maps terminal provider failure without exposing provider error details', function (string $status): void {

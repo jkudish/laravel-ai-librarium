@@ -23,7 +23,7 @@ it('rejects malformed and authority-bearing evidence URLs', function (mixed $url
     'over limit' => fn (): string => 'https://example.com/'.str_repeat('a', 8192),
 ]);
 
-it('rejects credential-bearing query and fragment keys across provider encodings', function (string $url): void {
+it('rejects credential-bearing URL material across provider encodings', function (string $url): void {
     expect(EvidenceUrl::sanitize($url))->toBeNull();
 })->with([
     'Google signature' => 'https://example.com/file?X-Goog-Signature=secret',
@@ -35,6 +35,14 @@ it('rejects credential-bearing query and fragment keys across provider encodings
     'fragment token' => 'https://example.com/file#access_token=secret',
     'nested signed URL' => 'https://example.com/redirect?url=https%3A%2F%2Fstorage.example%2Ffile%3FapiKey%3Dsecret',
     'repeatedly encoded nested URL' => 'https://example.com/redirect?url=https%253A%252F%252Fstorage.example%252Ffile%253Ftoken%253Dsecret',
+    'path-encoded signed URL' => 'https://example.com/redirect/https%3A%2F%2Fstorage.example%2Ffile%3Ftoken%3Dsecret',
+    'leading-space nested URL' => 'https://example.com/redirect?url=+https%3A%2F%2Fstorage.example%2Ffile%3Ftoken%3Dsecret',
+    'protocol-relative nested URL' => 'https://example.com/redirect?url=%2F%2Fstorage.example%2Ffile%3FapiKey%3Dsecret',
+    'relative nested URL' => 'https://example.com/redirect?url=%2Ffile%3Ftoken%3Dsecret',
+    'bare encoded assignment' => 'https://example.com/redirect?url=token%3Dsecret',
+    'password key' => 'https://example.com/file?password=secret',
+    'authorization key' => 'https://example.com/file?authorization=secret',
+    'session key' => 'https://example.com/file?session_id=secret',
     'over-encoded key' => 'https://example.com/file?api%2525254Bey=secret',
     'over-nested URL' => 'https://example.com/?url=https%3A%2F%2Fa.example%2F%3Furl%3Dhttps%253A%252F%252Fb.example%252F%253Furl%253Dhttps%25253A%25252F%25252Fc.example%25252F%25253Furl%25253Dhttps%2525253A%2525252F%2525252Fd.example%2525252F%2525253Ftoken%2525253Dsecret',
 ]);
