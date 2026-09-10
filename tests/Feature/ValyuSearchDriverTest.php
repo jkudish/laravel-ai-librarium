@@ -213,6 +213,7 @@ it('maps malformed and failed Search responses to body-free errors', function (m
     'malformed body' => [fn () => Http::response('provider-secret'), 'valyu_search.invalid_response'],
     'missing results' => [fn () => Http::response(['success' => true]), 'valyu_search.invalid_response'],
     'provider failure' => [fn () => Http::response(['success' => false, 'error' => 'provider-secret']), 'valyu_search.provider'],
+    'redirect' => [fn () => Http::response(['success' => true, 'results' => []], 302, ['Location' => 'https://provider-secret.example']), 'valyu_search.invalid_request'],
     'authentication' => [fn () => Http::response(['error' => 'provider-secret'], 401), 'valyu_search.authentication'],
     'rate limit' => [fn () => Http::response(['error' => 'provider-secret'], 429), 'valyu_search.rate_limited'],
     'server error' => [fn () => Http::response(['error' => 'provider-secret'], 503), 'valyu_search.unavailable'],

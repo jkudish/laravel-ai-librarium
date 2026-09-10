@@ -54,7 +54,7 @@ final readonly class JinaSearchDriver implements Driver
             throw $this->deadlineExceeded();
         }
 
-        if ($response->failed()) {
+        if ($response->failed() || $response->redirect()) {
             throw $this->httpFailure($response);
         }
 

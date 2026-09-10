@@ -275,6 +275,24 @@ it('never retries an ambiguous submission connection failure', function (): void
     expect($attempts)->toBe(1);
 });
 
+it('validates an accepted private handle before rejecting a late submission response', function (): void {
+    $deadline = CarbonImmutable::now()->addSecond();
+    Http::fake(function () use ($deadline) {
+        CarbonImmutable::setTestNow($deadline);
+
+        return Http::response(geminiDeepInteraction('in_progress'));
+    });
+
+    expect(fn () => app(GeminiDeepDriver::class)->run(geminiDeepRequest(deadline: $deadline)))
+        ->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('gemini_deep.deadline_exceeded')
+                ->and($exception->fallbackAllowed)->toBeFalse()
+                ->and($exception->getMessage())->not->toContain(geminiDeepInteractionId());
+        });
+
+    Http::assertSentCount(1);
+});
+
 it('maps submission HTTP failures safely and sends exactly one paid POST', function (int $status, string $code): void {
     Http::fakeSequence()->push([
         'error' => [
@@ -296,11 +314,28 @@ it('maps submission HTTP failures safely and sends exactly one paid POST', funct
 })->with([
     'authentication' => [401, 'gemini_deep.authentication'],
     'authorization' => [403, 'gemini_deep.authorization'],
-    'timeout' => [408, 'gemini_deep.timeout'],
-    'rate limit' => [429, 'gemini_deep.rate_limited'],
-    'unavailable' => [503, 'gemini_deep.unavailable'],
+    'timeout' => [408, 'gemini_deep.ambiguous_submission'],
+    'rate limit' => [429, 'gemini_deep.ambiguous_submission'],
+    'unavailable' => [503, 'gemini_deep.ambiguous_submission'],
     'invalid request' => [422, 'gemini_deep.invalid_request'],
 ]);
+
+it('treats a malformed successful submission receipt as ambiguous and never resubmits', function (): void {
+    Http::fake(['https://generativelanguage.googleapis.com/v1beta/interactions' => Http::response([
+        'id' => geminiDeepInteractionId(),
+        'raw' => 'provider-secret',
+    ])]);
+
+    expect(fn () => app(GeminiDeepDriver::class)->run(geminiDeepRequest()))
+        ->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('gemini_deep.ambiguous_submission')
+                ->and($exception->fallbackAllowed)->toBeFalse()
+                ->and($exception->getMessage())->not->toContain(geminiDeepInteractionId())
+                ->not->toContain('provider-secret');
+        });
+
+    Http::assertSentCount(1);
+});
 
 it('maps non-retryable retrieval failures and malformed bodies without exposing raw data', function (mixed $body, int $status, string $code): void {
     Http::fakeSequence()

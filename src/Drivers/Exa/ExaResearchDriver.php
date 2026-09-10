@@ -218,10 +218,20 @@ final readonly class ExaResearchDriver implements Driver
         }
 
         if ($response->status() !== 200) {
-            throw $this->httpFailure($response);
+            throw $this->submissionFailure($response);
         }
 
-        return $this->runPayload($response);
+        try {
+            $run = $this->runPayload($response);
+        } catch (DriverException) {
+            throw $this->ambiguousSubmission();
+        }
+
+        // Validate the paid run handle before enforcing the post-response
+        // deadline. A successful but malformed receipt is still ambiguous.
+        $this->remainingSeconds($request);
+
+        return $run;
     }
 
     /** @return array<array-key, mixed> */
@@ -245,6 +255,7 @@ final readonly class ExaResearchDriver implements Driver
                 continue;
             }
 
+            $this->remainingSeconds($request);
             if (in_array($response->status(), [408, 429], true) || $response->serverError()) {
                 $this->waitBeforePolling($request);
 
@@ -278,8 +289,6 @@ final readonly class ExaResearchDriver implements Driver
         $response = $method === 'post'
             ? $pending->post($url, $payload)
             : $pending->get($url);
-
-        $this->remainingSeconds($request);
 
         return $response;
     }
@@ -382,6 +391,24 @@ final readonly class ExaResearchDriver implements Driver
             $response->serverError() => new DriverException('exa_research.unavailable', 'Exa Research is temporarily unavailable.', false),
             default => new DriverException('exa_research.invalid_request', 'Exa Research rejected this request.', false),
         };
+    }
+
+    private function submissionFailure(Response $response): DriverException
+    {
+        if (in_array($response->status(), [408, 429], true) || $response->serverError()) {
+            return $this->ambiguousSubmission();
+        }
+
+        return $this->httpFailure($response);
+    }
+
+    private function ambiguousSubmission(): DriverException
+    {
+        return new DriverException(
+            'exa_research.ambiguous_submission',
+            'Exa Research did not safely acknowledge the paid submission; it was not retried.',
+            false,
+        );
     }
 
     private function invalidResponse(): DriverException

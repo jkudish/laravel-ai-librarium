@@ -272,6 +272,7 @@ it('maps documented and defensive HTTP failures to bounded body-free errors', fu
     'pay as you go limit' => [433, 'tavily.quota_exceeded', true],
     'rate limit' => [429, 'tavily.rate_limited', true],
     'unavailable' => [500, 'tavily.unavailable', true],
+    'redirect' => [302, 'tavily.invalid_request', false],
     'invalid request' => [400, 'tavily.invalid_request', false],
 ]);
 

@@ -50,7 +50,7 @@ final readonly class BraveSearchDriver implements Driver
             throw $this->deadlineExceeded('Brave Search did not respond before the research deadline.');
         }
 
-        if ($response->failed()) {
+        if ($response->failed() || $response->redirect()) {
             throw $this->httpFailure($response);
         }
 

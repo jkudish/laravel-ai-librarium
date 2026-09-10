@@ -214,8 +214,40 @@ it('never automatically retries an ambiguous paid submission', function (int|str
 })->with([
     'connection' => ['connection', 'valyu_research.submit_connection'],
     'rejected' => [422, 'valyu_research.invalid_request'],
-    'server uncertainty' => [503, 'valyu_research.unavailable'],
+    'timeout uncertainty' => [408, 'valyu_research.ambiguous_submission'],
+    'rate-limit uncertainty' => [429, 'valyu_research.ambiguous_submission'],
+    'server uncertainty' => [503, 'valyu_research.ambiguous_submission'],
 ]);
+
+it('cancels a known handle from a malformed or late accepted submission', function (string $case): void {
+    $deadline = CarbonImmutable::now()->addSecond();
+    Http::fake(function (Request $request) use ($case, $deadline) {
+        if (str_ends_with($request->url(), '/cancel')) {
+            return Http::response(['success' => true]);
+        }
+
+        if ($case === 'late') {
+            CarbonImmutable::setTestNow($deadline);
+        }
+
+        return Http::response([
+            ...valyuResearchSubmission('dr-accepted-private', 'standard'),
+            ...($case === 'malformed' ? ['mode' => 'unsupported'] : []),
+        ], 202);
+    });
+
+    expect(fn () => app(ValyuResearchDriver::class)->run(valyuResearchRequest(deadline: $deadline)))
+        ->toThrow(function (DriverException $exception) use ($case): void {
+            expect($exception->errorCode)->toBe($case === 'late'
+                ? 'valyu_research.deadline_exceeded'
+                : 'valyu_research.ambiguous_submission')
+                ->and($exception->fallbackAllowed)->toBeFalse()
+                ->and($exception->getMessage())->not->toContain('dr-accepted-private');
+        });
+
+    Http::assertSentCount(2);
+    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://api.valyu.ai/v1/deepresearch/tasks/dr-accepted-private/cancel');
+})->with(['malformed', 'late']);
 
 it('maps known terminal provider states without cancellation or provider error leakage', function (string $status, string $code): void {
     Http::fake(['https://api.valyu.ai/v1/deepresearch/tasks*' => Http::sequence()

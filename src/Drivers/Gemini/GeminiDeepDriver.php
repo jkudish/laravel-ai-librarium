@@ -177,14 +177,21 @@ final readonly class GeminiDeepDriver implements Driver
             );
         }
 
-        $this->remainingSeconds($request);
         if (! in_array($response->status(), [200, 201], true)) {
-            throw $this->httpFailure($response, false);
+            throw $this->submissionFailure($response);
         }
 
-        $payload = $this->json($response);
-        $this->interactionId($payload);
-        $this->status($payload);
+        try {
+            $payload = $this->json($response);
+            $this->interactionId($payload);
+            $this->status($payload);
+        } catch (DriverException) {
+            throw $this->ambiguousSubmission();
+        }
+
+        // Preserve the validated private handle before enforcing the
+        // post-response deadline; an unparseable success remains ambiguous.
+        $this->remainingSeconds($request);
 
         return $payload;
     }
@@ -224,7 +231,7 @@ final readonly class GeminiDeepDriver implements Driver
         if ($response->status() === 408 || $response->status() === 429 || $response->serverError()) {
             return null;
         }
-        if ($response->failed()) {
+        if ($response->failed() || $response->redirect()) {
             throw $this->httpFailure($response, true);
         }
 
@@ -330,6 +337,24 @@ final readonly class GeminiDeepDriver implements Driver
             $response->serverError() => new DriverException('gemini_deep.unavailable', 'Gemini Deep Research is temporarily unavailable.', false),
             default => new DriverException('gemini_deep.invalid_request', 'Gemini Deep Research rejected this request.', false),
         };
+    }
+
+    private function submissionFailure(Response $response): DriverException
+    {
+        if (in_array($response->status(), [408, 429], true) || $response->serverError()) {
+            return $this->ambiguousSubmission();
+        }
+
+        return $this->httpFailure($response, false);
+    }
+
+    private function ambiguousSubmission(): DriverException
+    {
+        return new DriverException(
+            'gemini_deep.ambiguous_submission',
+            'Gemini Deep Research did not safely acknowledge the paid submission; it was not retried.',
+            false,
+        );
     }
 
     private function deadlineExceeded(): DriverException

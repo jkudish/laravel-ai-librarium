@@ -74,7 +74,7 @@ final readonly class PerplexitySearchDriver implements Driver
             throw new DriverException('perplexity_search.deadline_exceeded', 'Perplexity Search did not respond before the research deadline.');
         }
 
-        if ($response->failed()) {
+        if ($response->failed() || $response->redirect()) {
             throw $this->httpFailure($response);
         }
 

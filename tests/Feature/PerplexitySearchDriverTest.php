@@ -201,6 +201,7 @@ it('maps Search HTTP and transport failures without retaining response bodies', 
     Http::assertSentCount(1);
 })->with([
     'authentication' => [fn () => Http::response(['error' => 'Bearer provider-secret'], 401), 'perplexity_search.authentication', true],
+    'redirect' => [fn () => Http::response(['results' => []], 302, ['Location' => 'https://private.example']), 'perplexity_search.invalid_request', false],
     'billing' => [fn () => Http::response(['error' => 'provider-secret'], 402), 'perplexity_search.billing', true],
     'plan' => [fn () => Http::response(['url' => 'https://private.example'], 403), 'perplexity_search.plan_required', true],
     'timeout' => [fn () => Http::response(['error' => 'provider-secret'], 408), 'perplexity_search.timeout', true],

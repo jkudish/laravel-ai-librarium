@@ -214,6 +214,7 @@ it('maps connection and HTTP failures to safe body-free exceptions', function (m
     }
 })->with([
     'connection' => [fn () => throw new ConnectionException('provider-secret transport detail'), 'brave_search.connection', true],
+    'redirect' => [fn () => Http::response(['web' => ['results' => []]], 302, ['Location' => 'https://provider-secret.example']), 'brave_search.invalid_request', false],
     'invalid request' => [fn () => Http::response(['error' => ['detail' => 'provider-secret']], 422), 'brave_search.invalid_request', false],
     'authentication' => [fn () => Http::response(['error' => ['detail' => 'provider-secret']], 401), 'brave_search.authentication', true],
     'forbidden credential' => [fn () => Http::response(['error' => ['detail' => 'provider-secret']], 403), 'brave_search.authentication', true],

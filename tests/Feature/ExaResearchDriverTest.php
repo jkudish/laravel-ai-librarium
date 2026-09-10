@@ -310,6 +310,24 @@ it('never retries an ambiguous submission connection failure', function (): void
     expect($attempts)->toBe(1);
 });
 
+it('validates an accepted private handle before rejecting a late submission response', function (): void {
+    $deadline = CarbonImmutable::now()->addSecond();
+    Http::fake(function () use ($deadline) {
+        CarbonImmutable::setTestNow($deadline);
+
+        return Http::response(exaResearchRun('running'));
+    });
+
+    expect(fn () => exaResearchDriver()->run(exaResearchRequest(deadline: $deadline)))
+        ->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('exa_research.deadline_exceeded')
+                ->and($exception->fallbackAllowed)->toBeFalse()
+                ->and($exception->getMessage())->not->toContain(exaResearchRunId());
+        });
+
+    Http::assertSentCount(1);
+});
+
 it('maps submission and retrieval HTTP failures to safe non-fallback errors', function (int $status, string $code): void {
     Http::fake(['https://api.exa.ai/agent/runs' => Http::response([
         'error' => ['message' => 'provider-secret testing-exa-key'],
@@ -330,11 +348,29 @@ it('maps submission and retrieval HTTP failures to safe non-fallback errors', fu
     'authentication' => [401, 'exa_research.authentication'],
     'credits' => [402, 'exa_research.insufficient_credits'],
     'authorization' => [403, 'exa_research.authorization'],
-    'timeout' => [408, 'exa_research.timeout'],
-    'rate limit' => [429, 'exa_research.rate_limited'],
-    'gateway timeout' => [504, 'exa_research.timeout'],
-    'unavailable' => [503, 'exa_research.unavailable'],
+    'timeout' => [408, 'exa_research.ambiguous_submission'],
+    'rate limit' => [429, 'exa_research.ambiguous_submission'],
+    'gateway timeout' => [504, 'exa_research.ambiguous_submission'],
+    'unavailable' => [503, 'exa_research.ambiguous_submission'],
 ]);
+
+it('treats a malformed successful submission receipt as ambiguous and never resubmits', function (): void {
+    Http::fake(['https://api.exa.ai/agent/runs' => Http::response([
+        'id' => exaResearchRunId(),
+        'status' => 'running',
+        'rawBody' => 'provider-secret',
+    ])]);
+
+    expect(fn () => exaResearchDriver()->run(exaResearchRequest()))
+        ->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('exa_research.ambiguous_submission')
+                ->and($exception->fallbackAllowed)->toBeFalse()
+                ->and($exception->getMessage())->not->toContain(exaResearchRunId())
+                ->not->toContain('provider-secret');
+        });
+
+    Http::assertSentCount(1);
+});
 
 it('fails closed on malformed completion and mismatched retrieval handles', function (array $terminal): void {
     Http::fake(['https://api.exa.ai/agent/runs*' => Http::sequence()

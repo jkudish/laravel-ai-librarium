@@ -219,27 +219,34 @@ final readonly class ValyuResearchDriver implements Driver
             );
         }
 
+        if ($response->status() !== 202) {
+            throw $this->submissionFailure($response);
+        }
+
+        $json = $response->json();
+        if (! is_array($json) || array_is_list($json)) {
+            throw $this->ambiguousSubmission();
+        }
+        $taskId = ValyuSupport::providerReference(data_get($json, 'deepresearch_id'));
+        if ($taskId === null) {
+            throw $this->ambiguousSubmission();
+        }
+        if (! in_array(data_get($json, 'status'), ['queued', 'running'], true)
+            || data_get($json, 'mode') !== 'standard'
+            || ValyuSupport::timestamp(data_get($json, 'created_at')) === null) {
+            $this->cancelBestEffort($request, $taskId);
+
+            throw $this->ambiguousSubmission();
+        }
+
         if (CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
+            $this->cancelBestEffort($request, $taskId);
+
             throw new DriverException(
                 'valyu_research.deadline_exceeded',
                 'Valyu did not accept the research request before the research deadline.',
                 false,
             );
-        }
-        if ($response->status() !== 202) {
-            throw $this->httpFailure($response);
-        }
-
-        $json = $response->json();
-        if (! is_array($json) || array_is_list($json)) {
-            throw $this->invalidSubmission();
-        }
-        $taskId = ValyuSupport::providerReference(data_get($json, 'deepresearch_id'));
-        if ($taskId === null
-            || ! in_array(data_get($json, 'status'), ['queued', 'running'], true)
-            || data_get($json, 'mode') !== 'standard'
-            || ValyuSupport::timestamp(data_get($json, 'created_at')) === null) {
-            throw $this->invalidSubmission();
         }
 
         return $taskId;
@@ -497,6 +504,15 @@ final readonly class ValyuResearchDriver implements Driver
         };
     }
 
+    private function submissionFailure(Response $response): DriverException
+    {
+        if (in_array($response->status(), [408, 429], true) || $response->serverError()) {
+            return $this->ambiguousSubmission();
+        }
+
+        return $this->httpFailure($response);
+    }
+
     /** @return array<array-key, mixed> */
     private function json(Response $response): array
     {
@@ -508,9 +524,13 @@ final readonly class ValyuResearchDriver implements Driver
         return $json;
     }
 
-    private function invalidSubmission(): DriverException
+    private function ambiguousSubmission(): DriverException
     {
-        return new DriverException('valyu_research.invalid_submission', 'Valyu returned an invalid paid research submission response.', false);
+        return new DriverException(
+            'valyu_research.ambiguous_submission',
+            'Valyu did not safely acknowledge the paid research submission; it was not retried.',
+            false,
+        );
     }
 
     private function invalidResponse(): DriverException

@@ -276,6 +276,7 @@ it('maps HTTP failures to bounded body-free terminal exceptions', function (int 
     }
 })->with([
     'bad request' => [400, 'jina.invalid_request', false],
+    'redirect' => [302, 'jina.invalid_request', false],
     'authentication' => [401, 'jina.authentication', true],
     'insufficient balance' => [402, 'jina.insufficient_balance', true],
     'authorization' => [403, 'jina.authorization', true],

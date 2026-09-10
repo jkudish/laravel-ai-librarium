@@ -130,7 +130,7 @@ final readonly class TavilySearchDriver implements Driver
             throw new DriverException('tavily.deadline_exceeded', 'Tavily did not respond before the research deadline.');
         }
 
-        if ($response->failed()) {
+        if ($response->failed() || $response->redirect()) {
             throw $this->httpFailure($response);
         }
 
