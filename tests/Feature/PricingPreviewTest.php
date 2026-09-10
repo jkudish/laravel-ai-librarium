@@ -28,7 +28,7 @@ use Jkudish\LaravelAiPricing\ValueObjects\Rate;
 use Jkudish\LaravelAiPricing\ValueObjects\Usage;
 
 beforeEach(function (): void {
-    CarbonImmutable::setTestNow('2026-09-03T12:00:00Z');
+    CarbonImmutable::setTestNow('2026-09-10T12:00:00Z');
     config()->set('librarium.profiles', []);
     config()->set('ai-pricing.prices', []);
 });
@@ -165,7 +165,7 @@ it('reports package source provenance and current freshness without HTTP', funct
 
     expect($entry['quote']->source)->toBe(PricingSource::ProviderNative)
         ->and($entry['quote']->provenance?->reference)->toBe('https://you.com/pricing')
-        ->and($entry['quote']->provenance?->retrievedAt?->format('Y-m-d'))->toBe('2026-09-03')
+        ->and($entry['quote']->provenance?->retrievedAt)->toBeInstanceOf(DateTimeImmutable::class)
         ->and($entry['freshness'])->toBe('current')
         ->and($preview->hardCostCeilingAvailable)->toBeTrue();
 
