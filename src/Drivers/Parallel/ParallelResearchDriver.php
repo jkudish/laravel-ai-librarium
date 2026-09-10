@@ -9,6 +9,7 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Sleep;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
+use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
@@ -32,7 +33,7 @@ final readonly class ParallelResearchDriver implements Driver
     private const float POLL_INTERVAL_SECONDS = 1.0;
 
     /** @var list<string> */
-    private const array PROCESSORS = ['pro', 'pro-fast', 'ultra', 'ultra-fast'];
+    private const array PROCESSORS = ['pro'];
 
     public function __construct(private ParallelTransport $transport) {}
 
@@ -59,10 +60,13 @@ final readonly class ParallelResearchDriver implements Driver
                 break;
             }
             if ($status === 'failed') {
-                throw new DriverException('parallel.research_failed', 'Parallel could not complete the Research run.');
+                throw new DriverException('parallel.research_failed', 'Parallel could not complete the Research run.', false);
             }
             if ($status === 'cancelled') {
-                throw new DriverException('parallel.cancelled', 'The Parallel Research run was cancelled.');
+                throw new DriverException('parallel.cancelled', 'The Parallel Research run was cancelled.', false);
+            }
+            if ($status === 'action_required') {
+                throw new DriverException('parallel.action_required', 'Parallel requested unsupported human interaction.', false);
             }
         }
 
@@ -132,7 +136,7 @@ final readonly class ParallelResearchDriver implements Driver
                 false,
             );
         }
-        if ($response->status() === 408 || $response->serverError()) {
+        if (in_array($response->status(), [408, 429], true) || $response->serverError()) {
             throw new DriverException(
                 'parallel.ambiguous_submission',
                 'Parallel did not safely reject the Research submission; it was not retried.',
@@ -140,7 +144,7 @@ final readonly class ParallelResearchDriver implements Driver
             );
         }
         if ($response->status() !== 202) {
-            throw $this->transport->failure($response);
+            throw $this->transport->failure($response, true);
         }
 
         $json = $this->json($response);
@@ -348,24 +352,7 @@ final readonly class ParallelResearchDriver implements Driver
 
     private function evidenceUrl(mixed $value): ?string
     {
-        if (! is_string($value) || trim($value) !== $value || $value === '' || filter_var($value, FILTER_VALIDATE_URL) === false) {
-            return null;
-        }
-        $parts = parse_url($value);
-        if ($parts === false || isset($parts['user']) || isset($parts['pass'])) {
-            return null;
-        }
-
-        parse_str($parts['query'] ?? '', $query);
-        foreach (array_keys($query) as $key) {
-            $normalized = strtolower(str_replace(['-', '.'], '_', (string) $key));
-            if (preg_match('/(?:^|_)(?:signature|sig|credential|token|secret|api_key|key)(?:_|$)/', $normalized) === 1) {
-                return null;
-            }
-        }
-
-        return in_array(strtolower($parts['scheme'] ?? ''), ['http', 'https'], true)
-            && ($parts['host'] ?? '') !== '' ? $value : null;
+        return EvidenceUrl::sanitize($value);
     }
 
     private function str(mixed $value): ?string

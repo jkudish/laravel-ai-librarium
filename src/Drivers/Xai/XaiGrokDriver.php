@@ -11,6 +11,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
+use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
@@ -510,23 +511,7 @@ final readonly class XaiGrokDriver implements Driver
 
     private function evidenceUrl(mixed $value): ?string
     {
-        if (! is_string($value) || trim($value) !== $value || $value === '') {
-            return null;
-        }
-
-        if (filter_var($value, FILTER_VALIDATE_URL) === false) {
-            return null;
-        }
-
-        $parts = parse_url($value);
-        if ($parts === false || isset($parts['user']) || isset($parts['pass'])) {
-            return null;
-        }
-
-        return in_array(strtolower($parts['scheme'] ?? ''), ['http', 'https'], true)
-            && ($parts['host'] ?? '') !== ''
-                ? $value
-                : null;
+        return EvidenceUrl::sanitize($value);
     }
 
     private function strategy(DriverRequest $request): string

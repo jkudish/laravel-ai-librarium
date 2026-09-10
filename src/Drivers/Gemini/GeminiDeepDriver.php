@@ -108,7 +108,8 @@ final readonly class GeminiDeepDriver implements Driver
     private function preflight(DriverRequest $request): string
     {
         $profile = $request->profile;
-        if ($profile->provider !== 'gemini-deep'
+        if ($profile->id !== 'gemini-deep-research'
+            || $profile->provider !== 'gemini-deep'
             || ! in_array($profile->model, self::AGENTS, true)
             || $profile->resultKind !== ResultKind::ResearchReport
             || $profile->grounding !== GroundingPolicy::Required

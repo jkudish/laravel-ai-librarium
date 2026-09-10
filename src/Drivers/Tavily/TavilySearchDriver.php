@@ -10,11 +10,17 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
+use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
+use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
+use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Responses\Citation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ContentFormat;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\SourceKind;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 use Jkudish\LaravelAiLibrarium\Responses\ResultProvenance;
@@ -37,6 +43,7 @@ final readonly class TavilySearchDriver implements Driver
 
     public function run(DriverRequest $request): ResearchResult
     {
+        $this->validateProfile($request);
         $this->requireCredential($request);
         $json = $this->requestJson($request);
         $results = $this->results($json);
@@ -185,6 +192,27 @@ final readonly class TavilySearchDriver implements Driver
         }
     }
 
+    private function validateProfile(DriverRequest $request): void
+    {
+        $profile = $request->profile;
+        if ($profile->id !== 'tavily-search'
+            || $profile->provider !== 'tavily'
+            || $profile->model !== null
+            || $profile->resultKind !== ResultKind::SearchResults
+            || $profile->grounding !== GroundingPolicy::None
+            || $profile->observation !== ObservationMode::ApiOutput
+            || $profile->corpora->values()->all() !== [Corpus::Web]
+            || $profile->retrievalMethods->values()->all() !== [RetrievalMethod::SearchEndpoint]
+            || $profile->options !== []
+            || trim($request->prompt) === '') {
+            throw new DriverException(
+                'tavily.invalid_profile',
+                'The Tavily Search Profile has incompatible identity or provenance semantics.',
+                false,
+            );
+        }
+    }
+
     private function remainingSeconds(DriverRequest $request): float
     {
         $seconds = CarbonImmutable::now()->diffInSeconds($request->deadline, false);
@@ -218,19 +246,7 @@ final readonly class TavilySearchDriver implements Driver
 
     private function evidenceUrl(mixed $value): ?string
     {
-        if (! is_string($value) || trim($value) !== $value || $value === '' || filter_var($value, FILTER_VALIDATE_URL) === false) {
-            return null;
-        }
-
-        $parts = parse_url($value);
-        if ($parts === false || isset($parts['user']) || isset($parts['pass'])) {
-            return null;
-        }
-
-        return in_array(strtolower($parts['scheme'] ?? ''), ['http', 'https'], true)
-            && ($parts['host'] ?? '') !== ''
-                ? $value
-                : null;
+        return EvidenceUrl::sanitize($value);
     }
 
     private function markdownInline(string $value): string

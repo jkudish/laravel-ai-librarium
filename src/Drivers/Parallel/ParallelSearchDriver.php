@@ -7,6 +7,7 @@ namespace Jkudish\LaravelAiLibrarium\Drivers\Parallel;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
+use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
@@ -183,7 +184,7 @@ final readonly class ParallelSearchDriver implements Driver
             citations: $citations,
             completedAt: $now,
             providerMeta: (object) ['parallel:search' => [
-                'mode' => $turbo ? 'turbo' : ($options['mode'] ?? 'advanced'),
+                'mode' => $turbo ? 'turbo' : ($options['mode'] ?? 'provider_default'),
                 'result_count' => count($results),
                 'warning_count' => $warningCount,
                 'metering' => $metering,
@@ -235,24 +236,7 @@ final readonly class ParallelSearchDriver implements Driver
 
     private function evidenceUrl(mixed $value): ?string
     {
-        if (! is_string($value) || trim($value) !== $value || $value === '' || filter_var($value, FILTER_VALIDATE_URL) === false) {
-            return null;
-        }
-        $parts = parse_url($value);
-        if ($parts === false || isset($parts['user']) || isset($parts['pass'])) {
-            return null;
-        }
-
-        parse_str($parts['query'] ?? '', $query);
-        foreach (array_keys($query) as $key) {
-            $normalized = strtolower(str_replace(['-', '.'], '_', (string) $key));
-            if (preg_match('/(?:^|_)(?:signature|sig|credential|token|secret|api_key|key)(?:_|$)/', $normalized) === 1) {
-                return null;
-            }
-        }
-
-        return in_array(strtolower($parts['scheme'] ?? ''), ['http', 'https'], true)
-            && ($parts['host'] ?? '') !== '' ? $value : null;
+        return EvidenceUrl::sanitize($value);
     }
 
     private function optionalString(mixed $value): ?string

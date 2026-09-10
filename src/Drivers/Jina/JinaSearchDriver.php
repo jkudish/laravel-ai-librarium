@@ -10,11 +10,17 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
+use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
+use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
+use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Responses\Citation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ContentFormat;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\SourceKind;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 use Jkudish\LaravelAiLibrarium\Responses\ResultProvenance;
@@ -35,6 +41,7 @@ final readonly class JinaSearchDriver implements Driver
 
     public function run(DriverRequest $request): ResearchResult
     {
+        $this->validateProfile($request);
         $credential = $request->profile->credential;
         if (blank($credential)) {
             throw new DriverException('jina.authentication', 'The Jina Search provider is not configured.');
@@ -60,6 +67,27 @@ final readonly class JinaSearchDriver implements Driver
         }
 
         return $this->result($request, $results);
+    }
+
+    private function validateProfile(DriverRequest $request): void
+    {
+        $profile = $request->profile;
+        if ($profile->id !== 'jina-search'
+            || $profile->provider !== 'jina-search'
+            || $profile->model !== null
+            || $profile->resultKind !== ResultKind::SearchResults
+            || $profile->grounding !== GroundingPolicy::None
+            || $profile->observation !== ObservationMode::ApiOutput
+            || $profile->corpora->values()->all() !== [Corpus::Web]
+            || $profile->retrievalMethods->values()->all() !== [RetrievalMethod::SearchEndpoint]
+            || $profile->options !== []
+            || trim($request->prompt) === '') {
+            throw new DriverException(
+                'jina.invalid_profile',
+                'The Jina Search Profile has incompatible identity or provenance semantics.',
+                false,
+            );
+        }
     }
 
     private function send(DriverRequest $request, string $credential): Response
@@ -178,19 +206,7 @@ final readonly class JinaSearchDriver implements Driver
 
     private function evidenceUrl(mixed $value): ?string
     {
-        if (! is_string($value) || trim($value) !== $value || $value === '' || filter_var($value, FILTER_VALIDATE_URL) === false) {
-            return null;
-        }
-
-        $parts = parse_url($value);
-        if ($parts === false || isset($parts['user']) || isset($parts['pass'])) {
-            return null;
-        }
-
-        return in_array(strtolower($parts['scheme'] ?? ''), ['http', 'https'], true)
-            && ($parts['host'] ?? '') !== ''
-                ? $value
-                : null;
+        return EvidenceUrl::sanitize($value);
     }
 
     private function markdownInline(string $value): string

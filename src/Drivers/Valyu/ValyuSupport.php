@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jkudish\LaravelAiLibrarium\Drivers\Valyu;
 
 use Carbon\CarbonImmutable;
+use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
 use Jkudish\LaravelAiLibrarium\Responses\Usage;
 
 final class ValyuSupport
@@ -33,45 +34,7 @@ final class ValyuSupport
 
     public static function evidenceUrl(mixed $value): ?string
     {
-        $url = self::string($value);
-        if ($url === null || $url !== $value || filter_var($url, FILTER_VALIDATE_URL) === false) {
-            return null;
-        }
-
-        $parts = parse_url($url);
-        if ($parts === false || isset($parts['user']) || isset($parts['pass'])) {
-            return null;
-        }
-
-        if (! in_array(strtolower($parts['scheme'] ?? ''), ['http', 'https'], true) || ($parts['host'] ?? '') === '') {
-            return null;
-        }
-
-        if (self::hasCredentialQueryKey($parts['query'] ?? '')) {
-            return null;
-        }
-
-        return $url;
-    }
-
-    private static function hasCredentialQueryKey(string $query): bool
-    {
-        foreach (preg_split('/[&;]/', $query) ?: [] as $parameter) {
-            [$rawKey] = explode('=', $parameter, 2);
-            $key = rawurldecode(str_replace('+', ' ', $rawKey));
-            $segments = preg_split('/[^a-z0-9]+/i', $key, -1, PREG_SPLIT_NO_EMPTY) ?: [];
-            $candidates = [...$segments, implode('', $segments)];
-
-            foreach ($candidates as $candidate) {
-                $normalized = strtolower($candidate);
-                if (in_array($normalized, ['key', 'sig'], true)
-                    || preg_match('/(?:signature|credential|token|secret|api(?:access)?key|accesskeyid)$/', $normalized) === 1) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
+        return EvidenceUrl::sanitize($value);
     }
 
     public static function timestamp(mixed $value): ?CarbonImmutable

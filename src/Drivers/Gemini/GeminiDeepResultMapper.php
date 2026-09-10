@@ -6,6 +6,7 @@ namespace Jkudish\LaravelAiLibrarium\Drivers\Gemini;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
+use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
 use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\ResearchResultMapper;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
@@ -168,27 +169,7 @@ final readonly class GeminiDeepResultMapper
 
     private function evidenceUrl(mixed $value): ?string
     {
-        if (! is_string($value) || trim($value) !== $value || $value === '' || filter_var($value, FILTER_VALIDATE_URL) === false) {
-            return null;
-        }
-
-        $parts = parse_url($value);
-        if ($parts === false || isset($parts['user']) || isset($parts['pass'])) {
-            return null;
-        }
-        if (! in_array(strtolower($parts['scheme'] ?? ''), ['http', 'https'], true) || ($parts['host'] ?? '') === '') {
-            return null;
-        }
-
-        parse_str($parts['query'] ?? '', $query);
-        foreach (array_keys($query) as $key) {
-            $normalized = strtolower(str_replace(['-', '.'], '_', (string) $key));
-            if (preg_match('/(?:^|_)(?:signature|sig|credential|token|secret|api_key|key)(?:_|$)/', $normalized) === 1) {
-                return null;
-            }
-        }
-
-        return $value;
+        return EvidenceUrl::sanitize($value);
     }
 
     /** @return list<array<array-key, mixed>> */

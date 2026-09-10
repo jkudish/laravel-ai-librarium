@@ -51,7 +51,7 @@ final readonly class ValyuResearchDriver implements Driver
     public static function profileOptionRules(): array
     {
         return [
-            'mode' => ['sometimes', 'string', 'in:fast,standard,heavy,max'],
+            'mode' => ['sometimes', 'string', 'in:standard'],
             'research_strategy' => ['sometimes', 'string', 'filled', 'max:15000'],
             'report_format' => ['sometimes', 'string', 'filled', 'max:15000'],
             'search' => ['sometimes', 'array:search_type,included_sources,excluded_sources,source_biases,start_date,end_date,country_code'],
@@ -76,7 +76,7 @@ final readonly class ValyuResearchDriver implements Driver
                 }
             }],
             'output_formats' => ['sometimes', 'array', 'list', static function (string $attribute, mixed $value, callable $fail): void {
-                if (! is_array($value) || ($value !== ['markdown'] && $value !== ['markdown', 'pdf'])) {
+                if (! is_array($value) || $value !== ['markdown']) {
                     $fail("The {$attribute} field is invalid.");
                 }
             }],
@@ -111,6 +111,7 @@ final readonly class ValyuResearchDriver implements Driver
                     throw new DriverException(
                         'valyu_research.'.($status === 'failed' ? 'failed' : 'cancelled'),
                         $status === 'failed' ? 'Valyu could not complete the research report.' : 'The Valyu research report was cancelled.',
+                        false,
                     );
                 }
 
@@ -139,7 +140,8 @@ final readonly class ValyuResearchDriver implements Driver
             default => [Corpus::Web, Corpus::Specialized],
         };
 
-        if ($profile->provider !== 'valyu'
+        if ($profile->id !== 'valyu-research'
+            || $profile->provider !== 'valyu'
             || $profile->model !== null
             || $profile->resultKind !== ResultKind::ResearchReport
             || $profile->grounding !== GroundingPolicy::Required
@@ -167,7 +169,7 @@ final readonly class ValyuResearchDriver implements Driver
             }
 
             $formats = $options['output_formats'] ?? ['markdown'];
-            if (! is_array($formats) || ($formats !== ['markdown'] && $formats !== ['markdown', 'pdf'])) {
+            if (! is_array($formats) || $formats !== ['markdown']) {
                 $validator->errors()->add('options.output_formats', 'The output formats are invalid.');
             }
 
@@ -235,7 +237,7 @@ final readonly class ValyuResearchDriver implements Driver
         $taskId = ValyuSupport::providerReference(data_get($json, 'deepresearch_id'));
         if ($taskId === null
             || ! in_array(data_get($json, 'status'), ['queued', 'running'], true)
-            || ! in_array(data_get($json, 'mode'), ['fast', 'standard', 'heavy', 'max'], true)
+            || data_get($json, 'mode') !== 'standard'
             || ValyuSupport::timestamp(data_get($json, 'created_at')) === null) {
             throw $this->invalidSubmission();
         }
@@ -246,27 +248,36 @@ final readonly class ValyuResearchDriver implements Driver
     /** @return array<array-key, mixed> */
     private function status(DriverRequest $request, string $taskId): array
     {
-        try {
-            $response = $this->send($request, 'get', self::ENDPOINT.'/'.rawurlencode($taskId).'/status');
-        } catch (ConnectionException) {
-            if (CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
-                throw $this->deadlineExceeded();
+        while (true) {
+            try {
+                $response = $this->send($request, 'get', self::ENDPOINT.'/'.rawurlencode($taskId).'/status');
+            } catch (ConnectionException) {
+                if (CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
+                    throw $this->deadlineExceeded();
+                }
+
+                $this->waitBeforePolling($request);
+
+                continue;
             }
 
-            throw new DriverException('valyu_research.connection', 'Valyu Research could not be reached.', false);
-        }
+            $this->remainingSeconds($request, 'Valyu did not complete before the research deadline.');
+            if (in_array($response->status(), [408, 429], true) || $response->serverError()) {
+                $this->waitBeforePolling($request);
 
-        $this->remainingSeconds($request, 'Valyu did not complete before the research deadline.');
-        if ($response->status() !== 200) {
-            throw $this->httpFailure($response);
-        }
+                continue;
+            }
+            if ($response->status() !== 200) {
+                throw $this->httpFailure($response);
+            }
 
-        $json = $this->json($response);
-        if (data_get($json, 'deepresearch_id') !== $taskId) {
-            throw $this->invalidResponse();
-        }
+            $json = $this->json($response);
+            if (data_get($json, 'deepresearch_id') !== $taskId) {
+                throw $this->invalidResponse();
+            }
 
-        return $json;
+            return $json;
+        }
     }
 
     /** @return array<string, mixed> */
@@ -345,7 +356,7 @@ final readonly class ValyuResearchDriver implements Driver
 
         $completedAt = ValyuSupport::timestamp(data_get($task, 'completed_at')) ?? CarbonImmutable::now();
         $mode = data_get($task, 'mode');
-        if (! in_array($mode, ['fast', 'standard', 'heavy', 'max'], true)) {
+        if ($mode !== 'standard') {
             throw $this->invalidResponse();
         }
 
@@ -461,7 +472,7 @@ final readonly class ValyuResearchDriver implements Driver
     {
         $seconds = CarbonImmutable::now()->diffInMilliseconds($request->deadline, false) / 1000;
         if ($seconds < 0.001) {
-            throw new DriverException('valyu_research.deadline_exceeded', $message);
+            throw new DriverException('valyu_research.deadline_exceeded', $message, false);
         }
 
         return $seconds;

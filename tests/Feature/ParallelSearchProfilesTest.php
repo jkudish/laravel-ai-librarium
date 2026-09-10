@@ -148,41 +148,50 @@ it('accepts source paths for Search but rejects paths and mode overrides for Tur
     foreach ([
         ['source_policy' => ['include_domains' => ['docs.example.com/php']]],
         ['mode' => 'advanced'],
+        ['max_results' => 11],
     ] as $options) {
         expect(fn () => app(ParallelTurboDriver::class)->run(parallelSearchRequest(
             profileId: 'parallel-turbo',
             options: $options,
-        )))->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'parallel.invalid_options');
+        )))->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('parallel.invalid_options')
+                ->and($exception->fallbackAllowed)->toBeFalse();
+        });
     }
 
     Http::assertSentCount(1);
 });
 
-it('rejects credentials, profile drift, unsupported controls, and expired deadlines before HTTP', function (DriverRequest $request, string $code): void {
+it('rejects credentials, profile drift, unsupported controls, and expired deadlines before HTTP', function (DriverRequest $request, string $code, bool $fallbackAllowed): void {
     Http::fake();
 
     expect(fn () => app(ParallelSearchDriver::class)->run($request))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === $code && ! $exception->fallbackAllowed);
+        ->toThrow(function (DriverException $exception) use ($code, $fallbackAllowed): void {
+            expect($exception->errorCode)->toBe($code)
+                ->and($exception->fallbackAllowed)->toBe($fallbackAllowed);
+        });
     Http::assertNothingSent();
 })->with([
-    'missing credential' => fn () => [parallelSearchRequest(credential: null), 'parallel.authentication'],
-    'Turbo missing credential' => fn () => [parallelSearchRequest(profileId: 'parallel-turbo', credential: null), 'parallel.authentication'],
-    'wrong provider' => fn () => [parallelSearchRequest(provider: 'parallel-search'), 'parallel.invalid_profile'],
-    'wrong result kind' => fn () => [parallelSearchRequest(resultKind: ResultKind::GroundedAnswer), 'parallel.invalid_profile'],
-    'unknown option' => fn () => [parallelSearchRequest(options: ['unknown' => true]), 'parallel.invalid_options'],
+    'missing credential' => fn () => [parallelSearchRequest(credential: null), 'parallel.authentication', true],
+    'Turbo missing credential' => fn () => [parallelSearchRequest(profileId: 'parallel-turbo', credential: null), 'parallel.authentication', true],
+    'wrong provider' => fn () => [parallelSearchRequest(provider: 'parallel-search'), 'parallel.invalid_profile', false],
+    'wrong result kind' => fn () => [parallelSearchRequest(resultKind: ResultKind::GroundedAnswer), 'parallel.invalid_profile', false],
+    'unknown option' => fn () => [parallelSearchRequest(options: ['unknown' => true]), 'parallel.invalid_options', false],
     'combined source limit' => fn () => [parallelSearchRequest(options: ['source_policy' => [
         'include_domains' => array_fill(0, 200, 'example.com'),
         'exclude_domains' => ['blocked.example'],
-    ]]), 'parallel.invalid_options'],
-    'expired deadline' => fn () => [parallelSearchRequest(deadline: CarbonImmutable::now()), 'parallel.deadline_exceeded'],
+    ]]), 'parallel.invalid_options', false],
+    'expired deadline' => fn () => [parallelSearchRequest(deadline: CarbonImmutable::now()), 'parallel.deadline_exceeded', false],
 ]);
 
 it('fails closed on malformed successful Search payloads', function (mixed $payload): void {
     Http::fake(['https://api.parallel.ai/v1/search' => Http::response($payload)]);
 
     expect(fn () => app(ParallelSearchDriver::class)->run(parallelSearchRequest()))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'parallel.invalid_response'
-            && ! str_contains($exception->getMessage(), 'provider-secret'));
+        ->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('parallel.invalid_response')
+                ->and($exception->getMessage())->not->toContain('provider-secret');
+        });
 })->with([
     'non-object' => ['provider-secret'],
     'missing identity' => [['results' => []]],
@@ -192,7 +201,7 @@ it('fails closed on malformed successful Search payloads', function (mixed $payl
     'invalid metering' => [parallelSearchResponse(usage: [['name' => 'sku_search', 'count' => -1]])],
 ]);
 
-it('maps HTTP and connection failures to bounded body-free errors', function (int|string $failure, string $code): void {
+it('maps HTTP and connection failures to bounded body-free errors', function (int|string $failure, string $code, bool $fallbackAllowed): void {
     Http::fake(static function () use ($failure) {
         if ($failure === 'connection') {
             throw new ConnectionException('provider-secret testing-parallel-key');
@@ -202,19 +211,30 @@ it('maps HTTP and connection failures to bounded body-free errors', function (in
     });
 
     expect(fn () => app(ParallelSearchDriver::class)->run(parallelSearchRequest()))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === $code
-            && ! str_contains($exception->getMessage(), 'provider-secret')
-            && ! str_contains($exception->getMessage(), 'testing-parallel-key'));
+        ->toThrow(function (DriverException $exception) use ($code, $fallbackAllowed): void {
+            expect($exception->errorCode)->toBe($code)
+                ->and($exception->fallbackAllowed)->toBe($fallbackAllowed)
+                ->and($exception->getMessage())->not->toContain('provider-secret')
+                ->not->toContain('testing-parallel-key');
+        });
 })->with([
-    'authentication' => [401, 'parallel.authentication'],
-    'credit' => [402, 'parallel.insufficient_credit'],
-    'authorization' => [403, 'parallel.authorization'],
-    'timeout' => [408, 'parallel.timeout'],
-    'rate limit' => [429, 'parallel.rate_limited'],
-    'unavailable' => [503, 'parallel.unavailable'],
-    'invalid request' => [422, 'parallel.invalid_request'],
-    'connection' => ['connection', 'parallel.connection'],
+    'authentication' => [401, 'parallel.authentication', true],
+    'credit' => [402, 'parallel.insufficient_credit', true],
+    'authorization' => [403, 'parallel.authorization', true],
+    'timeout' => [408, 'parallel.timeout', true],
+    'rate limit' => [429, 'parallel.rate_limited', true],
+    'unavailable' => [503, 'parallel.unavailable', true],
+    'invalid request' => [422, 'parallel.invalid_request', false],
+    'connection' => ['connection', 'parallel.connection', true],
 ]);
+
+it('labels omitted Search mode as provider default rather than a concrete billable mode', function (): void {
+    Http::fake(['https://api.parallel.ai/v1/search' => Http::response(parallelSearchResponse())]);
+
+    $result = app(ParallelSearchDriver::class)->run(parallelSearchRequest());
+
+    expect(data_get($result->providerMeta, 'parallel:search.mode'))->toBe('provider_default');
+});
 
 /**
  * @param  list<array<string, mixed>>|null  $results

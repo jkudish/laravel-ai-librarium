@@ -212,16 +212,22 @@ it('maps Search HTTP and transport failures without retaining response bodies', 
 it('maps malformed responses, connection failures, and deadline exhaustion safely', function (): void {
     Http::fake(['https://api.perplexity.ai/search' => Http::response(['id' => 'search_private_1'])]);
     expect(fn () => perplexitySearchDriver()->run(perplexitySearchRequest()))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'perplexity_search.invalid_response');
+        ->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('perplexity_search.invalid_response');
+        });
 
     Http::fake(fn (): never => throw new ConnectionException('Bearer provider-secret https://private.example'));
     expect(fn () => perplexitySearchDriver()->run(perplexitySearchRequest()))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'perplexity_search.connection'
-            && ! str_contains($exception->getMessage(), 'provider-secret'));
+        ->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('perplexity_search.connection')
+                ->and($exception->getMessage())->not->toContain('provider-secret');
+        });
 
     Http::fake();
     expect(fn () => perplexitySearchDriver()->run(perplexitySearchRequest(deadline: CarbonImmutable::now())))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'perplexity_search.deadline_exceeded');
+        ->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('perplexity_search.deadline_exceeded');
+        });
     Http::assertNothingSent();
 });
 

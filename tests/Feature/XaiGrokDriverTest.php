@@ -222,8 +222,10 @@ it('rejects required-grounding output without valid citations', function (array 
     Http::fake(['https://api.x.ai/v1/responses' => Http::response($response)]);
 
     expect(fn () => xaiGrokDriver()->run(xaiGrokRequest()))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'xai.invalid_response'
-            && ! str_contains($exception->getMessage(), 'provider-secret'));
+        ->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('xai.invalid_response')
+                ->and($exception->getMessage())->not->toContain('provider-secret');
+        });
 })->with([
     'no annotations' => [[]],
     'all annotations invalid' => [[
@@ -307,7 +309,9 @@ it('rejects strategy-incompatible options before requesting', function (array $c
     Http::fake();
 
     expect(fn () => xaiGrokDriver()->run(xaiGrokRequest(corpora: $corpora, options: $options)))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'xai.invalid_options');
+        ->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('xai.invalid_options');
+        });
 
     Http::assertNothingSent();
 })->with([
@@ -323,7 +327,9 @@ it('validates every reported usage and cost scalar', function (string $path, mix
     Http::fake(['https://api.x.ai/v1/responses' => Http::response($response)]);
 
     expect(fn () => xaiGrokDriver()->run(xaiGrokRequest()))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'xai.invalid_response');
+        ->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('xai.invalid_response');
+        });
 })->with([
     'string input tokens' => ['usage.input_tokens', '120'],
     'negative output tokens' => ['usage.output_tokens', -1],
@@ -364,8 +370,10 @@ it('rejects a non-JSON successful response', function (): void {
     Http::fake(['https://api.x.ai/v1/responses' => Http::response('provider-secret', 200)]);
 
     expect(fn () => xaiGrokDriver()->run(xaiGrokRequest()))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'xai.invalid_response'
-            && ! str_contains($exception->getMessage(), 'provider-secret'));
+        ->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('xai.invalid_response')
+                ->and($exception->getMessage())->not->toContain('provider-secret');
+        });
 });
 
 it('maps provider HTTP failures without exposing response bodies or credentials', function (int $status, array $body, string $code): void {
@@ -394,8 +402,10 @@ it('maps connection failures safely', function (): void {
     Http::fake(static fn (): never => throw new ConnectionException('provider-secret'));
 
     expect(fn () => xaiGrokDriver()->run(xaiGrokRequest()))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'xai.connection'
-            && ! str_contains($exception->getMessage(), 'provider-secret'));
+        ->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('xai.connection')
+                ->and($exception->getMessage())->not->toContain('provider-secret');
+        });
 });
 
 it('maps a connection timeout at the shared deadline to deadline exceeded', function (): void {
@@ -406,15 +416,19 @@ it('maps a connection timeout at the shared deadline to deadline exceeded', func
     });
 
     expect(fn () => xaiGrokDriver()->run(xaiGrokRequest(deadline: CarbonImmutable::now()->addSeconds(2))))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'xai.deadline_exceeded'
-            && ! str_contains($exception->getMessage(), 'provider-secret'));
+        ->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('xai.deadline_exceeded')
+                ->and($exception->getMessage())->not->toContain('provider-secret');
+        });
 });
 
 it('does not request after the shared deadline', function (): void {
     Http::fake();
 
     expect(fn () => xaiGrokDriver()->run(xaiGrokRequest(deadline: CarbonImmutable::now()->subSecond())))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'xai.deadline_exceeded');
+        ->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('xai.deadline_exceeded');
+        });
 
     Http::assertNothingSent();
 });
@@ -427,7 +441,9 @@ it('rejects a response that arrives after the shared deadline', function (): voi
     });
 
     expect(fn () => xaiGrokDriver()->run(xaiGrokRequest(deadline: CarbonImmutable::now()->addSeconds(2))))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'xai.deadline_exceeded');
+        ->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('xai.deadline_exceeded');
+        });
 
     Http::assertSentCount(1);
 });

@@ -192,6 +192,38 @@ it('does not retry an ambiguous submission for any Agent profile', function (str
     'background high' => ['perplexity-sonar-deep'],
 ]);
 
+it('makes uncertain background HTTP and malformed acknowledgements ambiguous and non-fallback', function (mixed $payload, int $status): void {
+    Http::fake(['https://api.perplexity.ai/v1/agent' => Http::response($payload, $status)]);
+
+    expect(fn () => perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-deep-research')))
+        ->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('perplexity.ambiguous_submission')
+                ->and($exception->fallbackAllowed)->toBeFalse();
+        });
+
+    Http::assertSentCount(1);
+})->with([
+    'timeout' => [['error' => 'provider-secret'], 408],
+    'rate limit' => [['error' => 'provider-secret'], 429],
+    'unavailable' => [['error' => 'provider-secret'], 503],
+    'missing handle' => [['status' => 'queued'], 200],
+    'unknown status' => [['id' => 'resp_private_1', 'status' => 'paused'], 200],
+]);
+
+it('makes definitive background submission rejections non-fallback', function (int $status, string $code): void {
+    Http::fake(['https://api.perplexity.ai/v1/agent' => Http::response(['error' => 'provider-secret'], $status)]);
+
+    expect(fn () => perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-deep-research')))
+        ->toThrow(function (DriverException $exception) use ($code): void {
+            expect($exception->errorCode)->toBe($code)
+                ->and($exception->fallbackAllowed)->toBeFalse();
+        });
+})->with([
+    'authentication' => [401, 'perplexity.authentication'],
+    'billing' => [402, 'perplexity.billing'],
+    'invalid request' => [422, 'perplexity.invalid_request'],
+]);
+
 it('maps all terminal Agent states to safe errors', function (string $status, string $code): void {
     Http::fake([
         'https://api.perplexity.ai/v1/agent' => Http::response([
@@ -255,6 +287,7 @@ it('maps a retrieved medium Agent failure without exposing its handle or body', 
         $this->fail('A retrieved medium failure must fail safely.');
     } catch (DriverException $exception) {
         expect($exception->errorCode)->toBe('perplexity.rate_limited')
+            ->and($exception->fallbackAllowed)->toBeFalse()
             ->and($exception->getMessage())->not->toContain('resp_private_1')
             ->not->toContain('provider-secret')
             ->not->toContain('private.example');
@@ -320,7 +353,8 @@ it('rejects unknown states and mismatched canonical response IDs', function (str
         perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-deep-research'));
         $this->fail('Invalid canonical state must fail.');
     } catch (DriverException $exception) {
-        expect($exception->errorCode)->toBe('perplexity.invalid_response');
+        expect($exception->errorCode)->toBe('perplexity.invalid_response')
+            ->and($exception->fallbackAllowed)->toBeFalse();
     }
 })->with(['unknown state' => ['state'], 'mismatched id' => ['id']]);
 

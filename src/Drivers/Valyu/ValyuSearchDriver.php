@@ -195,7 +195,8 @@ final readonly class ValyuSearchDriver implements Driver
             default => [Corpus::Web, Corpus::Specialized],
         };
 
-        if ($profile->provider !== 'valyu'
+        if ($profile->id !== 'valyu-search'
+            || $profile->provider !== 'valyu'
             || $profile->model !== null
             || $profile->resultKind !== ResultKind::SearchResults
             || $profile->grounding !== GroundingPolicy::None

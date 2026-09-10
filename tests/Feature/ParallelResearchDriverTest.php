@@ -143,14 +143,31 @@ it('maps every terminal Research status without retrieving or exposing provider 
         ->push($terminal)]);
 
     expect(fn () => app(ParallelResearchDriver::class)->run(parallelResearchRequest()))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === $code
-            && ! str_contains($exception->getMessage(), 'provider-secret')
-            && ! str_contains($exception->getMessage(), 'testing-parallel-key'));
+        ->toThrow(function (DriverException $exception) use ($code): void {
+            expect($exception->errorCode)->toBe($code)
+                ->and($exception->fallbackAllowed)->toBeFalse()
+                ->and($exception->getMessage())->not->toContain('provider-secret')
+                ->not->toContain('testing-parallel-key');
+        });
     Http::assertSentCount(2);
 })->with([
     'failed' => ['failed', 'parallel.research_failed'],
     'cancelled' => ['cancelled', 'parallel.cancelled'],
 ]);
+
+it('fails an action-required run immediately without fallback or result retrieval', function (): void {
+    Http::fake(['https://api.parallel.ai/v1/tasks/runs*' => Http::sequence()
+        ->push(parallelResearchRun('queued'), 202)
+        ->push(parallelResearchRun('action_required'))]);
+
+    expect(fn () => app(ParallelResearchDriver::class)->run(parallelResearchRequest()))
+        ->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('parallel.action_required')
+                ->and($exception->fallbackAllowed)->toBeFalse();
+        });
+
+    expect(Http::recorded()->map(fn (array $record): string => $record[0]->method())->all())->toBe(['POST', 'GET']);
+});
 
 it('fails at the shared deadline without another poll or result retrieval', function (): void {
     Http::fake(['https://api.parallel.ai/v1/tasks/runs' => Http::response(parallelResearchRun('queued'), 202)]);
@@ -160,7 +177,10 @@ it('fails at the shared deadline without another poll or result retrieval', func
 
     expect(fn () => app(ParallelResearchDriver::class)->run(parallelResearchRequest(
         deadline: CarbonImmutable::now()->addSecond(),
-    )))->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'parallel.deadline_exceeded');
+    )))->toThrow(function (DriverException $exception): void {
+        expect($exception->errorCode)->toBe('parallel.deadline_exceeded')
+            ->and($exception->fallbackAllowed)->toBeFalse();
+    });
     Http::assertSentCount(1);
 });
 
@@ -176,9 +196,11 @@ it('never retries an ambiguous Research submission', function (string $failure):
     });
 
     expect(fn () => app(ParallelResearchDriver::class)->run(parallelResearchRequest()))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'parallel.ambiguous_submission'
-            && ! $exception->fallbackAllowed
-            && ! str_contains($exception->getMessage(), 'provider-secret'));
+        ->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('parallel.ambiguous_submission')
+                ->and($exception->fallbackAllowed)->toBeFalse()
+                ->and($exception->getMessage())->not->toContain('provider-secret');
+        });
     expect($attempts)->toBe(1);
 })->with(['connection', 'redirect']);
 
@@ -186,29 +208,52 @@ it('does not retry an invalid or failed submission response', function (mixed $r
     Http::fake(['https://api.parallel.ai/v1/tasks/runs' => Http::response($response, $status)]);
 
     expect(fn () => app(ParallelResearchDriver::class)->run(parallelResearchRequest()))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === $code
-            && ($code !== 'parallel.ambiguous_submission' || ! $exception->fallbackAllowed)
-            && ! str_contains($exception->getMessage(), 'provider-secret'));
+        ->toThrow(function (DriverException $exception) use ($code): void {
+            expect($exception->errorCode)->toBe($code)
+                ->and($exception->fallbackAllowed)->toBeFalse()
+                ->and($exception->getMessage())->not->toContain('provider-secret');
+        });
     Http::assertSentCount(1);
 })->with([
     'malformed accepted receipt' => [['run_id' => parallelResearchRunId(), 'status' => 'queued', 'processor' => 'ultra'], 202, 'parallel.ambiguous_submission'],
     'authentication' => [['error' => ['message' => 'provider-secret']], 401, 'parallel.authentication'],
     'credit' => [['error' => ['message' => 'provider-secret']], 402, 'parallel.insufficient_credit'],
-    'rate limit' => [['error' => ['message' => 'provider-secret']], 429, 'parallel.rate_limited'],
+    'ambiguous rate limit' => [['error' => ['message' => 'provider-secret']], 429, 'parallel.ambiguous_submission'],
     'ambiguous unavailable' => [['error' => ['message' => 'provider-secret']], 503, 'parallel.ambiguous_submission'],
     'invalid request' => [['error' => ['message' => 'provider-secret']], 422, 'parallel.invalid_request'],
+]);
+
+it('makes every known-handle HTTP failure non-fallback', function (int $status, string $code): void {
+    Http::fake(['https://api.parallel.ai/v1/tasks/runs*' => Http::sequence()
+        ->push(parallelResearchRun('queued'), 202)
+        ->push(['error' => ['message' => 'provider-secret']], $status)]);
+
+    expect(fn () => app(ParallelResearchDriver::class)->run(parallelResearchRequest()))
+        ->toThrow(function (DriverException $exception) use ($code): void {
+            expect($exception->errorCode)->toBe($code)
+                ->and($exception->fallbackAllowed)->toBeFalse()
+                ->and($exception->getMessage())->not->toContain('provider-secret');
+        });
+
+    expect(Http::recorded()->filter(fn (array $record): bool => $record[0]->method() === 'POST'))->toHaveCount(1);
+})->with([
+    'authentication' => [401, 'parallel.authentication'],
+    'missing run' => [404, 'parallel.run_missing'],
+    'invalid request' => [422, 'parallel.invalid_request'],
 ]);
 
 it('rejects invalid profile targets, options, input, credentials, and deadlines before submission', function (DriverRequest $request, string $code): void {
     Http::fake();
 
     expect(fn () => app(ParallelResearchDriver::class)->run($request))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === $code);
+        ->toThrow(function (DriverException $exception) use ($code): void {
+            expect($exception->errorCode)->toBe($code);
+        });
     Http::assertNothingSent();
 })->with([
     'wrong profile' => fn () => [parallelResearchRequest(profileId: 'parallel-chat'), 'parallel.invalid_profile'],
     'wrong provider' => fn () => [parallelResearchRequest(provider: 'parallel-research'), 'parallel.invalid_profile'],
-    'unsupported processor' => fn () => [parallelResearchRequest(model: 'core'), 'parallel.invalid_profile'],
+    'unsupported processor' => fn () => [parallelResearchRequest(model: 'pro-fast'), 'parallel.invalid_profile'],
     'wrong result kind' => fn () => [parallelResearchRequest(resultKind: ResultKind::GroundedAnswer), 'parallel.invalid_profile'],
     'unknown option' => fn () => [parallelResearchRequest(options: ['processor' => 'pro']), 'parallel.invalid_options'],
     'invalid source' => fn () => [parallelResearchRequest(options: ['include_domains' => ['https://example.com']]), 'parallel.invalid_options'],
@@ -227,7 +272,10 @@ it('fails closed on mismatched lifecycle identities and malformed results', func
     Http::fake(['https://api.parallel.ai/v1/tasks/runs*' => $sequence]);
 
     expect(fn () => app(ParallelResearchDriver::class)->run(parallelResearchRequest()))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'parallel.invalid_response');
+        ->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('parallel.invalid_response')
+                ->and($exception->fallbackAllowed)->toBeFalse();
+        });
 })->with([
     'mismatched status id' => [[...parallelResearchRun('running'), 'run_id' => 'trun_other'], null],
     'unknown status' => [[...parallelResearchRun('running'), 'status' => 'unknown'], null],

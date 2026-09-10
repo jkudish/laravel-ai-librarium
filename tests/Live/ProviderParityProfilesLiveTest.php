@@ -46,9 +46,19 @@ it('runs one explicitly approved provider-parity canary', function (
         $this->markTestSkipped("This Profile has no enforceable preview ceiling. Set LIBRARIUM_LIVE_UNPRICED_ACK=external-cap:{$profile}:USD:{$maximumUsd} only after applying that provider/account cap externally.");
     }
 
+    $exactSubmissionUrl = match ($profile) {
+        'brave-search' => $submissionUrl.'?'.http_build_query(['q' => $query], '', '&', PHP_QUERY_RFC3986),
+        'serpapi' => $submissionUrl.'?'.http_build_query([
+            'engine' => 'google',
+            'q' => $query,
+            'api_key' => trim($credential),
+        ], '', '&', PHP_QUERY_RFC3986),
+        default => $submissionUrl,
+    };
+
     $response = $pending->run();
     $submissions = Http::recorded(fn (Request $request): bool => $request->method() === $submissionMethod
-        && str_starts_with($request->url(), $submissionUrl));
+        && $request->url() === $exactSubmissionUrl);
 
     expect($submissions)->toHaveCount(1);
 

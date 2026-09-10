@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
+use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
@@ -314,18 +315,7 @@ final readonly class PerplexitySearchDriver implements Driver
 
     private function evidenceUrl(mixed $value): ?string
     {
-        if (! is_string($value) || trim($value) !== $value || $value === '' || filter_var($value, FILTER_VALIDATE_URL) === false) {
-            return null;
-        }
-        $parts = parse_url($value);
-
-        return $parts !== false
-            && ! isset($parts['user'])
-            && ! isset($parts['pass'])
-            && in_array(strtolower($parts['scheme'] ?? ''), ['http', 'https'], true)
-            && ($parts['host'] ?? '') !== ''
-                ? $value
-                : null;
+        return EvidenceUrl::sanitize($value);
     }
 
     private function normalizedUrl(string $url): string

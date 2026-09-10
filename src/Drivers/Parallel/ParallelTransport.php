@@ -21,16 +21,16 @@ final readonly class ParallelTransport
     /** @param array<string, mixed> $payload */
     public function post(DriverRequest $request, string $url, array $payload, bool $submission = false): Response
     {
-        return $this->send($request, 'post', $url, $payload, $submission);
+        return $this->send($request, 'post', $url, $payload, $submission, $submission);
     }
 
     public function get(DriverRequest $request, string $url): Response
     {
-        return $this->send($request, 'get', $url, [], false);
+        return $this->send($request, 'get', $url, [], false, true);
     }
 
     /** @param array<string, mixed> $payload */
-    private function send(DriverRequest $request, string $method, string $url, array $payload, bool $submission): Response
+    private function send(DriverRequest $request, string $method, string $url, array $payload, bool $submission, bool $durable): Response
     {
         $remaining = $this->remainingSeconds($request);
 
@@ -58,7 +58,7 @@ final readonly class ParallelTransport
                 throw $this->deadlineExceeded();
             }
 
-            throw new DriverException('parallel.connection', 'Parallel could not be reached.');
+            throw new DriverException('parallel.connection', 'Parallel could not be reached.', ! $durable);
         }
 
         if (CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
@@ -76,16 +76,16 @@ final readonly class ParallelTransport
         return $response;
     }
 
-    public function failure(Response $response, bool $retrieval = false): DriverException
+    public function failure(Response $response, bool $durable = false): DriverException
     {
         return match (true) {
-            $response->status() === 401 => new DriverException('parallel.authentication', 'Parallel rejected the configured credential.'),
-            $response->status() === 402 => new DriverException('parallel.insufficient_credit', 'The Parallel account has insufficient API credit.'),
-            $response->status() === 403 => new DriverException('parallel.authorization', 'Parallel denied this request.'),
-            $response->status() === 404 && $retrieval => new DriverException('parallel.run_missing', 'The Parallel Research run is no longer available.', false),
-            $response->status() === 408 => new DriverException('parallel.timeout', 'Parallel timed out while processing this request.'),
-            $response->status() === 429 => new DriverException('parallel.rate_limited', 'Parallel rate limited this request.'),
-            $response->serverError() => new DriverException('parallel.unavailable', 'Parallel is temporarily unavailable.'),
+            $response->status() === 401 => new DriverException('parallel.authentication', 'Parallel rejected the configured credential.', ! $durable),
+            $response->status() === 402 => new DriverException('parallel.insufficient_credit', 'The Parallel account has insufficient API credit.', ! $durable),
+            $response->status() === 403 => new DriverException('parallel.authorization', 'Parallel denied this request.', ! $durable),
+            $response->status() === 404 && $durable => new DriverException('parallel.run_missing', 'The Parallel Research run is no longer available.', false),
+            $response->status() === 408 => new DriverException('parallel.timeout', 'Parallel timed out while processing this request.', ! $durable),
+            $response->status() === 429 => new DriverException('parallel.rate_limited', 'Parallel rate limited this request.', ! $durable),
+            $response->serverError() => new DriverException('parallel.unavailable', 'Parallel is temporarily unavailable.', ! $durable),
             default => new DriverException('parallel.invalid_request', 'Parallel rejected this request.', false),
         };
     }
@@ -105,6 +105,7 @@ final readonly class ParallelTransport
         return new DriverException(
             'parallel.deadline_exceeded',
             'Parallel did not complete before the research deadline.',
+            false,
         );
     }
 }

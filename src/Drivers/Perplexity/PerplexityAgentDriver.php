@@ -183,11 +183,31 @@ final readonly class PerplexityAgentDriver implements Driver
 
         $this->remainingSeconds($request, 'Perplexity did not accept the request before the research deadline.');
 
-        if ($response->failed()) {
-            throw $this->httpFailure($response, false);
+        if ($background && ($response->redirect()
+            || in_array($response->status(), [408, 429], true)
+            || $response->serverError())) {
+            throw $this->ambiguousSubmission();
         }
 
-        return $this->json($response);
+        if ($response->failed()) {
+            throw $this->httpFailure($response, $background);
+        }
+
+        try {
+            $payload = $this->json($response);
+            if ($background) {
+                $this->responseId($payload);
+                $this->assertKnownStatus($this->status($payload));
+            }
+        } catch (DriverException $exception) {
+            if ($background) {
+                throw $this->ambiguousSubmission();
+            }
+
+            throw $exception;
+        }
+
+        return $payload;
     }
 
     /** @return array<array-key, mixed>|null */
@@ -209,7 +229,7 @@ final readonly class PerplexityAgentDriver implements Driver
 
         $this->remainingSeconds($request, 'Perplexity did not complete before the research deadline.');
 
-        if ($response->status() === 429 || $response->serverError()) {
+        if (in_array($response->status(), [408, 429], true) || $response->serverError()) {
             return null;
         }
 
@@ -223,6 +243,7 @@ final readonly class PerplexityAgentDriver implements Driver
             throw new DriverException(
                 'perplexity.invalid_response',
                 'Perplexity returned a response for a different background request.',
+                false,
             );
         }
 
@@ -264,6 +285,7 @@ final readonly class PerplexityAgentDriver implements Driver
             throw new DriverException(
                 'perplexity.invalid_response',
                 'Perplexity returned an invalid Agent response identifier.',
+                false,
             );
         }
 
@@ -288,6 +310,7 @@ final readonly class PerplexityAgentDriver implements Driver
         return new DriverException(
             'perplexity.invalid_response',
             'Perplexity returned an unrecognized Agent response state.',
+            false,
         );
     }
 
@@ -300,6 +323,7 @@ final readonly class PerplexityAgentDriver implements Driver
             throw new DriverException(
                 'perplexity.invalid_response',
                 'Perplexity returned a malformed response.',
+                false,
             );
         }
 
@@ -310,33 +334,33 @@ final readonly class PerplexityAgentDriver implements Driver
     private function terminalFailure(string $status, array $response): DriverException
     {
         if ($status === 'cancelled') {
-            return new DriverException('perplexity.cancelled', 'The Perplexity Agent response was cancelled.');
+            return new DriverException('perplexity.cancelled', 'The Perplexity Agent response was cancelled.', false);
         }
 
         if ($status === 'incomplete') {
-            return new DriverException('perplexity.incomplete', 'Perplexity could not complete the Agent response.');
+            return new DriverException('perplexity.incomplete', 'Perplexity could not complete the Agent response.', false);
         }
 
         return match ($this->str(data_get($response, 'error.code'))) {
-            'authentication_error', 'invalid_api_key', 'unauthorized' => new DriverException('perplexity.authentication', 'Perplexity rejected the configured credential.'),
-            'permission_denied', 'forbidden', 'plan_required' => new DriverException('perplexity.plan_required', 'Perplexity denied this request for the configured plan.'),
-            'billing_error', 'insufficient_credits', 'payment_required' => new DriverException('perplexity.billing', 'Perplexity could not bill this request.'),
-            'rate_limit_error', 'rate_limit_exceeded' => new DriverException('perplexity.rate_limited', 'Perplexity rate limited this request.'),
+            'authentication_error', 'invalid_api_key', 'unauthorized' => new DriverException('perplexity.authentication', 'Perplexity rejected the configured credential.', false),
+            'permission_denied', 'forbidden', 'plan_required' => new DriverException('perplexity.plan_required', 'Perplexity denied this request for the configured plan.', false),
+            'billing_error', 'insufficient_credits', 'payment_required' => new DriverException('perplexity.billing', 'Perplexity could not bill this request.', false),
+            'rate_limit_error', 'rate_limit_exceeded' => new DriverException('perplexity.rate_limited', 'Perplexity rate limited this request.', false),
             'invalid_request_error', 'validation_error', 'bad_request' => new DriverException('perplexity.invalid_request', 'Perplexity rejected this Agent request.', false),
-            default => new DriverException('perplexity.agent_failed', 'Perplexity could not complete the Agent response.'),
+            default => new DriverException('perplexity.agent_failed', 'Perplexity could not complete the Agent response.', false),
         };
     }
 
-    private function httpFailure(Response $response, bool $retrieval): DriverException
+    private function httpFailure(Response $response, bool $durable): DriverException
     {
         return match (true) {
-            $response->status() === 401 => new DriverException('perplexity.authentication', 'Perplexity rejected the configured credential.'),
-            $response->status() === 402 => new DriverException('perplexity.billing', 'Perplexity could not bill this request.'),
-            $response->status() === 403 => new DriverException('perplexity.plan_required', 'Perplexity denied this request for the configured plan.'),
-            $response->status() === 404 && $retrieval => new DriverException('perplexity.response_missing', 'The Perplexity Agent response is no longer available.', false),
-            $response->status() === 408 => new DriverException('perplexity.timeout', 'Perplexity timed out while processing this request.'),
-            $response->status() === 429 => new DriverException('perplexity.rate_limited', 'Perplexity rate limited this request.'),
-            $response->serverError() => new DriverException('perplexity.unavailable', 'Perplexity is temporarily unavailable.'),
+            $response->status() === 401 => new DriverException('perplexity.authentication', 'Perplexity rejected the configured credential.', ! $durable),
+            $response->status() === 402 => new DriverException('perplexity.billing', 'Perplexity could not bill this request.', ! $durable),
+            $response->status() === 403 => new DriverException('perplexity.plan_required', 'Perplexity denied this request for the configured plan.', ! $durable),
+            $response->status() === 404 && $durable => new DriverException('perplexity.response_missing', 'The Perplexity Agent response is no longer available.', false),
+            $response->status() === 408 => new DriverException('perplexity.timeout', 'Perplexity timed out while processing this request.', ! $durable),
+            $response->status() === 429 => new DriverException('perplexity.rate_limited', 'Perplexity rate limited this request.', ! $durable),
+            $response->serverError() => new DriverException('perplexity.unavailable', 'Perplexity is temporarily unavailable.', ! $durable),
             default => new DriverException('perplexity.invalid_request', 'Perplexity rejected this Agent request.', false),
         };
     }
@@ -346,7 +370,7 @@ final readonly class PerplexityAgentDriver implements Driver
         $seconds = CarbonImmutable::now()->diffInSeconds($request->deadline, false);
 
         if ($seconds < 1) {
-            throw new DriverException('perplexity.deadline_exceeded', $message);
+            throw new DriverException('perplexity.deadline_exceeded', $message, false);
         }
 
         return max(1, (int) floor($seconds));
@@ -357,6 +381,16 @@ final readonly class PerplexityAgentDriver implements Driver
         return new DriverException(
             'perplexity.deadline_exceeded',
             'Perplexity did not complete before the research deadline.',
+            false,
+        );
+    }
+
+    private function ambiguousSubmission(): DriverException
+    {
+        return new DriverException(
+            'perplexity.ambiguous_submission',
+            'Perplexity did not safely acknowledge the background submission, so it was not retried.',
+            false,
         );
     }
 

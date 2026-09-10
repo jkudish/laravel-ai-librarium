@@ -187,7 +187,10 @@ it('rejects incompatible Search requests before dispatch', function (DriverReque
     Http::fake();
 
     expect(fn () => app(ValyuSearchDriver::class)->run($request))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === $code && ! $exception->fallbackAllowed);
+        ->toThrow(function (DriverException $exception) use ($code): void {
+            expect($exception->errorCode)->toBe($code)
+                ->and($exception->fallbackAllowed)->toBeFalse();
+        });
 
     Http::assertNothingSent();
 })->with([
@@ -201,9 +204,11 @@ it('maps malformed and failed Search responses to body-free errors', function (m
     Http::fake(['https://api.valyu.ai/v1/search' => $response]);
 
     expect(fn () => app(ValyuSearchDriver::class)->run(valyuSearchRequest()))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === $code
-            && ! str_contains($exception->getMessage(), 'provider-secret')
-            && ! str_contains($exception->getMessage(), 'testing-valyu-key'));
+        ->toThrow(function (DriverException $exception) use ($code): void {
+            expect($exception->errorCode)->toBe($code)
+                ->and($exception->getMessage())->not->toContain('provider-secret')
+                ->not->toContain('testing-valyu-key');
+        });
 })->with([
     'malformed body' => [fn () => Http::response('provider-secret'), 'valyu_search.invalid_response'],
     'missing results' => [fn () => Http::response(['success' => true]), 'valyu_search.invalid_response'],
@@ -224,8 +229,10 @@ it('rejects Search evidence that reflects the configured credential', function (
     ])]);
 
     expect(fn () => app(ValyuSearchDriver::class)->run(valyuSearchRequest()))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'valyu_search.invalid_response'
-            && ! str_contains($exception->getMessage(), 'testing-valyu-key'));
+        ->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('valyu_search.invalid_response')
+                ->and($exception->getMessage())->not->toContain('testing-valyu-key');
+        });
 })->with(['url', 'title', 'content']);
 
 it('uses the shared deadline and redacts connection details', function (bool $expires, string $code): void {
@@ -238,8 +245,10 @@ it('uses the shared deadline and redacts connection details', function (bool $ex
     });
 
     expect(fn () => app(ValyuSearchDriver::class)->run(valyuSearchRequest()))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === $code
-            && ! str_contains($exception->getMessage(), 'provider-secret'));
+        ->toThrow(function (DriverException $exception) use ($code): void {
+            expect($exception->errorCode)->toBe($code)
+                ->and($exception->getMessage())->not->toContain('provider-secret');
+        });
 })->with([
     'connection before deadline' => [false, 'valyu_search.connection'],
     'connection at deadline' => [true, 'valyu_search.deadline_exceeded'],

@@ -88,7 +88,8 @@ final readonly class ExaResearchDriver implements Driver
     private function preflight(DriverRequest $request): string
     {
         $profile = $request->profile;
-        if ($profile->provider !== 'exa'
+        if ($profile->id !== 'exa-research'
+            || $profile->provider !== 'exa'
             || $profile->model !== null
             || $profile->resultKind !== ResultKind::ResearchReport
             || $profile->grounding !== GroundingPolicy::Required
@@ -215,35 +216,41 @@ final readonly class ExaResearchDriver implements Driver
     /** @return array<array-key, mixed> */
     private function retrieveRun(DriverRequest $request, string $credential, string $runId): array
     {
-        try {
-            $response = $this->send(
-                $request,
-                $credential,
-                'get',
-                self::ENDPOINT.'/'.rawurlencode($runId),
-            );
-        } catch (ConnectionException) {
-            if (CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
-                throw $this->deadlineExceeded();
+        while (true) {
+            try {
+                $response = $this->send(
+                    $request,
+                    $credential,
+                    'get',
+                    self::ENDPOINT.'/'.rawurlencode($runId),
+                );
+            } catch (ConnectionException) {
+                if (CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
+                    throw $this->deadlineExceeded();
+                }
+
+                $this->waitBeforePolling($request);
+
+                continue;
             }
 
-            throw new DriverException(
-                'exa_research.connection',
-                'Exa Research could not be reached while retrieving the task.',
-                false,
-            );
-        }
+            if (in_array($response->status(), [408, 429], true) || $response->serverError()) {
+                $this->waitBeforePolling($request);
 
-        if ($response->status() !== 200) {
-            throw $this->httpFailure($response);
-        }
+                continue;
+            }
 
-        $payload = $this->runPayload($response);
-        if ($this->runId($payload) !== $runId) {
-            throw $this->invalidResponse();
-        }
+            if ($response->status() !== 200) {
+                throw $this->httpFailure($response);
+            }
 
-        return $payload;
+            $payload = $this->runPayload($response);
+            if ($this->runId($payload) !== $runId) {
+                throw $this->invalidResponse();
+            }
+
+            return $payload;
+        }
     }
 
     /** @param array<string, mixed> $payload */

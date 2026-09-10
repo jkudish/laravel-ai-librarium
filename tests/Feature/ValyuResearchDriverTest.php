@@ -44,22 +44,22 @@ it('submits, polls a known handle, retrieves twice, and maps a durable specializ
     Http::fake(function (Request $request) use (&$calls) {
         $calls++;
         if ($request->method() === 'POST') {
-            return Http::response(valyuResearchSubmission('dr-private-1', 'heavy'), 202);
+            return Http::response(valyuResearchSubmission('dr-private-1', 'standard'), 202);
         }
 
         return match ($calls) {
-            2 => Http::response(valyuResearchTask('dr-private-1', 'running', 'heavy')),
-            3 => Http::response(valyuResearchTask('dr-private-1', 'completed', 'heavy')),
-            default => Http::response(valyuResearchCompleted('dr-private-1', 'heavy')),
+            2 => Http::response(valyuResearchTask('dr-private-1', 'running', 'standard')),
+            3 => Http::response(valyuResearchTask('dr-private-1', 'completed', 'standard')),
+            default => Http::response(valyuResearchCompleted('dr-private-1', 'standard')),
         };
     });
     $options = [
-        'mode' => 'heavy',
+        'mode' => 'standard',
         'research_strategy' => 'Use peer-reviewed evidence.',
         'report_format' => 'Write Markdown.',
         'search' => ['search_type' => 'proprietary', 'included_sources' => ['medical']],
         'urls' => ['https://example.com/context'],
-        'output_formats' => ['markdown', 'pdf'],
+        'output_formats' => ['markdown'],
     ];
 
     $result = app(ValyuResearchDriver::class)->run(valyuResearchRequest(options: $options, corpora: [Corpus::Specialized]));
@@ -69,8 +69,8 @@ it('submits, polls a known handle, retrieves twice, and maps a durable specializ
         && $request->hasHeader('X-API-Key', 'testing-valyu-key')
         && $request->data() === [
             'query' => 'clinical question',
-            'mode' => 'heavy',
-            'output_formats' => ['markdown', 'pdf'],
+            'mode' => 'standard',
+            'output_formats' => ['markdown'],
             'research_strategy' => 'Use peer-reviewed evidence.',
             'report_format' => 'Write Markdown.',
             'urls' => ['https://example.com/context'],
@@ -95,7 +95,7 @@ it('submits, polls a known handle, retrieves twice, and maps a durable specializ
         ->and($result->citations->sole()->locator)->toBe('#:~:text=Finding')
         ->and($result->usage?->actualCost)->toBe('2.5')
         ->and(data_get($result->providerMeta, 'valyu:research'))->toBe([
-            'mode' => 'heavy',
+            'mode' => 'standard',
             'execution' => 'background',
             'resumability' => 'durable_provider_task',
             'sources' => [[
@@ -135,11 +135,36 @@ it('uses standard all-corpus defaults and invents no unavailable price', functio
         ->and($result->usage)->toBeNull();
 });
 
+it('retries known-handle connection and transient HTTP failures without resubmitting', function (): void {
+    $calls = 0;
+    Http::fake(function (Request $request) use (&$calls) {
+        $calls++;
+
+        return match ($calls) {
+            1 => Http::response(valyuResearchSubmission('dr-retry', 'standard'), 202),
+            2 => throw new ConnectionException('provider-secret testing-valyu-key'),
+            3 => Http::response(['error' => 'provider-secret'], 408),
+            4 => Http::response(['error' => 'provider-secret'], 429),
+            5 => Http::response(['error' => 'provider-secret'], 503),
+            default => Http::response(valyuResearchCompleted('dr-retry', 'standard')),
+        };
+    });
+
+    $result = app(ValyuResearchDriver::class)->run(valyuResearchRequest());
+
+    expect($result->content)->toBe('# Durable report')
+        ->and($calls)->toBe(7)
+        ->and(Http::recorded()->filter(fn (array $record): bool => $record[0]->method() === 'POST'))->toHaveCount(1);
+    Sleep::assertSleptTimes(5);
+});
+
 it('validates Research options through the shared Profile validator', function (array $options): void {
     expect(app(ProfileOptionValidator::class)->errors(ValyuResearchDriver::class, $options))->not->toBeEmpty();
 })->with([
     'unknown option' => [['unknown' => true]],
     'bad mode' => [['mode' => 'extreme']],
+    'unpriced mode' => [['mode' => 'heavy']],
+    'unpriced PDF output' => [['output_formats' => ['markdown', 'pdf']]],
     'bad source filter' => [['search' => ['included_sources' => []]]],
     'both source filters' => [['search' => ['included_sources' => ['a'], 'excluded_sources' => ['b']]]],
     'bad date' => [['search' => ['end_date' => '2026-02-30']]],
@@ -154,7 +179,10 @@ it('rejects incompatible Research requests before paid submission', function (Dr
     Http::fake();
 
     expect(fn () => app(ValyuResearchDriver::class)->run($request))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === $code && ! $exception->fallbackAllowed);
+        ->toThrow(function (DriverException $exception) use ($code): void {
+            expect($exception->errorCode)->toBe($code)
+                ->and($exception->fallbackAllowed)->toBeFalse();
+        });
     Http::assertNothingSent();
 })->with([
     'blank query' => fn () => [valyuResearchRequest(prompt: ' '), 'valyu_research.invalid_request'],
@@ -176,9 +204,11 @@ it('never automatically retries an ambiguous paid submission', function (int|str
     });
 
     expect(fn () => app(ValyuResearchDriver::class)->run(valyuResearchRequest()))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === $code
-            && ! $exception->fallbackAllowed
-            && ! str_contains($exception->getMessage(), 'provider-secret'));
+        ->toThrow(function (DriverException $exception) use ($code): void {
+            expect($exception->errorCode)->toBe($code)
+                ->and($exception->fallbackAllowed)->toBeFalse()
+                ->and($exception->getMessage())->not->toContain('provider-secret');
+        });
 
     expect($attempts)->toBe(1);
 })->with([
@@ -193,8 +223,11 @@ it('maps known terminal provider states without cancellation or provider error l
         ->push([...valyuResearchTask('dr-terminal', $status, 'standard'), 'error' => 'provider-secret testing-valyu-key'])]);
 
     expect(fn () => app(ValyuResearchDriver::class)->run(valyuResearchRequest()))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === $code
-            && ! str_contains($exception->getMessage(), 'provider-secret'));
+        ->toThrow(function (DriverException $exception) use ($code): void {
+            expect($exception->errorCode)->toBe($code)
+                ->and($exception->fallbackAllowed)->toBeFalse()
+                ->and($exception->getMessage())->not->toContain('provider-secret');
+        });
 
     Http::assertSentCount(2);
 })->with([
@@ -219,9 +252,11 @@ it('best-effort cancels a known running task at the local deadline without maski
     });
 
     expect(fn () => app(ValyuResearchDriver::class)->run(valyuResearchRequest(deadline: $deadline)))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'valyu_research.deadline_exceeded'
-            && ! $exception->fallbackAllowed
-            && ! str_contains($exception->getMessage(), 'private cancellation failure'));
+        ->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('valyu_research.deadline_exceeded')
+                ->and($exception->fallbackAllowed)->toBeFalse()
+                ->and($exception->getMessage())->not->toContain('private cancellation failure');
+        });
 
     expect($cancelAttempts)->toBe(1);
     Http::assertSentCount(1);
@@ -234,10 +269,12 @@ it('cancels a known handle after malformed polling and keeps handles and raw bod
         ->push(['success' => true])]);
 
     expect(fn () => app(ValyuResearchDriver::class)->run(valyuResearchRequest()))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'valyu_research.invalid_response'
-            && ! $exception->fallbackAllowed
-            && ! str_contains($exception->getMessage(), 'dr-malformed-private')
-            && ! str_contains($exception->getMessage(), 'different-private-handle'));
+        ->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('valyu_research.invalid_response')
+                ->and($exception->fallbackAllowed)->toBeFalse()
+                ->and($exception->getMessage())->not->toContain('dr-malformed-private')
+                ->not->toContain('different-private-handle');
+        });
 
     Http::assertSentCount(3);
 });
@@ -249,10 +286,12 @@ it('fails closed on malformed completed retrieval without leaking the response',
         ->push($terminal)]);
 
     expect(fn () => app(ValyuResearchDriver::class)->run(valyuResearchRequest()))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'valyu_research.invalid_response'
-            && ! $exception->fallbackAllowed
-            && ! str_contains($exception->getMessage(), 'provider-secret')
-            && ! str_contains($exception->getMessage(), 'dr-retrieval-private'));
+        ->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('valyu_research.invalid_response')
+                ->and($exception->fallbackAllowed)->toBeFalse()
+                ->and($exception->getMessage())->not->toContain('provider-secret')
+                ->not->toContain('dr-retrieval-private');
+        });
 
     Http::assertSentCount(3);
 })->with([

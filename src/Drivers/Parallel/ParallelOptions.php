@@ -29,7 +29,7 @@ final readonly class ParallelOptions
             'search_queries.*' => ['required', 'string', 'min:1', 'max:1000'],
             'max_chars_total' => ['sometimes', 'integer', 'min:1'],
             'max_chars_per_result' => ['sometimes', 'integer', 'min:1'],
-            'max_results' => ['sometimes', 'integer', 'min:1'],
+            'max_results' => ['sometimes', 'integer', 'min:1', ...($turbo ? ['max:10'] : [])],
             'location' => ['sometimes', 'string', self::locationRule()],
             'source_policy' => ['sometimes', 'array:include_domains,exclude_domains,after_date'],
             'source_policy.include_domains' => ['sometimes', 'array', 'list', 'min:1', 'max:200'],

@@ -167,7 +167,10 @@ it('rejects credentials, options, input, model, and deadline errors before HTTP'
     Http::fake();
 
     expect(fn () => app(GeminiDeepDriver::class)->run($request))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === $code && ! $exception->fallbackAllowed);
+        ->toThrow(function (DriverException $exception) use ($code): void {
+            expect($exception->errorCode)->toBe($code)
+                ->and($exception->fallbackAllowed)->toBeFalse();
+        });
 
     Http::assertNothingSent();
 })->with([
@@ -182,7 +185,10 @@ it('rejects profiles with grounded chat or otherwise incompatible provenance sem
     Http::fake();
 
     expect(fn () => app(GeminiDeepDriver::class)->run(geminiDeepRequest(...$overrides)))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'gemini_deep.invalid_profile');
+        ->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('gemini_deep.invalid_profile')
+                ->and($exception->fallbackAllowed)->toBeFalse();
+        });
 
     Http::assertNothingSent();
 })->with([
@@ -200,9 +206,12 @@ it('treats only stable cancellation and budget exhaustion observations as immedi
         ->push(geminiDeepInteraction($status, error: ['message' => 'provider-secret testing-gemini-key']));
 
     expect(fn () => app(GeminiDeepDriver::class)->run(geminiDeepRequest()))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === $code
-            && ! str_contains($exception->getMessage(), 'provider-secret')
-            && ! str_contains($exception->getMessage(), 'testing-gemini-key'));
+        ->toThrow(function (DriverException $exception) use ($code): void {
+            expect($exception->errorCode)->toBe($code)
+                ->and($exception->fallbackAllowed)->toBeFalse()
+                ->and($exception->getMessage())->not->toContain('provider-secret')
+                ->not->toContain('testing-gemini-key');
+        });
 
     Http::assertSentCount(2);
 })->with([
@@ -220,7 +229,10 @@ it('bounds repeated failed and incomplete observations by the request-wide deadl
 
     expect(fn () => app(GeminiDeepDriver::class)->run(
         geminiDeepRequest(deadline: CarbonImmutable::now()->addSeconds(30)),
-    ))->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'gemini_deep.deadline_exceeded');
+    ))->toThrow(function (DriverException $exception): void {
+        expect($exception->errorCode)->toBe('gemini_deep.deadline_exceeded')
+            ->and($exception->fallbackAllowed)->toBeFalse();
+    });
 
     Http::assertSentCount(2);
     Sleep::assertSleptTimes(2);
@@ -253,10 +265,12 @@ it('never retries an ambiguous submission connection failure', function (): void
     });
 
     expect(fn () => app(GeminiDeepDriver::class)->run(geminiDeepRequest()))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'gemini_deep.submit_connection'
-            && ! $exception->fallbackAllowed
-            && ! str_contains($exception->getMessage(), 'provider-secret')
-            && ! str_contains($exception->getMessage(), 'testing-gemini-key'));
+        ->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('gemini_deep.submit_connection')
+                ->and($exception->fallbackAllowed)->toBeFalse()
+                ->and($exception->getMessage())->not->toContain('provider-secret')
+                ->not->toContain('testing-gemini-key');
+        });
 
     expect($attempts)->toBe(1);
 });
@@ -270,10 +284,13 @@ it('maps submission HTTP failures safely and sends exactly one paid POST', funct
     ], $status);
 
     expect(fn () => app(GeminiDeepDriver::class)->run(geminiDeepRequest()))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === $code
-            && ! str_contains($exception->getMessage(), 'provider-secret')
-            && ! str_contains($exception->getMessage(), 'testing-gemini-key')
-            && ! str_contains($exception->getMessage(), 'signed-secret'));
+        ->toThrow(function (DriverException $exception) use ($code): void {
+            expect($exception->errorCode)->toBe($code)
+                ->and($exception->fallbackAllowed)->toBeFalse()
+                ->and($exception->getMessage())->not->toContain('provider-secret')
+                ->not->toContain('testing-gemini-key')
+                ->not->toContain('signed-secret');
+        });
 
     Http::assertSentCount(1);
 })->with([
@@ -291,8 +308,11 @@ it('maps non-retryable retrieval failures and malformed bodies without exposing 
         ->push($body, $status);
 
     expect(fn () => app(GeminiDeepDriver::class)->run(geminiDeepRequest()))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === $code
-            && ! str_contains($exception->getMessage(), 'provider-secret'));
+        ->toThrow(function (DriverException $exception) use ($code): void {
+            expect($exception->errorCode)->toBe($code)
+                ->and($exception->fallbackAllowed)->toBeFalse()
+                ->and($exception->getMessage())->not->toContain('provider-secret');
+        });
 })->with([
     'missing known handle' => [['error' => ['message' => 'provider-secret']], 404, 'gemini_deep.interaction_missing'],
     'non-object body' => ['provider-secret', 200, 'gemini_deep.invalid_response'],
@@ -316,8 +336,11 @@ it('rejects terminal reports without usable cited text and redacts signed-only c
         ->push($completed);
 
     expect(fn () => app(GeminiDeepDriver::class)->run(geminiDeepRequest()))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'gemini_deep.invalid_response'
-            && ! str_contains($exception->getMessage(), 'signed-secret'));
+        ->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('gemini_deep.invalid_response')
+                ->and($exception->fallbackAllowed)->toBeFalse()
+                ->and($exception->getMessage())->not->toContain('signed-secret');
+        });
 })->with([
     'blank report',
     'signed citations only',

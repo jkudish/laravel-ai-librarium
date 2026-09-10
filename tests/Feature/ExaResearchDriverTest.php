@@ -155,6 +155,29 @@ it('retrieves an immediately completed submission once before delivery', functio
     Sleep::assertNeverSlept();
 });
 
+it('retries known-handle connection and transient HTTP failures without resubmitting', function (): void {
+    $calls = 0;
+    Http::fake(function (Request $request) use (&$calls) {
+        $calls++;
+
+        return match ($calls) {
+            1 => Http::response(exaResearchRun('running')),
+            2 => throw new ConnectionException('provider-secret testing-exa-key'),
+            3 => Http::response(['error' => 'provider-secret'], 408),
+            4 => Http::response(['error' => 'provider-secret'], 429),
+            5 => Http::response(['error' => 'provider-secret'], 503),
+            default => Http::response(exaResearchCompletedRun()),
+        };
+    });
+
+    $result = exaResearchDriver()->run(exaResearchRequest());
+
+    expect($result->content)->toContain('Authoritative final report')
+        ->and($calls)->toBe(7)
+        ->and(Http::recorded()->filter(fn (array $record): bool => $record[0]->method() === 'POST'))->toHaveCount(1);
+    Sleep::assertSleptTimes(5);
+});
+
 it('normalizes non-empty structured output when no report text is present', function (): void {
     $terminal = exaResearchCompletedRun();
     $terminal['output']['text'] = '   ';
@@ -181,8 +204,10 @@ it('rejects incompatible profile semantics before dispatch', function (array $ov
     Http::fake();
 
     expect(fn () => exaResearchDriver()->run(exaResearchRequest(...$overrides)))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'exa_research.invalid_profile'
-            && ! $exception->fallbackAllowed);
+        ->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('exa_research.invalid_profile')
+                ->and($exception->fallbackAllowed)->toBeFalse();
+        });
 
     Http::assertNothingSent();
 })->with([
@@ -199,8 +224,10 @@ it('rejects invalid credentials, input, options, and deadlines before dispatch',
     Http::fake();
 
     expect(fn () => exaResearchDriver()->run(exaResearchRequest(...$overrides)))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === $code
-            && ! $exception->fallbackAllowed);
+        ->toThrow(function (DriverException $exception) use ($code): void {
+            expect($exception->errorCode)->toBe($code)
+                ->and($exception->fallbackAllowed)->toBeFalse();
+        });
 
     Http::assertNothingSent();
 })->with([
@@ -226,11 +253,13 @@ it('maps terminal provider failure without exposing provider error details', fun
         ->push($failed)]);
 
     expect(fn () => exaResearchDriver()->run(exaResearchRequest()))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'exa_research.failed'
-            && ! $exception->fallbackAllowed
-            && ! str_contains($exception->getMessage(), 'provider-secret')
-            && ! str_contains($exception->getMessage(), 'testing-exa-key')
-            && ! str_contains($exception->getMessage(), exaResearchRunId()));
+        ->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('exa_research.failed')
+                ->and($exception->fallbackAllowed)->toBeFalse()
+                ->and($exception->getMessage())->not->toContain('provider-secret')
+                ->not->toContain('testing-exa-key')
+                ->not->toContain(exaResearchRunId());
+        });
 })->with(['failed', 'cancelled']);
 
 it('times out a still-running task at the request-wide deadline', function (): void {
@@ -240,8 +269,10 @@ it('times out a still-running task at the request-wide deadline', function (): v
 
     expect(fn () => exaResearchDriver()->run(exaResearchRequest(
         deadline: CarbonImmutable::now()->addMilliseconds(250),
-    )))->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'exa_research.deadline_exceeded'
-        && ! $exception->fallbackAllowed);
+    )))->toThrow(function (DriverException $exception): void {
+        expect($exception->errorCode)->toBe('exa_research.deadline_exceeded')
+            ->and($exception->fallbackAllowed)->toBeFalse();
+    });
 
     Http::assertSentCount(1);
     Sleep::assertSleptTimes(1);
@@ -258,10 +289,12 @@ it('never retries an ambiguous submission connection failure', function (): void
     });
 
     expect(fn () => exaResearchDriver()->run(exaResearchRequest()))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'exa_research.submit_connection'
-            && ! $exception->fallbackAllowed
-            && $exception->getMessage() === 'The Exa Research submission did not return a response.'
-            && ! str_contains($exception->getMessage(), 'provider-secret'));
+        ->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('exa_research.submit_connection')
+                ->and($exception->fallbackAllowed)->toBeFalse()
+                ->and($exception->getMessage())->toBe('The Exa Research submission did not return a response.')
+                ->not->toContain('provider-secret');
+        });
 
     expect($attempts)->toBe(1);
 });
@@ -273,10 +306,12 @@ it('maps submission and retrieval HTTP failures to safe non-fallback errors', fu
     ], $status)]);
 
     expect(fn () => exaResearchDriver()->run(exaResearchRequest()))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === $code
-            && ! $exception->fallbackAllowed
-            && ! str_contains($exception->getMessage(), 'provider-secret')
-            && ! str_contains($exception->getMessage(), 'testing-exa-key'));
+        ->toThrow(function (DriverException $exception) use ($code): void {
+            expect($exception->errorCode)->toBe($code)
+                ->and($exception->fallbackAllowed)->toBeFalse()
+                ->and($exception->getMessage())->not->toContain('provider-secret')
+                ->not->toContain('testing-exa-key');
+        });
 
     Http::assertSentCount(1);
 })->with([
@@ -296,11 +331,13 @@ it('fails closed on malformed completion and mismatched retrieval handles', func
         ->push($terminal)]);
 
     expect(fn () => exaResearchDriver()->run(exaResearchRequest()))
-        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'exa_research.invalid_response'
-            && ! $exception->fallbackAllowed
-            && ! str_contains($exception->getMessage(), 'provider-secret')
-            && ! str_contains($exception->getMessage(), 'signed.example')
-            && ! str_contains($exception->getMessage(), 'signed-secret'));
+        ->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('exa_research.invalid_response')
+                ->and($exception->fallbackAllowed)->toBeFalse()
+                ->and($exception->getMessage())->not->toContain('provider-secret')
+                ->not->toContain('signed.example')
+                ->not->toContain('signed-secret');
+        });
 })->with([
     'different handle' => [exaResearchCompletedRun(id: 'agent_run_different')],
     'completion regressed' => [exaResearchRun('running')],
