@@ -11,4 +11,5 @@ enum Corpus: string
     case X = 'x';
     case Files = 'files';
     case Places = 'places';
+    case Specialized = 'specialized';
 }

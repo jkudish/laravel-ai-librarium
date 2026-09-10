@@ -9,15 +9,15 @@ No row authorizes a provider request or a paid call.
 
 ## Authority and inventory
 
-- TypeScript catalog: [`jkudish/librarium` at `5ec53f2517ffab4db2e4446d458f168f0388879b`](https://github.com/jkudish/librarium/tree/5ec53f2517ffab4db2e4446d458f168f0388879b)
+- TypeScript catalog: [`jkudish/librarium` at `889b0366b5baafff117198632e04b24e521ac93d`](https://github.com/jkudish/librarium/tree/889b0366b5baafff117198632e04b24e521ac93d)
 - Catalog source: `src/core/provider-profiles.ts` and its exact profile bindings
-- Implemented TypeScript inventory: **33 providers and 40 Profiles**
+- Implemented TypeScript inventory: **33 providers and 39 Profiles**
 - Planned or non-selectable catalog declarations: **0**
 - Laravel AI SDK: [`laravel/ai` v0.10.3 at `c3848aae389f45c605eefb0dda5bd5fa7df76eaa`](https://github.com/laravel/ai/tree/c3848aae389f45c605eefb0dda5bd5fa7df76eaa)
 - SDK evidence: exact package source plus the [Laravel 13 AI SDK documentation](https://laravel.com/docs/13.x/ai-sdk)
 
 The one-off source comparison used the TypeScript catalog itself and returned
-40 unique implemented keys with no missing or extra matrix row. The committed
+39 unique implemented keys with no missing or extra matrix row. The committed
 Pest test locks that result without introducing a TypeScript runtime dependency.
 
 ## Summary
@@ -26,11 +26,11 @@ Pest test locks that result without introducing a TypeScript runtime dependency.
 | --- | ---: | --- |
 | Landed in core | 23 | Six Laravel AI SDK Profiles and seventeen focused HTTP Profiles are configured and covered offline. |
 | Separate approved task | 1 | Firecrawl remains outside core under #2592 and is not registered by this package. |
-| Explicit post-1.0 holdback | 16 | Technically viable parity targets that are not registered by this package. |
-| **Total** | **40** | Every implemented TypeScript Profile appears exactly once below. |
+| Explicit post-1.0 holdback | 15 | Technically viable parity targets that are not registered by this package. |
+| **Total** | **39** | Every implemented TypeScript Profile appears exactly once below. |
 
-The TypeScript inventory contains 15 grounded answers, 10 search-result
-Profiles, 9 durable research reports, and 6 surface observations. Its landed
+The TypeScript inventory contains 14 grounded answers, 11 search-result
+Profiles, 8 durable research reports, and 6 surface observations. Its landed
 PHP subset contains 12 grounded answers, 2 search-result Profiles, 3 durable
 research reports, and 6 surface observations. PHP additionally ships six
 provider-local DataForSEO surface Profiles approved under #3481; they extend
@@ -96,7 +96,6 @@ proof is not claimed here; the separately gated canary inventory is in
 | `brave-search/search` | Holdback | #2841 | Not registered in core |
 | `exa/research` | Holdback | #2842 | Not registered in core |
 | `tavily/search` | Holdback | #2841 | Not registered in core |
-| `tavily/research` | Holdback | #2842 | Not registered in core |
 | `gemini-deep/research` | Holdback | #2842 | Not registered in core |
 | `perplexity-deep-research/research` | Holdback | #2842 | Not registered in core |
 | `perplexity-search/search` | Holdback | #2841 | Not registered in core |
@@ -105,7 +104,7 @@ proof is not claimed here; the separately gated canary inventory is in
 | `jina-search/search` | Holdback | #2841 | Not registered in core |
 | `serpapi/search` | Holdback | #2841 | Not registered in core |
 | `parallel/search` | Holdback | #2844 | Not registered in core |
-| `parallel/chat` | Holdback | #2844 | Not registered in core |
+| `parallel/turbo` | Holdback | #2844 | Not registered in core |
 | `parallel/research` | Holdback | #2844 | Not registered in core |
 | `valyu/search` | Holdback | #2845 | Not registered in core |
 | `valyu/research` | Holdback | #2845 | Not registered in core |
@@ -453,7 +452,7 @@ not receive preview quotes. Missing cost remains `null`, never zero.
 - **Pricing:** conservative request units quoted through `laravel-ai-pricing`
 - **Test and proof:** HTTP fake; D + L
 
-## Explicit post-1.0 holdbacks (16)
+## Explicit post-1.0 holdbacks (15)
 
 These are legitimate parity targets. They are held back only to keep 1.0
 focused on the complete quick workflow, SearchAPI visibility, primary SDK
@@ -498,19 +497,6 @@ maintainer checkpoint may move a row into #2591 later.
 - **Pricing:** not resolved while the Profile remains unregistered
 - **Test and proof:** Holdback guard; later HTTP fake, D + L
 - **Holdback reason:** Not required by quick and duplicates the initial search lane.
-
-### `tavily/research`
-
-- **Workflow:** deep
-- **Semantics:** research_report; required; api_output; web; research_agent/direct; tavily
-- **Target:** provider-managed agent
-- **PHP path:** explicit holdback; #2842
-- **Binding:** Tavily Research API
-- **Execution:** background/durable; poll then retrieve
-- **Terminal:** HTTP report
-- **Pricing:** not resolved while the Profile remains unregistered
-- **Test and proof:** Holdback guard; later Durable fake, D + L
-- **Holdback reason:** Defer another durable path until the first two prove the runtime.
 
 ### `gemini-deep/research`
 
@@ -616,18 +602,18 @@ maintainer checkpoint may move a row into #2591 later.
 - **Test and proof:** Holdback guard; later HTTP fake, D + L
 - **Holdback reason:** Defer the three-profile family and shared options together.
 
-### `parallel/chat`
+### `parallel/turbo`
 
-- **Workflow:** none
-- **Semantics:** grounded_answer; optional; api_output; web; model_search_tool/direct; parallel
-- **Target:** configurable processor/model `base`
+- **Workflow:** quick
+- **Semantics:** search_results; none; api_output; web; search_endpoint/direct; parallel
+- **Target:** not applicable
 - **PHP path:** explicit holdback; #2844
-- **Binding:** Parallel chat-completions with web retrieval and structured output
+- **Binding:** Parallel Search API with mode fixed to `turbo`
 - **Execution:** inline
-- **Terminal:** HTTP answer
+- **Terminal:** HTTP search
 - **Pricing:** not resolved while the Profile remains unregistered
 - **Test and proof:** Holdback guard; later HTTP fake, D + L
-- **Holdback reason:** Not required by quick and belongs with the deferred family.
+- **Holdback reason:** It joins TypeScript quick, but the Parallel family remains unregistered in PHP pending #2844.
 
 ### `parallel/research`
 
