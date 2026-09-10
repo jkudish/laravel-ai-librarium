@@ -20,7 +20,7 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 
 /**
- * Runs the two supported Perplexity Agent API presets to a terminal result.
+ * Runs the supported Perplexity Agent API presets to a terminal result.
  *
  * Background response IDs and lifecycle state remain private to this Driver.
  */
@@ -123,7 +123,7 @@ final readonly class PerplexityAgentDriver implements Driver
         $isInline = $profile->id === 'perplexity-sonar-pro'
             && $profile->resultKind === ResultKind::GroundedAnswer
             && $profile->retrievalMethods->values()->all() === [RetrievalMethod::ModelSearchTool];
-        $isBackground = $profile->id === 'perplexity-sonar-deep'
+        $isBackground = in_array($profile->id, ['perplexity-deep-research', 'perplexity-sonar-deep'], true)
             && $profile->resultKind === ResultKind::ResearchReport
             && $profile->retrievalMethods->values()->all() === [RetrievalMethod::ResearchAgent];
 
@@ -151,7 +151,12 @@ final readonly class PerplexityAgentDriver implements Driver
 
         $this->remainingSeconds($request, 'The Perplexity request could not start before the research deadline.');
 
-        return $isInline ? 'low' : 'high';
+        return match ($profile->id) {
+            'perplexity-sonar-pro' => 'low',
+            'perplexity-deep-research' => 'medium',
+            'perplexity-sonar-deep' => 'high',
+            default => throw $this->unknownState(),
+        };
     }
 
     /** @return array<array-key, mixed> */
