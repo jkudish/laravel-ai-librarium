@@ -27,6 +27,7 @@ final class ProfileCatalog
         'brave-answers',
         'exa',
         'kagi-fastgpt',
+        'parallel-turbo',
     ];
 
     /** @var list<string> */

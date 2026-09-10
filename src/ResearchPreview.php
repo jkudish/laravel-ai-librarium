@@ -28,7 +28,7 @@ final class ResearchPreview
      *     quote: CostQuote,
      *     freshness: string
      * }>  $pricingQuotes
-     * @param  Collection<string, string>  $knownCostSubtotals
+     * @param  Collection<string, non-empty-string>  $knownCostSubtotals
      */
     public function __construct(
         public readonly string $input,

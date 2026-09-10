@@ -1,9 +1,8 @@
 # Profile binding matrix
 
 This began as the Wave 0 implementation authority for PlanMode #2814. It now
-records the Wave 4 closeout and subsequent landed Profile work. It targets
-best-effort parity. It is not a promise that PHP and TypeScript will remain in
-permanent lockstep.
+records the complete pre-1.0 provider-parity reconciliation under #3604. It is
+not a promise that PHP and TypeScript will remain in permanent lockstep.
 
 No row authorizes a provider request or a paid call.
 
@@ -24,20 +23,18 @@ Pest test locks that result without introducing a TypeScript runtime dependency.
 
 | PHP disposition | Count | Meaning |
 | --- | ---: | --- |
-| Landed in core | 23 | Six Laravel AI SDK Profiles and seventeen focused HTTP Profiles are configured and covered offline. |
-| Separate approved task | 1 | Firecrawl remains outside core under #2592 and is not registered by this package. |
-| Explicit post-1.0 holdback | 15 | Technically viable parity targets that are not registered by this package. |
+| Landed in core | 38 | Six Laravel AI SDK Profiles and thirty-two focused HTTP Profiles are configured and covered offline. |
+| Landed in optional adapter | 1 | Firecrawl Search remains outside core under #2592 and is covered by the adapter package. |
+| Holdback | 0 | Every accepted TypeScript v2 Profile has a selectable PHP binding. |
 | **Total** | **39** | Every implemented TypeScript Profile appears exactly once below. |
 
 The TypeScript inventory contains 14 grounded answers, 11 search-result
-Profiles, 8 durable research reports, and 6 surface observations. Its landed
-PHP subset contains 12 grounded answers, 2 search-result Profiles, 3 durable
-research reports, and 6 surface observations. PHP additionally ships six
+Profiles, 8 durable research reports, and 6 surface observations. All 39 map to
+PHP core or the optional Firecrawl adapter. PHP additionally ships six
 provider-local DataForSEO surface Profiles approved under #3481; they extend
 the PHP catalog without rewriting this frozen TypeScript reconciliation.
-`quick` has five curated members, `visibility` has nine, `deep` derives its
-three configured research Profiles, and `all` derives all 29 configured
-Profiles.
+`quick` has six curated members, `visibility` remains nine, `deep` derives its
+eight configured research Profiles, and `all` derives all 44 core Profiles.
 
 ## Provider-local PHP extension
 
@@ -62,9 +59,9 @@ for the endpoint, configuration, polling, pricing, and worker-loss contracts.
 
 The table below is the row-by-row closeout. “Landed” means the named PHP Profile
 exists in `config/librarium.php`, resolves through the package catalog, and has
-offline provider-boundary coverage. “Separate task” and “Holdback” mean the
-TypeScript Profile remains intentionally absent from PHP configuration. Live
-proof is not claimed here; the separately gated canary inventory is in
+offline provider-boundary coverage. “Separate task” means the Profile is
+selectable through the named optional adapter rather than core. Live proof is
+not claimed here; the separately gated canary inventory is in
 [`live-provider-canaries.md`](live-provider-canaries.md).
 
 | TypeScript Profile | PHP disposition | PHP Profile or owner | Offline evidence |
@@ -89,25 +86,25 @@ proof is not claimed here; the separately gated canary inventory is in
 | `searchapi-google-ai-mode/surface` | Landed | `searchapi-google-ai-mode` | `SearchApiDriverTest` |
 | `searchapi-bing-copilot/surface` | Landed | `searchapi-bing-copilot` | `SearchApiDriverTest` |
 | `searchapi-google-ai-overview/surface` | Landed | `searchapi-google-ai-overview` | `SearchApiDriverTest` |
-| `firecrawl-search/search` | Separate task | #2592 adapter package | Not registered in core |
+| `firecrawl-search/search` | Separate task | #2592 adapter `firecrawl-search` | `FirecrawlSearchDriverTest` |
 | `you-research/grounded` | Landed | `you-research-grounded` | `YouResearchGroundedDriverTest` |
 | `you-research/research` | Landed | `you-research-research` | `YouResearchDriverTest` |
 | `you-answer/grounded` | Landed | `you-answer` | `YouAnswerDriverTest` |
-| `brave-search/search` | Holdback | #2841 | Not registered in core |
-| `exa/research` | Holdback | #2842 | Not registered in core |
-| `tavily/search` | Holdback | #2841 | Not registered in core |
-| `gemini-deep/research` | Holdback | #2842 | Not registered in core |
-| `perplexity-deep-research/research` | Holdback | #2842 | Not registered in core |
-| `perplexity-search/search` | Holdback | #2841 | Not registered in core |
-| `grok-x-only/x` | Holdback | #2843 | Not registered in core |
-| `grok-combined/combined` | Holdback | #2843 | Not registered in core |
-| `jina-search/search` | Holdback | #2841 | Not registered in core |
-| `serpapi/search` | Holdback | #2841 | Not registered in core |
-| `parallel/search` | Holdback | #2844 | Not registered in core |
-| `parallel/turbo` | Holdback | #2844 | Not registered in core |
-| `parallel/research` | Holdback | #2844 | Not registered in core |
-| `valyu/search` | Holdback | #2845 | Not registered in core |
-| `valyu/research` | Holdback | #2845 | Not registered in core |
+| `brave-search/search` | Landed | `brave-search` | `BraveSearchDriverTest` |
+| `exa/research` | Landed | `exa-research` | `ExaResearchDriverTest` |
+| `tavily/search` | Landed | `tavily-search` | `TavilySearchDriverTest` |
+| `gemini-deep/research` | Landed | `gemini-deep-research` | `GeminiDeepDriverTest` |
+| `perplexity-deep-research/research` | Landed | `perplexity-deep-research` | `PerplexityAgentDriverTest` |
+| `perplexity-search/search` | Landed | `perplexity-search` | `PerplexitySearchDriverTest` |
+| `grok-x-only/x` | Landed | `grok-x-only` | `XaiGrokDriverTest` |
+| `grok-combined/combined` | Landed | `grok-combined` | `XaiGrokDriverTest` |
+| `jina-search/search` | Landed | `jina-search` | `JinaSearchDriverTest` |
+| `serpapi/search` | Landed | `serpapi` | `SerpApiDriverTest` |
+| `parallel/search` | Landed | `parallel-search` | `ParallelSearchProfilesTest` |
+| `parallel/turbo` | Landed | `parallel-turbo` | `ParallelSearchProfilesTest` |
+| `parallel/research` | Landed | `parallel-research` | `ParallelResearchDriverTest` |
+| `valyu/search` | Landed | `valyu-search` | `ValyuSearchDriverTest` |
+| `valyu/research` | Landed | `valyu-research` | `ValyuResearchDriverTest` |
 
 ## How to read each row
 
@@ -144,7 +141,6 @@ Test and proof codes:
   duplicate delivery, and timeout tests.
 - **Surface fixture:** HTTP fake plus collector/surface provenance and two-stage
   behavior where applicable.
-- **Holdback guard:** documented but not registered as available.
 - **D:** recheck official provider documentation before implementation.
 - **L:** run one separately authorized paid live canary before release.
 - **B:** pass the SearchAPI/Firecrawl fidelity bake-off under #2593.
@@ -152,9 +148,9 @@ Test and proof codes:
 Pricing statements identify usage semantics only. Landed PHP Profiles resolve
 rates, source provenance, and freshness through `laravel-ai-pricing`; this
 matrix does not duplicate a rate table. Provider-reported actual totals retain
-resolver precedence after execution. SearchAPI is configured-only and remains
-unavailable until the application supplies its rate. Unregistered holdbacks do
-not receive preview quotes. Missing cost remains `null`, never zero.
+resolver precedence after execution. SearchAPI and other configured-only
+identities remain unavailable until the application supplies a rate. Missing
+cost remains `null`, never zero.
 
 ## #2591 core SDK: landed 1.0 Profiles (6)
 
@@ -452,207 +448,191 @@ not receive preview quotes. Missing cost remains `null`, never zero.
 - **Pricing:** conservative request units quoted through `laravel-ai-pricing`
 - **Test and proof:** HTTP fake; D + L
 
-## Explicit post-1.0 holdbacks (15)
+## #3604 parity additions: landed core Profiles (15)
 
-These are legitimate parity targets. They are held back only to keep 1.0
-focused on the complete quick workflow, SearchAPI visibility, primary SDK
-paths, OpenAI background research, and one additional deep provider. A
-maintainer checkpoint may move a row into #2591 later.
+These Profiles complete the accepted TypeScript v2 inventory in core. Their
+provider-local implementations retain distinct endpoint, lifecycle, pricing,
+and provenance semantics.
 
 ### `brave-search/search`
 
 - **Workflow:** none
 - **Semantics:** search_results; none; api_output; web; search_endpoint/direct; brave
 - **Target:** not applicable
-- **PHP path:** explicit holdback; #2841
+- **PHP path:** #3604 core parity; provider implementation #2841
 - **Binding:** Brave Web Search API
 - **Execution:** inline
 - **Terminal:** HTTP search
-- **Pricing:** not resolved while the Profile remains unregistered
-- **Test and proof:** Holdback guard; later HTTP fake, D + L
-- **Holdback reason:** Exa already covers raw discovery in quick.
+- **Pricing:** fixed request units quoted through `laravel-ai-pricing`
+- **Test and proof:** HTTP fake; D + L
 
 ### `exa/research`
 
 - **Workflow:** deep
 - **Semantics:** research_report; required; api_output; web; research_agent/direct; exa
 - **Target:** provider-managed agent
-- **PHP path:** explicit holdback; #2842
+- **PHP path:** #3604 core parity; provider implementation #2842
 - **Binding:** Exa Agent runs API
 - **Execution:** background/durable; poll then retrieve
 - **Terminal:** HTTP report
-- **Pricing:** not resolved while the Profile remains unregistered
-- **Test and proof:** Holdback guard; later Durable fake, D + L
-- **Holdback reason:** OpenAI and Perplexity provide the first two deep paths.
+- **Pricing:** actual cost is provider-reported; no preview quote is invented without preflight compute/search quantities
+- **Test and proof:** Durable fake with ambiguous-submit no-retry; D + L
 
 ### `tavily/search`
 
 - **Workflow:** none
 - **Semantics:** search_results; none; api_output; web; search_endpoint/direct; tavily
 - **Target:** not applicable
-- **PHP path:** explicit holdback; #2841
+- **PHP path:** #3604 core parity; provider implementation #3605
 - **Binding:** Tavily Search API
 - **Execution:** inline
 - **Terminal:** HTTP search
-- **Pricing:** not resolved while the Profile remains unregistered
-- **Test and proof:** Holdback guard; later HTTP fake, D + L
-- **Holdback reason:** Not required by quick and duplicates the initial search lane.
+- **Pricing:** configured-only credit rate; advanced default supplies two preflight credit units
+- **Test and proof:** HTTP fake; D + L
 
 ### `gemini-deep/research`
 
 - **Workflow:** deep
 - **Semantics:** research_report; required; api_output; web; research_agent/direct; google
 - **Target:** configurable agent `deep-research-preview-04-2026`
-- **PHP path:** explicit holdback; #2842
+- **PHP path:** #3604 core parity; provider implementation #3608
 - **Binding:** Gemini Interactions background agent; Laravel AI v0.10.3 has no provider-durable research abstraction
 - **Execution:** background/durable; poll then retrieve
 - **Terminal:** HTTP report
-- **Pricing:** not resolved while the Profile remains unregistered
-- **Test and proof:** Holdback guard; later Durable fake, D + L
-- **Holdback reason:** Preview agent and separate protocol need focused post-1.0 proof.
+- **Pricing:** configured-only; no request-level price is invented
+- **Test and proof:** Durable fake with ambiguous-submit no-retry; D + L
 
 ### `perplexity-deep-research/research`
 
 - **Workflow:** deep
 - **Semantics:** research_report; required; api_output; web; research_agent/direct; perplexity
 - **Target:** fixed preset `medium` with provider-managed underlying model
-- **PHP path:** explicit holdback; #2842
+- **PHP path:** #3604 core parity; provider implementation #3609
 - **Binding:** Perplexity Agent API medium effort
 - **Execution:** background/durable; poll then retrieve
 - **Terminal:** HTTP report
-- **Pricing:** not resolved while the Profile remains unregistered
-- **Test and proof:** Holdback guard; later Durable fake, D + L
-- **Holdback reason:** High effort proves the Perplexity Agent family for 1.0.
+- **Pricing:** stable token/tool rates provide a partial estimate, never a hard ceiling
+- **Test and proof:** Durable fake with ambiguous-submit no-retry; D + L
 
 ### `perplexity-search/search`
 
 - **Workflow:** none
 - **Semantics:** search_results; none; api_output; web; search_endpoint/direct; perplexity
 - **Target:** not applicable
-- **PHP path:** explicit holdback; #2841
+- **PHP path:** #3604 core parity; provider implementation #3609
 - **Binding:** Perplexity Search API, not Agent or chat completion
 - **Execution:** inline
 - **Terminal:** HTTP search
-- **Pricing:** not resolved while the Profile remains unregistered
-- **Test and proof:** Holdback guard; later HTTP fake, D + L
-- **Holdback reason:** Not required by quick and adds another raw-search shape.
+- **Pricing:** fixed successful-request units quoted through `laravel-ai-pricing`
+- **Test and proof:** HTTP fake; D + L
 
 ### `grok-x-only/x`
 
 - **Workflow:** none
 - **Semantics:** grounded_answer; required; api_output; x; model_search_tool/direct; xai
-- **Target:** configurable model `grok-4.5`
-- **PHP path:** explicit holdback; #2843
+- **Target:** accepted candidate `grok-4.5`; approved PHP default `grok-4.6`
+- **PHP path:** #3604 core parity; provider implementation #2843
 - **Binding:** xAI Responses API with X-only search tool
 - **Execution:** inline
 - **Terminal:** HTTP answer; `x_post` only when provider facts support it
-- **Pricing:** not resolved while the Profile remains unregistered
-- **Test and proof:** Holdback guard; later exact X-only HTTP fake, D + L
-- **Holdback reason:** `grok/web` supplies the 1.0 visibility baseline.
+- **Pricing:** current token/search units provide a partial estimate; X Search billing must be refreshed for the announced 2026-09-21 change
+- **Test and proof:** exact X-only HTTP fake; D + L
 
 ### `grok-combined/combined`
 
 - **Workflow:** none
 - **Semantics:** grounded_answer; required; api_output; web+x; model_search_tool/direct; xai
-- **Target:** configurable model `grok-4.5`
-- **PHP path:** explicit holdback; #2843
+- **Target:** accepted candidate `grok-4.5`; approved PHP default `grok-4.6`
+- **PHP path:** #3604 core parity; provider implementation #2843
 - **Binding:** one xAI Responses attempt with both web and X tools
 - **Execution:** inline; one origin, never two independent confirmations
 - **Terminal:** HTTP answer with per-citation source kinds when supported
-- **Pricing:** not resolved while the Profile remains unregistered
-- **Test and proof:** Holdback guard; later combined-tool HTTP fake, D + L
-- **Holdback reason:** Defer two-corpus provenance until each basic lane is stable.
+- **Pricing:** current token/search units provide a partial estimate; X Search billing must be refreshed for the announced 2026-09-21 change
+- **Test and proof:** combined-tool HTTP fake proving one request and one origin; D + L
 
 ### `jina-search/search`
 
 - **Workflow:** none
 - **Semantics:** search_results; none; api_output; web; search_endpoint/direct; jina
 - **Target:** not applicable
-- **PHP path:** explicit holdback; #2841
+- **PHP path:** #3604 core parity; provider implementation #3606
 - **Binding:** Jina Search Foundation; Laravel AI Jina support is embeddings/reranking, not this API
 - **Execution:** inline
 - **Terminal:** HTTP search
-- **Pricing:** not resolved while the Profile remains unregistered
-- **Test and proof:** Holdback guard; later HTTP fake, D + L
-- **Holdback reason:** No SDK reuse and no required 1.0 workflow membership.
+- **Pricing:** unavailable; provider documents fixed token consumption but no response-level USD or token quantity
+- **Test and proof:** HTTP fake; D + L
 
 ### `serpapi/search`
 
 - **Workflow:** none
 - **Semantics:** search_results; none; api_output; web; search_endpoint/brokered; google
 - **Target:** not applicable
-- **PHP path:** explicit holdback; #2841
+- **PHP path:** #3604 core parity; provider implementation #3607
 - **Binding:** SerpAPI Google engine
 - **Execution:** inline
 - **Terminal:** HTTP search
-- **Pricing:** not resolved while the Profile remains unregistered
-- **Test and proof:** Holdback guard; later HTTP fake, D + L
-- **Holdback reason:** SearchAPI already supplies brokered Google search.
+- **Pricing:** configured-only successful-search rate
+- **Test and proof:** HTTP fake; D + L
 
 ### `parallel/search`
 
 - **Workflow:** none
 - **Semantics:** search_results; none; api_output; web; search_endpoint/direct; parallel
 - **Target:** not applicable
-- **PHP path:** explicit holdback; #2844
+- **PHP path:** #3604 core parity; provider implementation #2844
 - **Binding:** Parallel Search API
 - **Execution:** inline
 - **Terminal:** HTTP search
-- **Pricing:** not resolved while the Profile remains unregistered
-- **Test and proof:** Holdback guard; later HTTP fake, D + L
-- **Holdback reason:** Defer the three-profile family and shared options together.
+- **Pricing:** unavailable before execution because provider-managed mode determines the charge
+- **Test and proof:** HTTP fake; D + L
 
 ### `parallel/turbo`
 
 - **Workflow:** quick
 - **Semantics:** search_results; none; api_output; web; search_endpoint/direct; parallel
 - **Target:** not applicable
-- **PHP path:** explicit holdback; #2844
+- **PHP path:** #3604 core parity; provider implementation #2844
 - **Binding:** Parallel Search API with mode fixed to `turbo`
 - **Execution:** inline
 - **Terminal:** HTTP search
-- **Pricing:** not resolved while the Profile remains unregistered
-- **Test and proof:** Holdback guard; later HTTP fake, D + L
-- **Holdback reason:** It joins TypeScript quick, but the Parallel family remains unregistered in PHP pending #2844.
+- **Pricing:** fixed request plus additional-result units quoted through `laravel-ai-pricing`
+- **Test and proof:** exact Turbo HTTP fake; D + L
 
 ### `parallel/research`
 
 - **Workflow:** deep
 - **Semantics:** research_report; required; api_output; web; research_agent/direct; parallel
 - **Target:** configurable preset `pro`
-- **PHP path:** explicit holdback; #2844
+- **PHP path:** #3604 core parity; provider implementation #2844
 - **Binding:** Parallel task-run submit, poll, and result APIs
 - **Execution:** background/durable; poll then retrieve
 - **Terminal:** HTTP report
-- **Pricing:** not resolved while the Profile remains unregistered
-- **Test and proof:** Holdback guard; later Durable fake, D + L
-- **Holdback reason:** Defer another durable family until 1.0 dogfooding.
+- **Pricing:** fixed successful processor-request units quoted through `laravel-ai-pricing`
+- **Test and proof:** Durable fake with ambiguous-submit no-retry; D + L
 
 ### `valyu/search`
 
 - **Workflow:** none
 - **Semantics:** search_results; none; api_output; web+specialized; search_endpoint/direct; valyu
 - **Target:** not applicable
-- **PHP path:** explicit holdback; #2845
+- **PHP path:** #3604 core parity; provider implementation #2845
 - **Binding:** Valyu Search API
 - **Execution:** inline
 - **Terminal:** HTTP search; specialized categories are metadata, not independent evidence
-- **Pricing:** not resolved while the Profile remains unregistered
-- **Test and proof:** Holdback guard; later HTTP fake, D + L
-- **Holdback reason:** Specialized sources are valuable but not required for 1.0.
+- **Pricing:** unavailable before execution because charges depend on selected source types
+- **Test and proof:** HTTP fake; D + L
 
 ### `valyu/research`
 
 - **Workflow:** deep
 - **Semantics:** research_report; required; api_output; web+specialized; research_agent/direct; valyu
 - **Target:** configurable preset `standard`
-- **PHP path:** explicit holdback; #2845
+- **PHP path:** #3604 core parity; provider implementation #2845
 - **Binding:** Valyu deep-research tasks API
 - **Execution:** background/durable; only accepted Profile advertising exact-profile remote cancellation
 - **Terminal:** HTTP report
-- **Pricing:** not resolved while the Profile remains unregistered
-- **Test and proof:** Holdback guard; later Durable fake with cancellation, D + L
-- **Holdback reason:** Cancellation and specialized provenance deserve focused work.
+- **Pricing:** standard base plus explicit optional units quoted through `laravel-ai-pricing`
+- **Test and proof:** Durable fake with private best-effort cancellation and ambiguous-submit no-retry; D + L
 
 ## Planned or non-selectable declarations
 
