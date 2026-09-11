@@ -7,9 +7,13 @@ namespace Jkudish\LaravelAiLibrarium\Collection;
 use Carbon\CarbonImmutable;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
 use LogicException;
+use WeakMap;
 
 final class SensitiveProviderResponse
 {
+    /** @var WeakMap<object, array{headers: array<string, list<string>>, body: string}>|null */
+    private static ?WeakMap $payloads = null;
+
     /**
      * @param  array<string, list<string>>  $headers
      */
@@ -18,10 +22,13 @@ final class SensitiveProviderResponse
         private readonly string $profile,
         private readonly Operation $operation,
         private readonly int $status,
-        private readonly array $headers,
-        private readonly string $body,
+        array $headers,
+        string $body,
         private readonly CarbonImmutable $receivedAt,
-    ) {}
+    ) {
+        self::$payloads ??= new WeakMap;
+        self::$payloads[$this] = ['headers' => $headers, 'body' => $body];
+    }
 
     public function provider(): string
     {
@@ -46,12 +53,12 @@ final class SensitiveProviderResponse
     /** @return array<string, list<string>> */
     public function headers(): array
     {
-        return $this->headers;
+        return $this->payload()['headers'];
     }
 
     public function body(): string
     {
-        return $this->body;
+        return $this->payload()['body'];
     }
 
     public function receivedAt(): CarbonImmutable
@@ -63,6 +70,11 @@ final class SensitiveProviderResponse
     public function __serialize(): array
     {
         throw new LogicException('Sensitive provider responses cannot be serialized.');
+    }
+
+    public function __clone(): void
+    {
+        throw new LogicException('Sensitive provider responses cannot be cloned.');
     }
 
     /** @return array<string, mixed> */
@@ -77,5 +89,16 @@ final class SensitiveProviderResponse
             'body' => '[SENSITIVE]',
             'received_at' => $this->receivedAt->toIso8601ZuluString(),
         ];
+    }
+
+    /** @return array{headers: array<string, list<string>>, body: string} */
+    private function payload(): array
+    {
+        $payloads = self::$payloads;
+        if ($payloads === null || ! isset($payloads[$this])) {
+            throw new LogicException('The sensitive provider response payload is unavailable.');
+        }
+
+        return $payloads[$this];
     }
 }

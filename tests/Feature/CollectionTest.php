@@ -30,6 +30,7 @@ use Jkudish\LaravelAiLibrarium\Responses\ResultProvenance;
 use Jkudish\LaravelAiLibrarium\Tests\Support\FakeRuntimeDriver;
 use Symfony\Component\VarDumper\Cloner\VarCloner;
 use Symfony\Component\VarDumper\Dumper\CliDumper;
+use Symfony\Component\VarDumper\VarDumper;
 
 beforeEach(function (): void {
     FakeRuntimeDriver::reset();
@@ -110,10 +111,17 @@ it('makes exact evidence an explicit non-serializable result', function (): void
     expect(fn (): string => serialize($collected))
         ->toThrow(LogicException::class, 'Sensitive collection results cannot be serialized.');
 
+    $handler = (new ReflectionProperty(VarDumper::class, 'handler'))->getValue();
+    expect($handler)->toBeInstanceOf(Closure::class);
+    assert($handler instanceof Closure);
+    $cloner = (new ReflectionFunction($handler))->getStaticVariables()['cloner'] ?? null;
+    expect($cloner)->toBeInstanceOf(VarCloner::class);
+    assert($cloner instanceof VarCloner);
+
     $output = fopen('php://memory', 'w+');
     expect($output)->not->toBeFalse();
     assert(is_resource($output));
-    (new CliDumper($output))->dump((new VarCloner)->cloneVar($collected));
+    (new CliDumper($output))->dump($cloner->cloneVar($collected));
     rewind($output);
     $dump = stream_get_contents($output);
     fclose($output);
