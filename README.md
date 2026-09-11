@@ -163,6 +163,11 @@ describe an account's actual credit price. Configure a `credits` rate for
 credit and remains unavailable to hard-budget preflight until its account rate
 is configured.
 
+Release ordering: the `laravel-ai-pricing` update blocking fallback for both
+SerpBase identities must land before this package's SerpBase support. The
+SerpBase integration test verifies that the installed dependency contains that
+policy; a passing test against the previous pricing package is insufficient.
+
 `ResearchPreview::preflightCostCheckAvailable` and the agent JSON
 `preflight_cost_check_available` member indicate only that `maxCost()` can
 perform this quote comparison. They do not indicate a provider-enforced
@@ -305,6 +310,11 @@ strings are suggestions rather than evidence. The undocumented
 bounded sanitized JSON-like text without interpreting child keys or deriving
 citations. Unsupported or unsafe values are omitted; keyed live schema
 validation remains pending and the offline rich tests use synthetic payloads.
+
+Responses exceeding 2 MB or 100 primary results are rejected. Retained text
+fields are capped at 2,000 UTF-8 bytes. Options require native integer/boolean
+types rather than coercible strings. News date text remains unstructured;
+relative dates are never converted into inferred publication timestamps.
 
 SerpBase's public policy says requests may log query text, locale, search type,
 status, latency, credits charged, API/account identifiers, and IP metadata. It

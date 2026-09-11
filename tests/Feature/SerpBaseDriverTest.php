@@ -21,6 +21,7 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\SourceKind;
+use Jkudish\LaravelAiPricing\Sources\PackagePricingSource;
 use Jkudish\LaravelAiPricing\ValueObjects\ModelIdentity;
 use Jkudish\LaravelAiPricing\ValueObjects\Usage as PricingUsage;
 
@@ -83,6 +84,9 @@ it('validates shared options and rejects endpoint-incompatible or malformed valu
         serpBaseRequest('news', ['include_rich_results' => true]),
         serpBaseRequest('search', ['unknown' => true]),
         serpBaseRequest('search', [], prompt: '   '),
+        serpBaseRequest('search', ['page' => '2']),
+        serpBaseRequest('search', ['include_rich_results' => 1]),
+        serpBaseRequest('search', ['include_rich_results' => '1']),
     ] as $request) {
         expect(fn () => serpBaseDriver()->run($request))
             ->toThrow(DriverException::class, 'invalid');
@@ -405,6 +409,32 @@ it('uses account-configured credit prices rather than a public headline minimum'
     'search' => ['serpbase-search', 'serpbase:search'],
     'news' => ['serpbase-news', 'serpbase:news'],
 ]);
+
+it('rejects overflowing envelope numbers as provider failures', function (): void {
+    foreach (['elapsed_ms', 'credits_charged'] as $field) {
+        $json = json_encode(serpBaseEnvelope('search', [$field => 'overflow']), JSON_THROW_ON_ERROR);
+        Http::fake(['*' => Http::response(str_replace('"overflow"', '1e999', $json))]);
+        expect(fn () => serpBaseDriver()->run(serpBaseRequest()))->toThrow(DriverException::class, 'malformed');
+    }
+});
+
+it('omits secret-bearing opaque fields and bounds primary text', function (): void {
+    Http::fake(['*' => Http::response(serpBaseEnvelope('search', [
+        'organic' => [['rank' => 1, 'title' => str_repeat('é', 1500), 'link' => 'https://safe.example', 'snippet' => str_repeat('z', 3000)]],
+        'featured_snippet' => ['authorization' => 'private-auth', 'cookie' => 'private-cookie', 'bearer' => 'private-bearer', 'session_id' => 'private-session', 'X-Goog-Signature' => 'private-signature', 'safe' => 'retained'],
+    ]))]);
+    $result = serpBaseDriver()->run(serpBaseRequest(options: ['include_rich_results' => true]));
+    expect($result->content)->not->toContain('private-')->toContain('retained')
+        ->and(strlen($result->citations->sole()->source->title ?? ''))->toBe(2000)
+        ->and(strlen($result->citations->sole()->excerpt ?? ''))->toBe(2000);
+});
+
+it('requires the installed pricing dependency to block SerpBase fallback', function (): void {
+    $source = app(PackagePricingSource::class);
+    foreach (['search', 'news'] as $kind) {
+        expect($source->allowsFallback(new ModelIdentity('serpbase', $kind)))->toBeFalse();
+    }
+});
 
 function serpBaseDriver(): SerpBaseDriver
 {

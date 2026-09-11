@@ -53,9 +53,9 @@ final readonly class SerpBaseDriver implements Driver
         return [
             'hl' => ['bail', 'sometimes', 'filled', 'string'],
             'gl' => ['bail', 'sometimes', 'filled', 'string'],
-            'page' => ['bail', 'sometimes', 'integer', 'min:1'],
+            'page' => ['bail', 'sometimes', 'integer:strict', 'min:1'],
             'device' => ['bail', 'sometimes', 'string', 'in:default,pc,mobile'],
-            'include_rich_results' => ['bail', 'sometimes', 'boolean'],
+            'include_rich_results' => ['bail', 'sometimes', 'boolean:strict'],
         ];
     }
 
@@ -72,6 +72,9 @@ final readonly class SerpBaseDriver implements Driver
             throw $this->httpFailure($response);
         }
 
+        if (strlen($response->body()) > 2_000_000) {
+            throw $this->invalidResponse();
+        }
         $json = $response->json();
         if (! is_array($json) || array_is_list($json)) {
             throw $this->invalidResponse();
@@ -194,8 +197,9 @@ final readonly class SerpBaseDriver implements Driver
         $page = data_get($json, 'page');
 
         if (! is_string($requestId) || trim($requestId) === '' || strlen($requestId) > 255
-            || (! is_int($elapsed) && ! is_float($elapsed)) || $elapsed < 0
-            || (! is_int($credits) && ! is_float($credits)) || $credits < 0
+            || preg_match('/[\x00-\x1f\x7f]/', $requestId) === 1
+            || (! is_int($elapsed) && ! is_float($elapsed)) || ! is_finite((float) $elapsed) || $elapsed < 0
+            || (! is_int($credits) && ! is_float($credits)) || ! is_finite((float) $credits) || $credits < 0
             || $searchType !== $kind
             || ! is_string($query)
             || ! is_int($page) || $page < 1) {
@@ -217,6 +221,9 @@ final readonly class SerpBaseDriver implements Driver
         $items = array_key_exists($resultKey, $json)
             ? $this->records($json[$resultKey], false, true)
             : [];
+        if (count($items) > 100) {
+            throw $this->invalidResponse();
+        }
         /** @var Collection<int, Citation> $citations */
         $citations = collect();
         $seen = [];
@@ -453,7 +460,7 @@ final readonly class SerpBaseDriver implements Driver
 
     private function sensitiveKey(string $key): bool
     {
-        return preg_match('/(?:key|token|secret|credential|password|request.?id)/i', $key) === 1;
+        return preg_match('/(?:key|token|secret|credential|password|passwd|request.?id|auth|bearer|session|signature|cookie|(?:^|[-_])sig(?:$|[-_]))/i', $key) === 1;
     }
 
     private function containsCredential(mixed $value, string $credential): bool
@@ -603,7 +610,7 @@ final readonly class SerpBaseDriver implements Driver
 
         $trimmed = trim($value);
 
-        return $trimmed === '' ? null : $trimmed;
+        return $trimmed === '' ? null : mb_strcut($trimmed, 0, self::RICH_MAX_STRING_BYTES);
     }
 
     private function deadlineExceeded(string $message): DriverException
