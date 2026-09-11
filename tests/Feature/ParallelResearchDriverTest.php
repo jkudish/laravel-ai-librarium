@@ -284,6 +284,29 @@ it('fails closed on mismatched lifecycle identities and malformed results', func
     'blank report' => [parallelResearchRun('completed'), parallelResearchResult(output: ['type' => 'text', 'content' => ' ', 'basis' => []])],
 ]);
 
+it('rejects credentials and private handles reflected into retained Research output', function (string $private, string $field): void {
+    $result = parallelResearchResult();
+    if ($field === 'content') {
+        $result['output']['content'] = "Report containing {$private}";
+    } else {
+        $result['output']['basis'][0]['reasoning'] = "Reasoning containing {$private}";
+    }
+    Http::fake(['https://api.parallel.ai/v1/tasks/runs*' => Http::sequence()
+        ->push(parallelResearchRun('queued'), 202)
+        ->push(parallelResearchRun('completed'))
+        ->push($result)]);
+
+    expect(fn () => app(ParallelResearchDriver::class)->run(parallelResearchRequest()))
+        ->toThrow(function (DriverException $exception) use ($private): void {
+            expect($exception->errorCode)->toBe('parallel.invalid_response')
+                ->and($exception->fallbackAllowed)->toBeFalse()
+                ->and($exception->getMessage())->not->toContain($private);
+        });
+})->with([
+    'credential in report' => ['testing-parallel-key', 'content'],
+    'private handle in basis' => [parallelResearchRunId(), 'basis'],
+]);
+
 /** @return array<string, mixed> */
 function parallelResearchRun(string $status): array
 {

@@ -139,6 +139,24 @@ it('locks Turbo to mode turbo while keeping its exact profile identity', functio
         ->not->toContain('testing-parallel-key');
 });
 
+it('escapes executable HTML in standalone evidence URLs while retaining the citation URL', function (string $driver, string $profile): void {
+    $url = 'https://example.com/<script>alert(1)</script>';
+    Http::fake(['https://api.parallel.ai/v1/search' => Http::response(parallelSearchResponse(results: [[
+        'url' => $url,
+        'title' => 'Safe title',
+        'excerpts' => ['Safe evidence.'],
+    ]]))]);
+
+    $result = app($driver)->run(parallelSearchRequest(profileId: $profile));
+
+    expect($result->content)->not->toContain('<script>')
+        ->toContain('&lt;script&gt;')
+        ->and($result->citations->sole()->source->url)->toBe($url);
+})->with([
+    'Search' => [ParallelSearchDriver::class, 'parallel-search'],
+    'Turbo' => [ParallelTurboDriver::class, 'parallel-turbo'],
+]);
+
 it('accepts source paths for Search but rejects paths and mode overrides for Turbo before HTTP', function (): void {
     Http::fake(['https://api.parallel.ai/v1/search' => Http::response(parallelSearchResponse(results: []))]);
     app(ParallelSearchDriver::class)->run(parallelSearchRequest(options: [

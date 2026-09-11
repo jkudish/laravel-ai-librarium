@@ -11,6 +11,7 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
+use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
@@ -19,6 +20,7 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
+use stdClass;
 use Throwable;
 
 /** Runs one durable Exa Agent task for the exact exa/research Profile. */
@@ -93,7 +95,11 @@ final readonly class ExaResearchDriver implements Driver
             throw $this->invalidResponse();
         }
 
-        return $this->mapper->map($request, $terminal);
+        return TerminalRedaction::guard(
+            $this->mapper->map($request, $terminal),
+            [$credential, $runId],
+            $this->invalidResponse(),
+        );
     }
 
     private function preflight(DriverRequest $request): string
@@ -299,6 +305,20 @@ final readonly class ExaResearchDriver implements Driver
         $payload = $response->json();
         if (! is_array($payload) || array_is_list($payload)) {
             throw $this->invalidResponse();
+        }
+
+        $output = $payload['output'] ?? null;
+        if (is_array($output) && ! array_is_list($output) && array_key_exists('structured', $output)) {
+            $wire = $response->object();
+            if (! $wire instanceof stdClass
+                || ! isset($wire->output)
+                || ! $wire->output instanceof stdClass
+                || ! property_exists($wire->output, 'structured')) {
+                throw $this->invalidResponse();
+            }
+
+            $output['structured'] = $wire->output->structured;
+            $payload['output'] = $output;
         }
 
         $this->runId($payload);

@@ -381,6 +381,28 @@ it('rejects terminal reports without usable cited text and redacts signed-only c
     'signed citations only',
 ]);
 
+it('rejects credentials and private handles reflected into retained output', function (string $private, string $field): void {
+    $completed = geminiDeepInteraction('completed', completed: true);
+    if ($field === 'output') {
+        $completed['output_text'] = "Report containing {$private}";
+    } else {
+        data_set($completed, 'steps.0.content.0.annotations.0.title', "Source {$private}");
+    }
+    Http::fakeSequence()
+        ->push(geminiDeepInteraction('completed'))
+        ->push($completed);
+
+    expect(fn () => app(GeminiDeepDriver::class)->run(geminiDeepRequest()))
+        ->toThrow(function (DriverException $exception) use ($private): void {
+            expect($exception->errorCode)->toBe('gemini_deep.invalid_response')
+                ->and($exception->fallbackAllowed)->toBeFalse()
+                ->and($exception->getMessage())->not->toContain($private);
+        });
+})->with([
+    'credential in report' => ['testing-gemini-key', 'output'],
+    'private handle in citation title' => [geminiDeepInteractionId(), 'citation'],
+]);
+
 /** @param list<string> $progress */
 function geminiDeepRequest(
     ?CarbonImmutable $deadline = null,

@@ -95,13 +95,12 @@ final readonly class ExaResearchResultMapper
         }
 
         $structured = data_get($output, 'structured');
-        if (! is_array($structured)
-            || array_is_list($structured)
+        if (! $structured instanceof stdClass
             || ! $this->isJsonValue($structured)) {
             throw $this->invalidResponse();
         }
 
-        return [ContentFormat::Json, $this->jsonObject($structured)];
+        return [ContentFormat::Json, $structured];
     }
 
     /** @return Collection<int, Citation> */
@@ -265,19 +264,10 @@ final readonly class ExaResearchResultMapper
             return is_finite($value);
         }
 
-        return is_array($value)
-            && array_all($value, fn (mixed $item): bool => $this->isJsonValue($item));
-    }
+        $values = $value instanceof stdClass ? get_object_vars($value) : $value;
 
-    /** @param array<array-key, mixed> $value */
-    private function jsonObject(array $value): stdClass
-    {
-        $decoded = json_decode(json_encode($value, JSON_THROW_ON_ERROR), false, 512, JSON_THROW_ON_ERROR);
-        if (! $decoded instanceof stdClass) {
-            throw $this->invalidResponse();
-        }
-
-        return $decoded;
+        return is_array($values)
+            && array_all($values, fn (mixed $item): bool => $this->isJsonValue($item));
     }
 
     private function invalidResponse(): DriverException

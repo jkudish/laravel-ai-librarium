@@ -10,6 +10,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Sleep;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
+use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
@@ -232,7 +233,7 @@ final readonly class ParallelResearchDriver implements Driver
         [$citations, $basis] = $this->basis($output['basis']);
         $now = CarbonImmutable::now();
 
-        return ResearchResult::make(
+        return TerminalRedaction::guard(ResearchResult::make(
             contentFormat: ContentFormat::Markdown,
             content: $output['content'],
             requestedProfile: $request->requestedProfile->id,
@@ -254,7 +255,7 @@ final readonly class ParallelResearchDriver implements Driver
                 'metering' => ['unit' => 'processor_request', 'count' => 1],
                 'basis' => $basis,
             ]],
-        );
+        ), [(string) $request->profile->credential, $runId], $this->invalidResponse());
     }
 
     /**

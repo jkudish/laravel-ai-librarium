@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
+use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
@@ -117,7 +118,7 @@ final readonly class PerplexitySearchDriver implements Driver
             $content = $this->limit($content, 64_000);
         }
 
-        return ResearchResult::make(
+        return TerminalRedaction::guard(ResearchResult::make(
             contentFormat: ContentFormat::Markdown,
             content: $content,
             requestedProfile: $request->requestedProfile->id,
@@ -132,7 +133,7 @@ final readonly class PerplexitySearchDriver implements Driver
             citations: collect($citations),
             completedAt: $now,
             providerMeta: (object) ['result_count' => count($results)],
-        );
+        ), [(string) $request->profile->credential], $this->invalidResponse());
     }
 
     private function preflight(DriverRequest $request): void

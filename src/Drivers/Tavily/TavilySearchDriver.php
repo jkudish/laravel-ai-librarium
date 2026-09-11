@@ -11,6 +11,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
+use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
@@ -104,7 +105,7 @@ final readonly class TavilySearchDriver implements Driver
             $providerMeta['credits'] = $credits;
         }
 
-        return ResearchResult::make(
+        return TerminalRedaction::guard(ResearchResult::make(
             contentFormat: ContentFormat::Markdown,
             content: implode("\n", $parts),
             requestedProfile: $request->requestedProfile->id,
@@ -119,7 +120,7 @@ final readonly class TavilySearchDriver implements Driver
             citations: $citations,
             completedAt: $now,
             providerMeta: (object) $providerMeta,
-        );
+        ), [(string) $request->profile->credential], $this->invalidResponse());
     }
 
     /** @return array<array-key, mixed> */

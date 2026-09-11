@@ -425,6 +425,24 @@ it('rejects malformed or unknown completed output', function (string $path, mixe
     'invalid timestamp' => ['completed_at', 'today'],
 ]);
 
+it('rejects credentials and private handles reflected into retained Agent output', function (string $private, string $path): void {
+    $response = perplexityCompletedResponse();
+    data_set($response, $path, "Retained {$private} [web:1].");
+    Http::fakeSequence()
+        ->push(['id' => 'resp_private_1', 'status' => 'completed'])
+        ->push($response);
+
+    expect(fn () => perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-deep-research')))
+        ->toThrow(function (DriverException $exception) use ($private): void {
+            expect($exception->errorCode)->toBe('perplexity.invalid_response')
+                ->and($exception->fallbackAllowed)->toBeFalse()
+                ->and($exception->getMessage())->not->toContain($private);
+        });
+})->with([
+    'credential in report' => ['testing-perplexity-key', 'output.1.content.0.text'],
+    'private handle in citation title' => ['resp_private_1', 'output.0.results.0.title'],
+]);
+
 it('strictly validates referenced search evidence and keeps only cited results', function (string $path, mixed $value): void {
     $response = perplexityCompletedResponse();
     data_set($response, $path, $value);

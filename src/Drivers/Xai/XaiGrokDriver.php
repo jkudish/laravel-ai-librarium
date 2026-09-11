@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
+use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
@@ -118,7 +119,11 @@ final readonly class XaiGrokDriver implements Driver
             throw new DriverException('xai.invalid_response', 'xAI returned an unsuccessful response.');
         }
 
-        return $this->result($request, $json);
+        return TerminalRedaction::guard(
+            $this->result($request, $json),
+            [(string) $request->profile->credential],
+            new DriverException('xai.invalid_response', 'xAI returned an invalid grounded response.'),
+        );
     }
 
     private function validateRequest(DriverRequest $request): void

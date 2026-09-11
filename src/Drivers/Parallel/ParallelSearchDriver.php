@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
+use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
@@ -153,7 +154,7 @@ final readonly class ParallelSearchDriver implements Driver
 
             $excerpt = $this->str($excerpts[0] ?? null);
             $label = $this->markdownInline($title ?? $url);
-            $part = '### '.($index + 1).'. '.$label."\n".$this->markdownUrl($url);
+            $part = '### '.($index + 1).'. '.$label."\n".$this->markdownText($url);
             if ($excerpt !== null) {
                 $part .= "\n\n".$this->markdownText($excerpt);
             }
@@ -169,7 +170,7 @@ final readonly class ParallelSearchDriver implements Driver
         $metering = $this->metering($usage);
         $now = CarbonImmutable::now();
 
-        return ResearchResult::make(
+        return TerminalRedaction::guard(ResearchResult::make(
             contentFormat: ContentFormat::Markdown,
             content: $parts === [] ? 'No results found.' : implode("\n\n", $parts),
             requestedProfile: $request->requestedProfile->id,
@@ -189,7 +190,7 @@ final readonly class ParallelSearchDriver implements Driver
                 'warning_count' => $warningCount,
                 'metering' => $metering,
             ]],
-        );
+        ), [(string) $request->profile->credential], $this->invalidResponse());
     }
 
     private function warningCount(mixed $warnings): int
@@ -270,11 +271,6 @@ final readonly class ParallelSearchDriver implements Driver
             ['\\\\', '\\`', '\\*', '\\_', '\\{', '\\}', '\\[', '\\]', '\\(', '\\)', '\\#', '\\+', '\\-', '\\.', '\\!', '\\|', '\\~', '\\=', '\\^', '\\$'],
             $escaped,
         );
-    }
-
-    private function markdownUrl(string $url): string
-    {
-        return str_replace(['\\', '(', ')'], ['%5C', '%28', '%29'], $url);
     }
 
     private function invalidResponse(): DriverException

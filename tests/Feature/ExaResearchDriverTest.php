@@ -201,6 +201,25 @@ it('normalizes non-empty structured output when no report text is present', func
         ]);
 });
 
+it('preserves JSON object and array distinctions in structured output', function (): void {
+    $terminal = exaResearchCompletedRun();
+    $terminal['output']['text'] = '';
+    $terminal['output']['structured'] = (object) [
+        'empty_object' => (object) [],
+        'numeric_key_object' => (object) ['0' => 'value'],
+        'empty_array' => [],
+    ];
+    Http::fake(['https://api.exa.ai/agent/runs*' => Http::sequence()
+        ->push(exaResearchRun('completed'))
+        ->push(json_encode($terminal, JSON_THROW_ON_ERROR), 200, ['Content-Type' => 'application/json'])]);
+
+    $result = exaResearchDriver()->run(exaResearchRequest());
+
+    expect(json_encode($result->content, JSON_THROW_ON_ERROR))->toBe(
+        '{"empty_object":{},"numeric_key_object":{"0":"value"},"empty_array":[]}'
+    );
+});
+
 it('rejects incompatible profile semantics before dispatch', function (array $overrides): void {
     Http::fake();
 
@@ -426,6 +445,28 @@ it('allowlists terminal values and excludes the credential, private handle, and 
         ->not->toContain('unknownPrivateCounter')
         ->not->toContain('unknownPrivateCost');
 });
+
+it('rejects credentials and private handles reflected into retained terminal fields', function (string $private, string $field): void {
+    $terminal = exaResearchCompletedRun();
+    if ($field === 'text') {
+        $terminal['output']['text'] = "Report containing {$private}";
+    } else {
+        $terminal['output']['grounding'][0]['citations'][0]['title'] = "Source {$private}";
+    }
+    Http::fake(['https://api.exa.ai/agent/runs*' => Http::sequence()
+        ->push(exaResearchRun('completed'))
+        ->push($terminal)]);
+
+    expect(fn () => exaResearchDriver()->run(exaResearchRequest()))
+        ->toThrow(function (DriverException $exception) use ($private): void {
+            expect($exception->errorCode)->toBe('exa_research.invalid_response')
+                ->and($exception->fallbackAllowed)->toBeFalse()
+                ->and($exception->getMessage())->not->toContain($private);
+        });
+})->with([
+    'credential in report text' => ['testing-exa-key', 'text'],
+    'private handle in citation title' => [exaResearchRunId(), 'citation'],
+]);
 
 function exaResearchDriver(): ExaResearchDriver
 {

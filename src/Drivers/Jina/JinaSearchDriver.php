@@ -11,6 +11,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
+use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
@@ -189,7 +190,7 @@ final readonly class JinaSearchDriver implements Driver
 
         $completedAt = CarbonImmutable::now();
 
-        return ResearchResult::make(
+        return TerminalRedaction::guard(ResearchResult::make(
             contentFormat: ContentFormat::Markdown,
             content: $parts === [] ? 'No results found.' : implode("\n", $parts),
             requestedProfile: $request->requestedProfile->id,
@@ -203,7 +204,7 @@ final readonly class JinaSearchDriver implements Driver
             ),
             citations: $citations,
             completedAt: $completedAt,
-        );
+        ), [(string) $request->profile->credential], $this->invalidResponse());
     }
 
     private function evidenceUrl(mixed $value): ?string

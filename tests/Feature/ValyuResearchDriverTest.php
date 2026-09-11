@@ -354,6 +354,24 @@ it('fails closed on malformed completed retrieval without leaking the response',
     ]],
 ]);
 
+it('rejects an escaped credential reflected in terminal output', function (): void {
+    $credential = 'credential/"\\秘密';
+    Http::fake(['https://api.valyu.ai/v1/deepresearch/tasks*' => Http::sequence()
+        ->push(valyuResearchSubmission('dr-retrieval-private', 'standard'), 202)
+        ->push(valyuResearchTask('dr-retrieval-private', 'completed', 'standard'))
+        ->push([
+            ...valyuResearchCompleted('dr-retrieval-private', 'standard'),
+            'output' => "Report containing {$credential}",
+        ])]);
+
+    expect(fn () => app(ValyuResearchDriver::class)->run(valyuResearchRequest(credential: $credential)))
+        ->toThrow(function (DriverException $exception) use ($credential): void {
+            expect($exception->errorCode)->toBe('valyu_research.invalid_response')
+                ->and($exception->fallbackAllowed)->toBeFalse()
+                ->and($exception->getMessage())->not->toContain($credential);
+        });
+});
+
 /** @return array<string, mixed> */
 function valyuResearchSubmission(string $id, string $mode): array
 {

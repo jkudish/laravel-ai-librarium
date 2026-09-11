@@ -10,6 +10,7 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
+use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
@@ -72,7 +73,11 @@ final readonly class GeminiDeepDriver implements Driver
 
                 $terminalStatus = $this->status($terminal);
                 if ($terminalStatus === 'completed') {
-                    return $this->mapper->map($terminal, $request);
+                    return TerminalRedaction::guard(
+                        $this->mapper->map($terminal, $request),
+                        [$credential, $interactionId],
+                        $this->invalidResponse(),
+                    );
                 }
 
                 $observed = $terminal;

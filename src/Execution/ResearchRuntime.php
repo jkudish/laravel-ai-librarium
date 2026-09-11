@@ -10,6 +10,7 @@ use Illuminate\Contracts\Container\Container;
 use Illuminate\Support\Collection;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
+use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
 use Jkudish\LaravelAiLibrarium\Events\ResearchCompleted;
 use Jkudish\LaravelAiLibrarium\Events\ResearchFailed;
 use Jkudish\LaravelAiLibrarium\Events\ResearchProgressed;
@@ -185,6 +186,7 @@ final readonly class ResearchRuntime implements ExecutesResearch
                 $profileId,
             ),
         ));
+        $result = TerminalRedaction::guard($result, [(string) $profile->credential]);
 
         if (CarbonImmutable::now()->isAfter($deadline)) {
             throw new DriverException(

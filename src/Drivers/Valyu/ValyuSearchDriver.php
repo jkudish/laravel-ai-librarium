@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Validator as LaravelValidator;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
+use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
@@ -177,11 +178,11 @@ final readonly class ValyuSearchDriver implements Driver
             ],
         );
 
-        if (str_contains(json_encode($result->toArray(), JSON_THROW_ON_ERROR), (string) $request->profile->credential)) {
-            throw $this->invalidResponse();
-        }
-
-        return $result;
+        return TerminalRedaction::guard(
+            $result,
+            [(string) $request->profile->credential],
+            $this->invalidResponse(),
+        );
     }
 
     private function validateRequest(DriverRequest $request): void

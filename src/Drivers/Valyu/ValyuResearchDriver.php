@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Sleep;
 use Illuminate\Validation\Validator as LaravelValidator;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
+use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
@@ -393,14 +394,14 @@ final readonly class ValyuResearchDriver implements Driver
             ],
         );
 
-        $wire = json_encode($result->toArray(), JSON_THROW_ON_ERROR);
-        foreach ([(string) $request->profile->credential, ValyuSupport::string(data_get($task, 'deepresearch_id')) ?? ''] as $privateValue) {
-            if ($privateValue !== '' && str_contains($wire, $privateValue)) {
-                throw $this->invalidResponse();
-            }
-        }
-
-        return $result;
+        return TerminalRedaction::guard(
+            $result,
+            [
+                (string) $request->profile->credential,
+                ValyuSupport::string(data_get($task, 'deepresearch_id')) ?? '',
+            ],
+            $this->invalidResponse(),
+        );
     }
 
     /** @param array<array-key, mixed> $task

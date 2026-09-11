@@ -11,6 +11,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
+use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
@@ -92,7 +93,7 @@ final readonly class BraveSearchDriver implements Driver
 
         $completedAt = CarbonImmutable::now();
 
-        return ResearchResult::make(
+        return TerminalRedaction::guard(ResearchResult::make(
             contentFormat: ContentFormat::Markdown,
             content: $content === [] ? 'No results found.' : implode("\n", $content),
             requestedProfile: $request->requestedProfile->id,
@@ -107,7 +108,7 @@ final readonly class BraveSearchDriver implements Driver
             citations: $citations,
             completedAt: $completedAt,
             providerMeta: (object) ['result_count' => $citations->count()],
-        );
+        ), [(string) $request->profile->credential], $this->invalidResponse());
     }
 
     private function validateRequest(DriverRequest $request): void
