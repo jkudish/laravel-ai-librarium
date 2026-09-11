@@ -36,7 +36,10 @@ it('runs one explicitly approved provider-parity canary', function (
     config()->set("librarium.profiles.{$profile}.credential", trim($credential));
     Http::record();
 
-    $query = 'In one short paragraph, identify the latest stable Laravel major version and cite official documentation.';
+    $query = match ($profile) {
+        'grok-x-only' => 'In one short paragraph, summarize a recent post from the official Laravel X account (@laravelphp) and cite that X post.',
+        default => 'In one short paragraph, identify the latest stable Laravel major version and cite official documentation.',
+    };
     $pending = Librarium::query($query)->using($profile)->timeout($timeout);
     $preview = $pending->preview();
 

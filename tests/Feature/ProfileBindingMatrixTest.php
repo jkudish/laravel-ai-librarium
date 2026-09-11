@@ -197,9 +197,12 @@ it('reconciles every TypeScript matrix row with the landed PHP catalog', functio
 
 it('keeps one separately gated live canary for every landed PHP Profile', function (): void {
     $canaries = file_get_contents(__DIR__.'/../../docs/live-provider-canaries.md');
+    $receipt = file_get_contents(__DIR__.'/../../docs/provider-parity-live-2026-09-11.md');
 
-    expect($canaries)->not->toBeFalse();
+    expect($canaries)->not->toBeFalse()
+        ->and($receipt)->not->toBeFalse();
     assert(is_string($canaries));
+    assert(is_string($receipt));
 
     preg_match_all(
         '/^\| C(?<id>\d{2}) \| `(?<profile>[^`]+)` \|/m',
@@ -218,10 +221,21 @@ it('keeps one separately gated live canary for every landed PHP Profile', functi
     expect($matches)->toHaveCount(45)
         ->and($ids)->toBe(array_map(static fn (int $id): string => sprintf('%02d', $id), range(1, 45)))
         ->and($profiles)->toBe($configuredProfiles)
-        ->and($canaries)->toContain('Approval for one ID does')
-        ->toContain('No live provider or')
+        ->and($canaries)->toContain('unless an approval names a')
+        ->toContain('| Monthly Search | C30–C34, C40–C41, C43, C45 | 0.02, 0.10, 0.02, 0.10, 0.10, 0.10, 0.01, 0.15, 0.10 | 0.70 |')
+        ->toContain('| Full provider parity | C30–C45 | 0.02, 0.10, 0.02, 0.10, 0.10, 0.60, 2.00, 0.50, 0.20, 0.25, 0.10, 0.01, 0.15, 0.15, 0.60, 0.10 | 5.00 |')
+        ->toContain('Cadence is not standing spend')
+        ->toContain('tier approvals always record one attempt and no retry')
+        ->toContain('It never authorizes a retry')
         ->toContain('Unknown cost is not zero.')
         ->toContain('C01–C13 passed separately authorized live checks')
-        ->toContain('C14–C45 remain unverified live.')
-        ->toContain("--filter='<exact dataset name from the table>' --fail-on-skipped");
+        ->toContain('C14–C29 remain unverified live.')
+        ->toContain('C30–C37 and C39–C45 passed on 2026-09-11')
+        ->toContain('new candidate SHA and separately approved')
+        ->toContain("--filter='<exact dataset name from the table>' --fail-on-skipped")
+        ->and($receipt)->toContain('dfce4d2b3f06147ff0e1f94bafd54eb44141d179')
+        ->toContain('7caa14b59ef56724718c63e2f9b170b296ba8e9e')
+        ->toContain('67dfb86f7086e0fbe961298f0d81d171d2b50b55')
+        ->toContain('| `grok-x-only` | 0.20 | FAIL | 2 |')
+        ->toContain('No failed submission was retried.');
 });
