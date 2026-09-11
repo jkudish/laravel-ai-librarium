@@ -449,7 +449,9 @@ for the supported Profiles listed in
 Development currently follows the latest `jkudish/laravel-ai-pricing`
 `dev-main` through Packagist. Librarium must not be released or published with
 this development constraint; replace it with the corresponding stable version
-after the pricing package is released.
+after the pricing package is released. The [PHP 1.0 release
+checklist](docs/release-checklist.md) records every remaining compatibility,
+cross-repository, live, and exact-SHA gate.
 
 Merge the SerpBase configured-only pricing policy into the pricing package
 before merging these PHP Profiles. Consumers must install pricing that includes
@@ -466,7 +468,13 @@ composer analyse
 composer format
 composer format:check
 composer validate --strict
+composer compatibility:check
 ```
+
+Run `compatibility:check` after resolving each supported dependency lane. It
+does not resolve or install packages itself. `composer release:check` is a
+separate fail-closed readiness guard and is expected to report the recorded 1.0
+blockers until the release checklist is complete.
 
 ### Pull-request verification and signoff
 

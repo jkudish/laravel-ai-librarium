@@ -2,6 +2,90 @@
 
 declare(strict_types=1);
 
+use Jkudish\LaravelAiLibrarium\ProfileCatalog;
+
+/**
+ * @return array<string, array{
+ *     profile: string,
+ *     result_kind: string,
+ *     grounding: string,
+ *     observation: string,
+ *     corpora: list<string>,
+ *     retrieval_methods: list<string>,
+ *     invocation: string,
+ *     resumability: string,
+ *     workflows: list<string>,
+ *     target: array<string, mixed>
+ * }>
+ */
+function acceptedTypeScriptProfiles(): array
+{
+    $path = __DIR__.'/../Support/Profiles/v2/catalog.tsv';
+    $contents = file_get_contents($path);
+
+    if (! is_string($contents)) {
+        throw new RuntimeException('The accepted TypeScript Profile snapshot is unreadable.');
+    }
+
+    if (! hash_equals('83739ba138c2db2c4673aada5834a5586f085a6c971253b155339eb570dbb9f9', hash('sha256', $contents))) {
+        throw new RuntimeException('The accepted TypeScript Profile snapshot checksum has drifted.');
+    }
+
+    $lines = explode("\n", rtrim($contents, "\n"));
+    $metadata = array_splice($lines, 0, 6);
+    $header = array_shift($lines);
+
+    if ($metadata !== [
+        '# schema-version: 1',
+        '# repository: jkudish/librarium',
+        '# commit: 889b0366b5baafff117198632e04b24e521ac93d',
+        '# package-version: 2.0.0',
+        '# catalog: src/core/provider-profiles.ts sha256:0a3fbf912a7c6029f9b7656c4f3f4a15de2aaecb3fc1d6571024e845fba027d4',
+        '# bindings: src/core/profile-bindings.ts sha256:77c6ff20ed47d3f4697ed2dc9b5ff3456c1c411cbf82cc11e1920f15d225e2fe',
+    ] || $header !== "profile\tresult_kind\tgrounding\tobservation\tcorpora\tretrieval_methods\tinvocation\tresumability\tworkflows\ttarget") {
+        throw new RuntimeException('The accepted TypeScript Profile snapshot metadata is invalid.');
+    }
+
+    $profiles = [];
+
+    foreach ($lines as $line) {
+        $fields = explode("\t", $line, 10);
+
+        if (count($fields) !== 10 || isset($profiles[$fields[0]])) {
+            throw new RuntimeException('The accepted TypeScript Profile snapshot inventory is invalid.');
+        }
+
+        [$profile, $resultKind, $grounding, $observation, $corpora, $retrievalMethods, $invocation, $resumability, $workflows, $target] = $fields;
+        $decodedTarget = json_decode($target, true, 512, JSON_THROW_ON_ERROR);
+
+        if (! is_array($decodedTarget)) {
+            throw new RuntimeException("The accepted TypeScript Profile target [{$profile}] is invalid.");
+        }
+
+        $profiles[$profile] = [
+            'profile' => $profile,
+            'result_kind' => $resultKind,
+            'grounding' => $grounding,
+            'observation' => $observation,
+            'corpora' => $corpora === '' ? [] : explode(',', $corpora),
+            'retrieval_methods' => $retrievalMethods === '' ? [] : explode(',', $retrievalMethods),
+            'invocation' => $invocation,
+            'resumability' => $resumability,
+            'workflows' => $workflows === '' ? [] : explode(',', $workflows),
+            'target' => $decodedTarget,
+        ];
+    }
+
+    $sortedProfiles = $profiles;
+    ksort($sortedProfiles);
+
+    if ($profiles !== $sortedProfiles || count($profiles) !== 39) {
+        throw new RuntimeException('The accepted TypeScript Profile snapshot must contain 39 sorted unique Profiles.');
+    }
+
+    return $profiles;
+}
+
 it('locks the accepted TypeScript Profile inventory and its PHP classifications', function (): void {
     $matrix = file_get_contents(__DIR__.'/../../docs/profile-bindings.md');
 
@@ -22,47 +106,7 @@ it('locks the accepted TypeScript Profile inventory and its PHP classifications'
         PREG_SET_ORDER,
     );
 
-    $expectedKeys = [
-        'brave-answers/grounded',
-        'brave-search/search',
-        'claude/chat',
-        'exa/research',
-        'exa/search',
-        'firecrawl-search/search',
-        'gemini-chat/chat',
-        'gemini-deep/research',
-        'gemini-grounded/grounded',
-        'grok-combined/combined',
-        'grok-x-only/x',
-        'grok/web',
-        'jina-search/search',
-        'kagi-fastgpt/grounded',
-        'openai-chat/chat',
-        'openai-research/research',
-        'openrouter/chat',
-        'openrouter/grounded',
-        'parallel/research',
-        'parallel/search',
-        'parallel/turbo',
-        'perplexity-deep-research/research',
-        'perplexity-search/search',
-        'perplexity-sonar-deep/research',
-        'perplexity-sonar-pro/grounded',
-        'searchapi-bing-copilot/surface',
-        'searchapi-chatgpt/surface',
-        'searchapi-gemini/surface',
-        'searchapi-google-ai-mode/surface',
-        'searchapi-google-ai-overview/surface',
-        'searchapi-perplexity/surface',
-        'searchapi/search',
-        'serpapi/search',
-        'tavily/search',
-        'valyu/research',
-        'valyu/search',
-        'you-answer/grounded',
-        'you-research/grounded',
-        'you-research/research',
-    ];
+    $expectedKeys = array_keys(acceptedTypeScriptProfiles());
 
     $actualKeys = array_column($matches, 'key');
     $uniqueKeys = array_values(array_unique($actualKeys));
@@ -194,6 +238,63 @@ it('reconciles every TypeScript matrix row with the landed PHP catalog', functio
         'serpbase-news',
     ];
     sort($expectedProfiles);
+
+    $upstream = acceptedTypeScriptProfiles();
+    $semanticKeys = [
+        'result_kind',
+        'grounding',
+        'observation',
+        'corpora',
+        'retrieval_methods',
+    ];
+
+    foreach ($landed as $typescriptProfile => $phpProfile) {
+        $configuration = config("librarium.profiles.{$phpProfile}");
+
+        expect($configuration)->toBeArray();
+        assert(is_array($configuration));
+
+        $this->assertSame(
+            [
+                'result_kind' => $upstream[$typescriptProfile]['result_kind'],
+                'grounding' => $upstream[$typescriptProfile]['grounding'],
+                'observation' => $upstream[$typescriptProfile]['observation'],
+                'corpora' => $upstream[$typescriptProfile]['corpora'],
+                'retrieval_methods' => $upstream[$typescriptProfile]['retrieval_methods'],
+            ],
+            array_replace(
+                array_fill_keys($semanticKeys, null),
+                array_intersect_key($configuration, array_flip($semanticKeys)),
+            ),
+            "PHP Profile {$phpProfile} has drifted from accepted TypeScript semantics {$typescriptProfile}.",
+        );
+    }
+
+    config()->set('librarium.profiles.gemini-grounded.enabled', false);
+
+    foreach (['quick', 'visibility', 'deep'] as $workflow) {
+        $expectedWorkflowProfiles = [];
+
+        foreach ($landed as $typescriptProfile => $phpProfile) {
+            if (in_array($workflow, $upstream[$typescriptProfile]['workflows'], true)) {
+                $expectedWorkflowProfiles[] = $phpProfile;
+            }
+        }
+
+        $resolvedWorkflow = app(ProfileCatalog::class)->group($workflow);
+        $actualWorkflowProfiles = [
+            ...$resolvedWorkflow['profiles']->pluck('id')->all(),
+            ...array_keys($resolvedWorkflow['unavailable']),
+        ];
+        sort($expectedWorkflowProfiles);
+        sort($actualWorkflowProfiles);
+
+        $this->assertSame(
+            $expectedWorkflowProfiles,
+            $actualWorkflowProfiles,
+            "PHP workflow {$workflow} has drifted from the accepted TypeScript membership.",
+        );
+    }
 
     expect($matches)->toHaveCount(39)
         ->and($documentedLanded)->toBe($landed)

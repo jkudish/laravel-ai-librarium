@@ -10,4 +10,6 @@
 
 - [ ] `composer test`
 - [ ] `composer analyse`
-- [ ] `composer format`
+- [ ] `composer format:check`
+- [ ] `composer validate --strict`
+- [ ] Clean exact candidate SHA passes `composer pr:check`

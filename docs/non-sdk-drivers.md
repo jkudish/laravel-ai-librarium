@@ -48,6 +48,38 @@ Credentials are resolved by Laravel configuration. They are not option keys or c
 
 `Profile::toArray()` excludes the credential. A Driver must not add it to progress, exceptions, logs, `provider_meta`, or terminal content.
 
+### Application-defined Drivers
+
+A consuming application can add its own Profile without changing this package.
+Point `driver` at an application class that implements `Driver`; Laravel's
+container resolves that class when the Profile runs:
+
+```php
+// config/librarium.php in the consuming application
+'profiles' => [
+    'internal-search' => [
+        'driver' => App\Research\InternalSearchDriver::class,
+        'provider' => 'internal-search',
+        'model' => null,
+        'result_kind' => 'search_results',
+        'grounding' => 'none',
+        'observation' => 'api_output',
+        'corpora' => ['specialized'],
+        'retrieval_methods' => ['search_endpoint'],
+        'prompt' => '{{ query }}',
+        'enabled' => true,
+        'options' => [],
+    ],
+],
+```
+
+The class may use constructor injection or an explicit container binding. It
+receives the same compiled `DriverRequest`, deadline, progress callback, and
+terminal validation as a built-in Driver. The package's conformance suite runs
+an application-defined Driver through
+`Librarium::query(...)->using(...)->run()` and proves that the public extension
+seam needs no provider call or package-owned registration.
+
 ## Inline provider shape
 
 Keep the request and normalization in a small concrete Driver. Use Laravel validation rules for public Profile options.
@@ -120,7 +152,9 @@ This is a shape, not a required base class. Keep provider-specific request and r
 A durable provider still implements the same `run()` method. Provider handles, polling, and retrieval stay internal:
 
 1. Validate the credential and Profile options before making a request.
-2. Submit once with a stable idempotency key derived from the Librarium request and effective Profile.
+2. Submit paid work at most once. Use a stable provider-supported idempotency
+   key when available, but never treat a locally generated key as proof that an
+   undocumented replay is safe.
 3. Read the opaque provider reference with `data_get()` and bind it immediately through `WebhookSignalStore` when webhooks are supported.
 4. Poll at a bounded interval, or consume a verified webhook signal between polls.
 5. Stop before `DriverRequest::$deadline`. Never start a request or sleep that cannot finish inside the remaining time.
@@ -191,7 +225,11 @@ The webhook endpoint must verify the provider signature against the raw request 
 - Retry only failures that can be transient: connection failures, timeouts, `429`, and selected `5xx` responses.
 - Use a short, bounded backoff sequence. Honor a sane provider `Retry-After` value when documented.
 - Do not retry authentication, authorization, validation, malformed-response, or other deterministic failures.
-- Retry a mutating submit request only when it has a stable provider-supported idempotency key. Never generate a new key for the same logical attempt.
+- Treat an ambiguous mutating submission as terminal unless the provider
+  explicitly guarantees replay for the same stable idempotency key. The
+  accepted built-in paid Drivers do not automatically resubmit ambiguous work.
+- When a provider does guarantee replay, reuse the same stable key for the same
+  logical attempt; never generate a replacement key.
 - Do not retry inside both Saloon and the Driver. One layer owns the retry policy.
 
 ### Error mapping
@@ -252,7 +290,8 @@ Add only tests that protect a Driver-owned behavior:
 - one representative success and terminal normalization;
 - Profile option rejection at preflight when the Driver adds option rules;
 - safe mapping for meaningful provider failure classes;
-- retry count and stable idempotency key for a retried submit;
+- exactly one submission for ambiguous paid work, plus stable-key reuse only
+  when the provider explicitly guarantees replay;
 - deadline behavior without wall-clock sleeps;
 - webhook signature rejection, binding, delivery deduplication, and terminal retrieval for webhook providers;
 - an allowlist test proving secrets and raw payloads do not enter `provider_meta` or exceptions.
@@ -278,7 +317,8 @@ Firecrawl is an example of a browser/runtime dependency that belongs in an optio
 - Laravel HTTP is the default unless a provider-specific Saloon spike proves a clearer result.
 - Options use Laravel validation; credentials are resolved through `config()` and never serialized.
 - Every request has explicit connect/request timeouts and obeys the outer deadline.
-- Retries are bounded, safe, and idempotent where mutation is possible.
+- Retrieval retries are bounded; paid submission is at most once unless a
+  documented provider idempotency guarantee makes same-key replay safe.
 - Webhooks are verified, correlated, and treated as terminal wake-up signals.
 - Exceptions are safe and provider-namespaced.
 - Results, citations, usage, provenance, and `provider_meta` contain only supported facts.

@@ -6,6 +6,7 @@ namespace Jkudish\LaravelAiLibrarium\Tools;
 
 use DateTimeImmutable;
 use JsonException;
+use Random\Randomizer;
 use RuntimeException;
 
 final class PrWorkflow
@@ -52,7 +53,7 @@ final class PrWorkflow
     /** @return array{path: string, receipt: array<string, mixed>} */
     public function check(?DateTimeImmutable $completedAt = null): array
     {
-        $home = sys_get_temp_dir().'/librarium-pr-check-home-'.bin2hex(random_bytes(12));
+        $home = sys_get_temp_dir().'/librarium-pr-check-home-'.self::randomSuffix();
 
         if (! mkdir($home, 0700) || ! chmod($home, 0700)) {
             throw new RuntimeException('Could not create the isolated verification home.');
@@ -265,7 +266,7 @@ final class PrWorkflow
     /** @return array{policy: array{phpConstraint: string, phpMinimum: string}, actual: array{platform: string, architecture: string, php: string, composer: string, composerInstalled: string}} */
     private function currentRuntime(): array
     {
-        $home = sys_get_temp_dir().'/librarium-pr-signoff-home-'.bin2hex(random_bytes(12));
+        $home = sys_get_temp_dir().'/librarium-pr-signoff-home-'.self::randomSuffix();
 
         if (! mkdir($home, 0700) || ! chmod($home, 0700)) {
             throw new RuntimeException('Could not create the isolated runtime evidence home.');
@@ -451,7 +452,7 @@ final class PrWorkflow
             throw new RuntimeException('Could not encode the verification receipt.', previous: $exception);
         }
 
-        $temporaryPath = $path.'.'.bin2hex(random_bytes(12)).'.tmp';
+        $temporaryPath = $path.'.'.self::randomSuffix().'.tmp';
         $handle = fopen($temporaryPath, 'x');
 
         if ($handle === false) {
@@ -792,6 +793,11 @@ final class PrWorkflow
         }
 
         return substr($output, 0, self::MAX_CAPTURE_BYTES)."\n[output truncated]\n";
+    }
+
+    private static function randomSuffix(): string
+    {
+        return bin2hex((new Randomizer)->getBytes(12));
     }
 
     private static function removeDirectory(string $directory): void

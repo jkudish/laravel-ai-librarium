@@ -195,13 +195,16 @@ final class ResultProvenance
             throw ValidationException::withMessages([$key => 'must be a list.']);
         }
 
+        $list = [];
         foreach ($item as $entry) {
             if (! is_string($entry)) {
                 throw ValidationException::withMessages([$key => 'must contain strings.']);
             }
+
+            $list[] = $entry;
         }
 
-        return $item;
+        return $list;
     }
 
     /** @param array<array-key, mixed> $value

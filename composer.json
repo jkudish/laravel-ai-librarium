@@ -32,7 +32,7 @@
     },
     "require-dev": {
         "laravel/pint": "^1.26",
-        "larastan/larastan": "^3.0",
+        "larastan/larastan": "^3.12",
         "orchestra/testbench": "^11.0",
         "pestphp/pest": "^5.0",
         "pestphp/pest-plugin-arch": "^5.0",
@@ -53,8 +53,8 @@
         "post-autoload-dump": "@composer run prepare",
         "prepare": "@php vendor/bin/testbench package:discover --ansi",
         "analyse": "vendor/bin/phpstan analyse --memory-limit=1G",
-        "test": "vendor/bin/pest tests/Feature tests/Unit",
-        "test:conformance": "vendor/bin/pest tests/Feature/ProfileBindingMatrixTest.php tests/Unit/ContractSnapshotTest.php tests/Unit/ResearchResponseTest.php",
+        "test": "vendor/bin/pest tests/ArchTest.php tests/Feature tests/Unit",
+        "test:conformance": "vendor/bin/pest tests/Feature/ApplicationDefinedDriverTest.php tests/Feature/ProfileBindingMatrixTest.php tests/Unit/ContractSnapshotTest.php tests/Unit/ResearchResponseTest.php",
         "test:live:gemini": [
             "@php -r \"if (getenv('LIBRARIUM_LIVE_TESTS') !== '1') { fwrite(STDERR, 'LIBRARIUM_LIVE_TESTS=1 is required to opt in to live provider tests.'.PHP_EOL); exit(1); }\"",
             "@php -r \"if (! is_string(getenv('GEMINI_API_KEY')) || trim((string) getenv('GEMINI_API_KEY')) === '') { fwrite(STDERR, 'GEMINI_API_KEY is required for the live Gemini canary.'.PHP_EOL); exit(1); }\"",
@@ -77,8 +77,16 @@
         ],
         "format": "vendor/bin/pint --format agent",
         "format:check": "vendor/bin/pint --test",
+        "compatibility:check": [
+            "@composer validate --strict",
+            "@composer check-platform-reqs",
+            "@composer test",
+            "@composer analyse",
+            "@composer format:check"
+        ],
         "pr:check": "@php tools/pr-check.php",
         "pr:signoff": "@php tools/pr-signoff.php",
+        "release:check": "@php tools/release-check.php",
         "check": [
             "@composer format:check",
             "@composer analyse",

@@ -3,7 +3,10 @@
 declare(strict_types=1);
 
 use Carbon\CarbonImmutable;
+use GuzzleHttp\Promise\Create;
+use GuzzleHttp\Promise\PromiseInterface;
 use GuzzleHttp\Psr7\PumpStream;
+use GuzzleHttp\Psr7\Response as PsrResponse;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Http\Client\Response;
@@ -21,6 +24,7 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
+use Psr\Http\Message\StreamInterface;
 
 beforeEach(function (): void {
     CarbonImmutable::setTestNow('2026-08-20T12:00:00Z');
@@ -192,7 +196,7 @@ it('rejects malformed, oversized, and interrupted streams safely', function (mix
             throw new RuntimeException('provider-secret stream failure');
         });
 
-        return Http::response($stream);
+        return braveStreamResponse($stream);
     }, 'brave.invalid_response'],
 ]);
 
@@ -203,7 +207,7 @@ it('captures bytes received before an interrupted stream and marks them partial'
         9000,
         'x',
     );
-    Http::fake(fn () => Http::response(new PumpStream(function () use (&$reads, $firstChunk): string {
+    Http::fake(fn () => braveStreamResponse(new PumpStream(function () use (&$reads, $firstChunk): string {
         if ($reads++ === 0) {
             return $firstChunk;
         }
@@ -299,7 +303,7 @@ it('maps an interrupted error body through the safe status boundary', function (
             throw new RuntimeException('provider-secret error stream failure');
         });
 
-        return Http::response($stream, 503);
+        return braveStreamResponse($stream, 503);
     });
 
     try {
@@ -330,6 +334,11 @@ it('discards a response whose stream becomes available after the outer deadline'
 function braveDriver(): BraveAnswersDriver
 {
     return app(BraveAnswersDriver::class);
+}
+
+function braveStreamResponse(StreamInterface $stream, int $status = 200): PromiseInterface
+{
+    return Create::promiseFor(new PsrResponse($status, [], $stream));
 }
 
 function braveRequest(
