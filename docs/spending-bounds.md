@@ -82,5 +82,8 @@ Each result is a snapshot bound only to the exact request and Profile controls
 that existed when `spendingBound()` was called; it is not an execution permit.
 Mutating the builder or Profile configuration invalidates that result. A
 consumer enforcing spend must rebuild and revalidate its exact stored execution
-controls immediately before the paid POST, with no fallbacks. Do not dispatch
+controls and recompute the bound immediately before the paid POST, with no
+fallbacks. Both the controls and the recomputed bound must exactly match the
+persisted approved values; a package upgrade can change a bound even when the
+controls are unchanged. Do not dispatch
 when policy requires a proven bound and the result is `unknown`.
