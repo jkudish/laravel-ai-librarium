@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
@@ -60,6 +61,8 @@ final readonly class BraveAnswersDriver implements Driver
                     'enable_citations' => true,
                 ]);
         } catch (ConnectionException) {
+            $request->captureNoResponse(Operation::Inline);
+
             if (CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
                 throw $this->deadlineExceeded();
             }
@@ -70,7 +73,7 @@ final readonly class BraveAnswersDriver implements Driver
         $this->remainingSeconds($request);
 
         if ($response->failed()) {
-            throw $this->httpFailure($response);
+            throw $this->httpFailure($response, $request);
         }
 
         try {
@@ -116,10 +119,10 @@ final readonly class BraveAnswersDriver implements Driver
         $this->remainingSeconds($request);
     }
 
-    private function httpFailure(Response $response): DriverException
+    private function httpFailure(Response $response, DriverRequest $request): DriverException
     {
         $status = $response->status();
-        $providerCode = $this->providerErrorCode($response);
+        $providerCode = $this->providerErrorCode($response, $request);
 
         return match (true) {
             $providerCode === 'OPTION_NOT_IN_PLAN' => new DriverException(
@@ -138,7 +141,7 @@ final readonly class BraveAnswersDriver implements Driver
         };
     }
 
-    private function providerErrorCode(Response $response): ?string
+    private function providerErrorCode(Response $response, DriverRequest $request): ?string
     {
         $stream = $response->toPsrResponse()->getBody();
         $body = '';
@@ -148,6 +151,8 @@ final readonly class BraveAnswersDriver implements Driver
                 $chunk = $stream->read(min(8192, 262_145 - strlen($body)));
                 if ($chunk === '') {
                     $stream->close();
+                    $request->captureResponse($response, Operation::Inline, $body);
+                    $request->markCapturePartial();
 
                     return null;
                 }
@@ -155,14 +160,21 @@ final readonly class BraveAnswersDriver implements Driver
                 $body .= $chunk;
             }
         } catch (Throwable) {
+            $request->captureResponse($response, Operation::Inline, $body);
+            $request->markCapturePartial();
+
             return null;
         }
 
         if (strlen($body) > 262_144 || ! $stream->eof()) {
             $stream->close();
+            $request->captureResponse($response, Operation::Inline, $body);
+            $request->markCapturePartial();
 
             return null;
         }
+
+        $request->captureResponse($response, Operation::Inline, $body);
 
         $json = json_decode($body, true);
         $code = is_array($json) ? data_get($json, 'error.code') : null;

@@ -6,6 +6,7 @@ namespace Jkudish\LaravelAiLibrarium\Drivers\Brave;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\Response;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Responses\Citation;
@@ -71,39 +72,52 @@ final readonly class BraveAnswersResultMapper
         $model = null;
         $usage = null;
         $bytes = 0;
+        $raw = '';
+        $complete = false;
 
-        while (true) {
-            $this->ensureBeforeDeadline($request);
-            $chunk = $body->read(8192);
-            $this->ensureBeforeDeadline($request);
-            if ($chunk === '') {
-                if ($body->eof()) {
-                    break;
+        try {
+            while (true) {
+                $this->ensureBeforeDeadline($request);
+                $chunk = $body->read(8192);
+                $this->ensureBeforeDeadline($request);
+                if ($chunk === '') {
+                    if ($body->eof()) {
+                        break;
+                    }
+
+                    throw new DriverException('brave.invalid_response', 'The Brave Answers stream ended unexpectedly.');
                 }
 
-                throw new DriverException('brave.invalid_response', 'The Brave Answers stream ended unexpectedly.');
+                $bytes += strlen($chunk);
+                if ($bytes > self::MAX_STREAM_BYTES) {
+                    $body->close();
+
+                    throw new DriverException('brave.response_too_large', 'The Brave Answers response exceeded the safe size limit.');
+                }
+
+                $raw .= $chunk;
+                $buffer .= $chunk;
+                while (preg_match('/\r?\n\r?\n/', $buffer, $match, PREG_OFFSET_CAPTURE) === 1) {
+                    $boundary = $match[0][1];
+                    $this->consumeEvent(substr($buffer, 0, $boundary), $content, $model, $usage);
+                    $buffer = substr($buffer, $boundary + strlen($match[0][0]));
+                }
             }
 
-            $bytes += strlen($chunk);
-            if ($bytes > self::MAX_STREAM_BYTES) {
-                $body->close();
-
-                throw new DriverException('brave.response_too_large', 'The Brave Answers response exceeded the safe size limit.');
+            if (trim($buffer) !== '') {
+                $this->consumeEvent($buffer, $content, $model, $usage);
             }
 
-            $buffer .= $chunk;
-            while (preg_match('/\r?\n\r?\n/', $buffer, $match, PREG_OFFSET_CAPTURE) === 1) {
-                $boundary = $match[0][1];
-                $this->consumeEvent(substr($buffer, 0, $boundary), $content, $model, $usage);
-                $buffer = substr($buffer, $boundary + strlen($match[0][0]));
+            $complete = true;
+
+            return ['content' => $content, 'model' => $model, 'usage' => $usage];
+        } finally {
+            $request->captureResponse($response, Operation::Inline, $raw);
+
+            if (! $complete) {
+                $request->markCapturePartial();
             }
         }
-
-        if (trim($buffer) !== '') {
-            $this->consumeEvent($buffer, $content, $model, $usage);
-        }
-
-        return ['content' => $content, 'model' => $model, 'usage' => $usage];
     }
 
     /** @param array<array-key, mixed>|null $usage */

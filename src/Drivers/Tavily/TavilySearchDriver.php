@@ -9,6 +9,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
 use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
@@ -152,7 +153,7 @@ final readonly class TavilySearchDriver implements Driver
         $remaining = $this->remainingSeconds($request);
 
         try {
-            return Http::withToken((string) $request->profile->credential)
+            $response = Http::withToken((string) $request->profile->credential)
                 ->acceptJson()
                 ->asJson()
                 ->withOptions(['allow_redirects' => false])
@@ -165,12 +166,18 @@ final readonly class TavilySearchDriver implements Driver
                     'max_results' => 10,
                 ]);
         } catch (ConnectionException) {
+            $request->captureNoResponse(Operation::Inline);
+
             if (CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
                 throw new DriverException('tavily.deadline_exceeded', 'Tavily did not respond before the research deadline.');
             }
 
             throw new DriverException('tavily.connection', 'Tavily could not be reached.');
         }
+
+        $request->captureResponse($response, Operation::Inline);
+
+        return $response;
     }
 
     private function httpFailure(Response $response): DriverException

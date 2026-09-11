@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
+use Jkudish\LaravelAiLibrarium\Recovery\RecoveryRequest;
 use Jkudish\LaravelAiLibrarium\Responses\Citation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Authentication;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
@@ -27,7 +28,7 @@ final readonly class DataForSeoResultMapper
      * @param  array<string, mixed>  $receipt
      */
     public function result(
-        DriverRequest $request,
+        DriverRequest|RecoveryRequest $request,
         array $result,
         array $receipt,
         string $surface,
@@ -70,7 +71,7 @@ final readonly class DataForSeoResultMapper
             model: $this->str($result['model'] ?? null),
             usage: $actualCost === null ? null : new Usage(actualCost: $actualCost, currency: 'USD'),
             providerMeta: (object) array_filter([
-                'task_id' => $this->str($receipt['id'] ?? null),
+                'task_id' => $request instanceof DriverRequest ? $this->str($receipt['id'] ?? null) : null,
                 'endpoint_family' => $family,
                 'mode' => $mode,
                 'api_version' => $this->metaString($receipt['_api_version'] ?? null, 64),
@@ -191,7 +192,7 @@ final readonly class DataForSeoResultMapper
     }
 
     /** @return array<string, int|string|bool> */
-    private function requestedControls(DriverRequest $request): array
+    private function requestedControls(DriverRequest|RecoveryRequest $request): array
     {
         return array_filter([
             'location_code' => data_get($request->profile->options, 'location_code'),

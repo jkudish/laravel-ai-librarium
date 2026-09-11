@@ -11,6 +11,14 @@ use Jkudish\LaravelAiPricing\ValueObjects\Usage;
 
 final class ResearchPreview
 {
+    public readonly bool $preflightCostCheckAvailable;
+
+    /**
+     * @deprecated Use $preflightCostCheckAvailable. This compatibility alias
+     *             does not indicate a provider-enforced spending ceiling.
+     */
+    public readonly bool $hardCostCeilingAvailable;
+
     /**
      * @param  Collection<int, Profile>  $profiles
      * @param  Collection<int, Profile>  $fallbacks
@@ -40,9 +48,12 @@ final class ResearchPreview
         public readonly Collection $pricingQuotes,
         public readonly Collection $knownCostSubtotals,
         public readonly string $pricingStatus,
-        public readonly bool $hardCostCeilingAvailable,
+        bool $hardCostCeilingAvailable,
         public readonly ?string $maximumEstimatedCost,
         public readonly ?string $currency,
         public readonly bool $costEstimateComplete,
-    ) {}
+    ) {
+        $this->preflightCostCheckAvailable = $hardCostCeilingAvailable;
+        $this->hardCostCeilingAvailable = $hardCostCeilingAvailable;
+    }
 }

@@ -8,12 +8,43 @@ A Laravel-native research query abstraction built on the official [Laravel AI SD
 
 ```php
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
+use Jkudish\LaravelAiLibrarium\ResearchHandle;
 
 $response = Librarium::query('Compare current agent memory architectures.')
     ->using('gemini-grounded')
     ->fallbacks(['openrouter-grounded'])
     ->run();
 ```
+
+Use `collect()` when the application needs the normalized result plus the
+provider response. Provider bodies are automatically redacted before the
+serializable result is returned:
+
+```php
+$collected = Librarium::query('Compare current agent memory architectures.')
+    ->using('openrouter-grounded')
+    ->collect();
+
+$collected->response;
+$collected->evidence;
+$collected->diagnostics;
+```
+
+Use one exact durable Profile to separate paid submission from later
+retrieval. Persist the returned handle before calling `retrieve()`:
+
+```php
+$submitted = Librarium::query('Prepare a research report.')
+    ->using('exa-research')
+    ->submit();
+
+$handle = $submitted->handle->toArray(); // application-owned persistence
+$outcome = Librarium::retrieve(ResearchHandle::fromArray($handle));
+```
+
+See [collection and durable recovery](docs/collection-and-recovery.md) for
+redaction, exact sensitive capture, retry diagnostics, supported recoverable
+Profiles, provider credential paths and controls, and spending-limit semantics.
 
 Use `queue()` for the same research path in one encrypted Laravel job:
 
@@ -95,11 +126,11 @@ each Profile at most once, while `reachable_from` records every compatible
 primary. The human preview summarizes known currency subtotals, unknown
 profiles or units, whether usage assumptions are conservative, and pricing
 source freshness in one compact statement. When the operator selects the
-interactive cost-ceiling safeguard, Librarium compiles and displays pricing
-first, then suggests the verified conservative bound as the default. If no safe
-bound exists, it explains why and exits without dispatching rather than asking
-the operator to invent one. Agent previews expose the same details beneath the
-versioned `pricing.schema_version: 1` object.
+interactive maximum-cost safeguard, Librarium compiles and displays pricing
+first, then suggests the conservative pre-dispatch estimate as the default. If
+no suitable estimate exists, it explains why and exits without dispatching
+rather than asking the operator to invent one. Agent previews expose the same
+details beneath the versioned `pricing.schema_version: 1` object.
 
 Preview resolution is offline by default. It can use configured rates, the
 pricing package's reviewed snapshot, and previously synchronized last-known-good
@@ -111,13 +142,14 @@ php artisan ai:pricing:sync
 ```
 
 Profiles declare a pricing `provider`, `model`, explicit usage units, and
-whether those units are a true conservative bound. Known cost from a partial or
-non-conservative quote remains useful preview information, but it is not a hard
-ceiling. `--max-cost` fails before dispatch unless every reachable quote is
-complete, current, conservative, and in one currency; unknown cost is never
-treated as zero. Configured rates are considered current until the application
-changes them. Other catalog prices must be no older than
-`librarium.pricing.max_age_days` (30 by default).
+whether those units are intended as a conservative estimate. Known cost from a
+partial or non-conservative quote remains useful preview information.
+`--max-cost` fails before dispatch unless every reachable quote is complete,
+current, conservative, and in one currency; unknown cost is never treated as
+zero. It does not send a budget to the provider or cap charges after dispatch.
+Configured rates are considered current until the application changes them.
+Other catalog prices must be no older than `librarium.pricing.max_age_days` (30
+by default).
 
 SearchAPI remains configured-only. To price its built-in
 `searchapi:search` identity, applications must define the
@@ -125,11 +157,15 @@ SearchAPI remains configured-only. To price its built-in
 is unavailable. Provider-reported actual totals continue to take precedence in
 the pricing resolver after execution.
 
-The legacy preview `cost` JSON member and the corresponding
-`maximumEstimatedCost`, `currency`, and `costEstimateComplete` properties are a
-narrow compatibility bridge. They are derived only from the aggregated
-`CostQuote` values and are populated as complete only when the same true hard
-ceiling is available. New consumers should use the versioned `pricing` object.
+`ResearchPreview::preflightCostCheckAvailable` and the agent JSON
+`preflight_cost_check_available` member indicate only that `maxCost()` can
+perform this quote comparison. They do not indicate a provider-enforced
+spending ceiling. `hardCostCeilingAvailable` and `hard_ceiling_available` remain
+deprecated compatibility aliases with the same preflight-only meaning. The
+legacy preview `cost` JSON member and the corresponding `maximumEstimatedCost`,
+`currency`, and `costEstimateComplete` properties are derived from the same
+aggregated `CostQuote` values. New consumers should use the versioned `pricing`
+object.
 
 Agent-mode exit codes are stable:
 
@@ -184,6 +220,7 @@ that Laravel AI does not expose through its prompt API:
 | `you-research-grounded` | You.com Research (`standard`) | Grounded answer | Inline | `YOU_COM_API_KEY` or `YDC_API_KEY` |
 | `you-research-research` | You.com Research (`standard`) | Research report | Background | `YOU_COM_API_KEY` or `YDC_API_KEY` |
 | `perplexity-sonar-pro` | Perplexity Agent preset `low` | Grounded answer | Inline | `services.perplexity.key` |
+| `perplexity-low-frozen` | Perplexity Agent frozen low configuration | Grounded answer | Inline | `services.perplexity.key` |
 | `perplexity-search` | Perplexity Search | Search results | Inline | `services.perplexity.key` |
 | `perplexity-deep-research` | Perplexity Agent preset `medium` | Research report | Background | `services.perplexity.key` |
 | `grok` | xAI `grok-4.6` with web search | Grounded answer | Inline | `ai.providers.xai.key` |
@@ -221,13 +258,12 @@ remaining credentials to the consuming application's `config/services.php`:
 'valyu' => ['key' => env('VALYU_API_KEY')],
 ```
 
-Each profile keeps its provider's option schema, endpoint, and lifecycle. The
-five new durable profiles—Exa, Gemini Deep Research, Perplexity medium,
-Parallel Research, and Valyu Research—submit paid work at most once and retry
-only known-handle retrieval within the shared deadline. Unknown or
-account-specific pricing remains unavailable or partial rather than becoming an
-invented zero. See the [profile binding matrix](docs/profile-bindings.md) for
-exact semantics and pricing dispositions.
+Each Profile keeps its provider's option schema, endpoint, and lifecycle.
+Background Drivers submit paid work at most once and reconcile only known
+handles within the shared deadline. Unknown or account-specific pricing remains
+unavailable or partial rather than becoming an invented zero. See the
+[profile binding matrix](docs/profile-bindings.md) for exact semantics and
+pricing dispositions.
 
 DataForSEO login/password credentials, explicit location/language controls,
 Standard-versus-Live behavior, pricing, surface semantics, opt-in comparison
@@ -302,7 +338,7 @@ exposes credentials through previews and terminal results.
 every configured `research_report` Profile rather than maintained as a second
 list; the built-in catalog currently yields You.com standard, OpenAI,
 Perplexity high and medium, Exa, Gemini Deep Research, Parallel Research, and
-Valyu Research. `all` similarly derives all 44 configured core Profiles.
+Valyu Research. `all` similarly derives all 45 configured core Profiles.
 Profiles that are disabled or missing a credential remain visible in preview
 diagnostics but are not executed by a group. Invalid Profile configuration
 fails preflight instead of being silently skipped.
@@ -327,7 +363,7 @@ prompt events, or runs its middleware and conversation lifecycle.
 ## Live validation
 
 Live checks are paid, separately authorized release gates. See the
-[live provider canary inventory](docs/live-provider-canaries.md) for the 45
+[live provider canary inventory](docs/live-provider-canaries.md) for the 46
 materially unique checks, their current harness coverage, credentials, pricing
 uncertainty, and the approval record required before each dispatch. Approval of
 one canary does not authorize another canary, a retry, or a bulk Profile group.
@@ -351,7 +387,10 @@ process stopwaitsecs > Horizon supervisor timeout
 
 The queue connection's `retry_after` must exceed every Horizon worker timeout to prevent duplicate execution. Supervisor `stopwaitsecs` must exceed the worker timeout so deployment or restart signals do not terminate active research early.
 
-Provider-native polling, resumable handles, and webhook verification stay inside Drivers and optional adapter packages. The public API remains `run()` and `queue()`; it does not expose provider execution modes or handles.
+Provider-native polling and webhook verification remain inside Drivers. Public
+durable handles are available only through explicit `submit()` and `retrieve()`
+for the supported Profiles listed in
+[collection and durable recovery](docs/collection-and-recovery.md).
 
 ## Boundaries
 

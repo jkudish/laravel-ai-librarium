@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
@@ -106,6 +107,8 @@ final readonly class YouResearchGroundedDriver implements Driver
                     'research_effort' => 'standard',
                 ]);
         } catch (ConnectionException) {
+            $request->captureNoResponse(Operation::Inline);
+
             if (CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
                 throw $this->deadlineExceeded();
             }
@@ -117,6 +120,7 @@ final readonly class YouResearchGroundedDriver implements Driver
             );
         }
 
+        $request->captureResponse($response, Operation::Inline);
         $this->remainingSeconds($request);
 
         return $response;

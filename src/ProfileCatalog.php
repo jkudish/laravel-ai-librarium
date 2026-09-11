@@ -299,6 +299,19 @@ final class ProfileCatalog
             $reasons[] = 'Required-grounding Profiles must enable web search.';
         }
 
+        if ($profile->driver === LaravelAiDriver::class
+            && $profile->provider === 'openrouter'
+            && data_get($profile->options, 'web_search', true) !== false
+            && ! array_key_exists('search_engine', $profile->options)) {
+            $reasons[] = 'OpenRouter web search requires an explicit search_engine option.';
+        }
+
+        if ($profile->driver === LaravelAiDriver::class
+            && $profile->provider !== 'openrouter'
+            && array_key_exists('search_engine', $profile->options)) {
+            $reasons[] = 'The search_engine option is supported only by OpenRouter Profiles.';
+        }
+
         $reasons = [...$reasons, ...$this->optionValidator->errors($profile->driver, $profile->options)];
 
         return $reasons;

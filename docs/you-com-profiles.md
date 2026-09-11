@@ -87,9 +87,9 @@ of You.com's consumer UI.
 The Profiles declare one explicit request unit. `laravel-ai-pricing` is the
 single source of rates, source provenance, and freshness; Librarium does not
 repeat those rates here or in Profile configuration. The reviewed package
-snapshot currently resolves each identity offline. A hard `maxCost()`
-preflight is available only while the resulting quote is complete, current,
-conservative, and in the requested currency.
+snapshot currently resolves each identity offline. A `maxCost()` preflight
+check is available only while the resulting quote is complete, current,
+conservative, and in the requested currency. It does not cap You.com charges.
 
 The official documentation reviewed on 2026-08-23 does not state whether every
 non-2xx Answer or Research attempt is billed. Librarium therefore does not
@@ -116,17 +116,18 @@ approved Profile:
 
 ```bash
 LIBRARIUM_LIVE_TESTS=1 \
-LIBRARIUM_YOU_LIVE_SPEND_USD='CURRENT_PREVIEW_BOUND' \
+LIBRARIUM_YOU_LIVE_SPEND_USD='CURRENT_PREVIEW_ESTIMATE' \
 YOU_COM_API_KEY=... \
 vendor/bin/pest tests/Live/YouProfilesLiveTest.php \
   --filter='You Answer' --fail-on-skipped
 ```
 
-Replace `CURRENT_PREVIEW_BOUND` with that Profile's current offline
+Replace `CURRENT_PREVIEW_ESTIMATE` with that Profile's current offline
 `maximumEstimatedCost`. The live test derives the same value from its pricing
 quote and skips unless the acknowledgement matches exactly; it also skips when
-no hard bound is available. Approval for one dataset does not authorize either
-other dataset. `YDC_API_KEY` may replace `YOU_COM_API_KEY`. Do not run these
-commands as part of ordinary CI. Capture only redacted latency, evidence,
-error, and spend proof for the release gate; do not persist provider secrets or
-raw responses.
+no conservative pre-dispatch estimate is available. An independently enforced
+provider/account spending cap is still required. Approval for one dataset does
+not authorize either other dataset. `YDC_API_KEY` may replace
+`YOU_COM_API_KEY`. Do not run these commands as part of ordinary CI. Capture
+only redacted latency, evidence, error, and spend proof for the release gate; do
+not persist provider secrets or raw responses.

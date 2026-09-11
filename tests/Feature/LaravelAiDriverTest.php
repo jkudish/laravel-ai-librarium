@@ -8,6 +8,9 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Validation\ValidationException;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\CaptureCoverage;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\FailureCategory;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\SubmissionState;
 use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\LaravelAiDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\ResearchAgent;
 use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\ResearchResultMapper;
@@ -59,10 +62,22 @@ it('runs each configured Laravel AI Profile through one exact SDK provider and m
         ->timeout(120)
         ->run();
 
-    ResearchAgent::assertPrompted(fn (AgentPrompt $prompt): bool => $prompt->provider()->name() === $provider
-        && $prompt->model === $model
-        && $prompt->prompt === 'Research this question.'
-        && collect($prompt->agent instanceof ResearchAgent ? $prompt->agent->tools() : [])->sole() instanceof WebSearch);
+    ResearchAgent::assertPrompted(function (AgentPrompt $prompt) use ($provider, $model): bool {
+        if (! $prompt->agent instanceof ResearchAgent) {
+            return false;
+        }
+
+        $search = collect($prompt->agent->tools())->sole();
+
+        return $prompt->provider()->name() === $provider
+            && $prompt->model === $model
+            && $prompt->prompt === 'Research this question.'
+            && $search instanceof WebSearch
+            && $search->providerOptions('openrouter') === ($provider === 'openrouter' ? ['engine' => 'exa'] : [])
+            && $prompt->agent->providerOptions('openrouter') === ($provider === 'openrouter' ? [
+                'provider' => ['require_parameters' => true, 'allow_fallbacks' => false],
+            ] : []);
+    });
 
     expect($response->status)->toBe(ResponseStatus::Succeeded)
         ->and($response->results)->toHaveCount(1)
@@ -221,6 +236,51 @@ it('maps citations from every SDK response step and the aggregate usage', functi
         ]);
 });
 
+it('keeps absent SDK usage unknown while preserving an explicitly reported zero', function (): void {
+    $unknown = new AgentResponse(
+        'invocation-unknown',
+        'Answer.',
+        new AiUsage,
+        new Meta('openrouter', 'openai/gpt-5.6-luna'),
+    );
+    $reported = (new AgentResponse(
+        'invocation-reported',
+        'Answer.',
+        new AiUsage,
+        new Meta('openrouter', 'openai/gpt-5.6-luna'),
+    ))->withRawResponse(new HttpResponse(new PsrResponse(
+        200,
+        ['Content-Type' => 'application/json'],
+        '{"usage":{"prompt_tokens":0,"completion_tokens":0}}',
+    )));
+
+    $unknownUsage = (new ResearchResultMapper)->map($unknown, groundedDriverRequest())->usage;
+    $reportedUsage = (new ResearchResultMapper)->map($reported, groundedDriverRequest())->usage;
+
+    expect($unknownUsage?->promptTokens)->toBeNull()
+        ->and($unknownUsage?->completionTokens)->toBeNull()
+        ->and($unknownUsage?->cacheWriteInputTokens)->toBeNull()
+        ->and($reportedUsage?->promptTokens)->toBe(0)
+        ->and($reportedUsage?->completionTokens)->toBe(0)
+        ->and($reportedUsage?->cacheWriteInputTokens)->toBeNull();
+});
+
+it('rejects missing or unsupported search engines before prompting', function (string $provider, array $options, string $code): void {
+    ResearchAgent::fake()->preventStrayPrompts();
+
+    expect(fn () => groundedDriver()->run(groundedDriverRequest(provider: $provider, options: $options)))
+        ->toThrow(function (DriverException $exception) use ($code): void {
+            expect($exception->errorCode)->toBe($code)
+                ->and($exception->fallbackAllowed)->toBeFalse();
+        });
+
+    ResearchAgent::assertNeverPrompted();
+})->with([
+    'OpenRouter requires an engine' => ['openrouter', [], 'laravel_ai.search_engine_required'],
+    'other providers reject an engine' => ['gemini', ['search_engine' => 'exa'], 'laravel_ai.search_engine_unsupported'],
+    'OpenRouter rejects an unknown engine' => ['openrouter', ['search_engine' => 'unknown'], 'laravel_ai.search_engine_required'],
+]);
+
 it('rejects a required-grounding response without provider-reported evidence', function (): void {
     ResearchAgent::fake([
         new TextResponse(
@@ -298,6 +358,22 @@ it('maps expected SDK and HTTP failures without exposing provider details', func
     'generic AI failure' => ['generic AI failure', 'laravel_ai.provider', true],
 ]);
 
+it('treats an SDK failure without an exposed HTTP cause as a possibly accepted request', function (): void {
+    ResearchAgent::fake([
+        fn (): never => throw RateLimitedException::forProvider('gemini'),
+    ])->preventStrayPrompts();
+
+    $collected = Librarium::query('Research this question.')
+        ->using('gemini-grounded')
+        ->collect();
+    $diagnostic = $collected->diagnostics->sole();
+
+    expect($collected->coverage)->toBe(CaptureCoverage::NoResponse)
+        ->and($diagnostic->category)->toBe(FailureCategory::RateLimit)
+        ->and($diagnostic->submissionState)->toBe(SubmissionState::PossiblyAccepted)
+        ->and($diagnostic->httpStatus)->toBeNull();
+});
+
 it('does not hide unexpected programming failures', function (): void {
     ResearchAgent::fake([
         fn (): never => throw new RuntimeException('Unexpected mapper bug.'),
@@ -312,12 +388,17 @@ function groundedDriver(): LaravelAiDriver
     return new LaravelAiDriver(new ResearchResultMapper);
 }
 
-function groundedDriverRequest(?CarbonImmutable $deadline = null, ?string $model = 'gemini-2.5-pro'): DriverRequest
-{
+/** @param array<string, mixed> $options */
+function groundedDriverRequest(
+    ?CarbonImmutable $deadline = null,
+    ?string $model = 'gemini-2.5-pro',
+    string $provider = 'gemini',
+    array $options = [],
+): DriverRequest {
     $profile = new Profile(
         id: 'gemini-grounded',
         driver: LaravelAiDriver::class,
-        provider: 'gemini',
+        provider: $provider,
         model: $model,
         resultKind: ResultKind::GroundedAnswer,
         grounding: GroundingPolicy::Required,
@@ -326,7 +407,7 @@ function groundedDriverRequest(?CarbonImmutable $deadline = null, ?string $model
         retrievalMethods: collect([RetrievalMethod::ModelSearchTool]),
         prompt: '{{ query }}',
         enabled: true,
-        options: [],
+        options: $options,
     );
 
     return new DriverRequest(

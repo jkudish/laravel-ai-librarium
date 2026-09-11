@@ -7,7 +7,12 @@ namespace Jkudish\LaravelAiLibrarium\Execution;
 use Carbon\CarbonImmutable;
 use Composer\InstalledVersions;
 use Illuminate\Contracts\Container\Container;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Collection;
+use Jkudish\LaravelAiLibrarium\Collection\CaptureSession;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
+use Jkudish\LaravelAiLibrarium\Collection\SensitiveCollection;
+use Jkudish\LaravelAiLibrarium\Contracts\CollectsResearch;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
 use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
@@ -30,7 +35,7 @@ use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 use LogicException;
 use Throwable;
 
-final readonly class ResearchRuntime implements ExecutesResearch
+final readonly class ResearchRuntime implements CollectsResearch, ExecutesResearch
 {
     private const string GENERATOR = 'jkudish/laravel-ai-librarium';
 
@@ -42,10 +47,25 @@ final readonly class ResearchRuntime implements ExecutesResearch
 
     public function run(ResearchPlan $plan): ResearchResponse
     {
+        return $this->execute($plan, null, CarbonImmutable::now());
+    }
+
+    public function collect(ResearchPlan $plan): SensitiveCollection
+    {
+        $startedAt = CarbonImmutable::now();
+        $capture = new CaptureSession($startedAt);
+
+        return $capture->finish($this->execute($plan, $capture, $startedAt));
+    }
+
+    private function execute(
+        ResearchPlan $plan,
+        ?CaptureSession $capture,
+        CarbonImmutable $startedAt,
+    ): ResearchResponse {
         $activeProfileId = null;
 
         try {
-            $startedAt = CarbonImmutable::now();
             $deadline = $startedAt->addSeconds($plan->timeout);
             $this->started($plan->requestId, $startedAt);
 
@@ -63,6 +83,7 @@ final readonly class ResearchRuntime implements ExecutesResearch
                     deadline: $deadline,
                     usedProfiles: $usedProfiles,
                     activeProfileId: $activeProfileId,
+                    capture: $capture,
                 );
 
                 if ($outcome instanceof ResearchResult) {
@@ -117,6 +138,7 @@ final readonly class ResearchRuntime implements ExecutesResearch
         CarbonImmutable $deadline,
         array &$usedProfiles,
         string &$activeProfileId,
+        ?CaptureSession $capture,
     ): ResearchResult|ResearchError {
         $profile = $requestedProfile;
         $fallbackReason = null;
@@ -127,10 +149,12 @@ final readonly class ResearchRuntime implements ExecutesResearch
             $this->progressed($plan->requestId, "Running Profile [{$profile->id}].", $profile->id);
 
             try {
-                $result = $this->executeProfile($plan, $requestedProfile, $profile, $deadline);
+                $result = $this->executeProfile($plan, $requestedProfile, $profile, $deadline, $capture);
 
                 return $this->resultFor($result, $requestedProfile, $profile, $fallbackReason);
             } catch (DriverException $exception) {
+                $capture?->failure($profile, $exception);
+
                 if ($exception->fallbackAllowed) {
                     $fallback = $this->nextFallback($plan, $requestedProfile, $usedProfiles);
                     if ($fallback !== null) {
@@ -155,6 +179,7 @@ final readonly class ResearchRuntime implements ExecutesResearch
         Profile $requestedProfile,
         Profile $profile,
         CarbonImmutable $deadline,
+        ?CaptureSession $capture,
     ): ResearchResult {
         if (CarbonImmutable::now()->greaterThanOrEqualTo($deadline)) {
             throw new DriverException(
@@ -174,18 +199,40 @@ final readonly class ResearchRuntime implements ExecutesResearch
             throw new LogicException("The rendered prompt for Profile [{$profile->id}] is missing.");
         }
 
-        $result = $driver->run(new DriverRequest(
-            requestId: $plan->requestId,
-            requestedProfile: $requestedProfile,
-            profile: $profile,
-            prompt: $prompt,
-            deadline: $deadline,
-            progressCallback: fn (string $message, string $profileId): null => $this->progressed(
-                $plan->requestId,
-                $message,
-                $profileId,
-            ),
-        ));
+        $attempts = $capture?->attemptCount();
+        try {
+            $result = $driver->run(new DriverRequest(
+                requestId: $plan->requestId,
+                requestedProfile: $requestedProfile,
+                profile: $profile,
+                prompt: $prompt,
+                deadline: $deadline,
+                progressCallback: fn (string $message, string $profileId): null => $this->progressed(
+                    $plan->requestId,
+                    $message,
+                    $profileId,
+                ),
+                responseCallback: $capture === null
+                    ? null
+                    : fn (Response $response, Operation $operation, ?string $body): null => $this->captureResponse(
+                        $capture,
+                        $profile,
+                        $response,
+                        $operation,
+                        $body,
+                    ),
+                noResponseCallback: $capture === null
+                    ? null
+                    : fn (Operation $operation): null => $this->captureNoResponse($capture, $profile, $operation),
+                partialCaptureCallback: $capture === null
+                    ? null
+                    : fn (): null => $this->markCapturePartial($capture),
+            ));
+        } finally {
+            if ($capture !== null && $attempts === $capture->attemptCount()) {
+                $capture->markUnavailable();
+            }
+        }
         $result = TerminalRedaction::guard($result, [(string) $profile->credential]);
 
         if (CarbonImmutable::now()->isAfter($deadline)) {
@@ -197,6 +244,32 @@ final readonly class ResearchRuntime implements ExecutesResearch
         }
 
         return $result;
+    }
+
+    private function captureResponse(
+        CaptureSession $capture,
+        Profile $profile,
+        Response $response,
+        Operation $operation,
+        ?string $body,
+    ): null {
+        $capture->capture($profile, $response, $operation, $body);
+
+        return null;
+    }
+
+    private function captureNoResponse(CaptureSession $capture, Profile $profile, Operation $operation): null
+    {
+        $capture->noResponse($profile, $operation);
+
+        return null;
+    }
+
+    private function markCapturePartial(CaptureSession $capture): null
+    {
+        $capture->markPartial();
+
+        return null;
     }
 
     /** @param array<string, true> $usedProfiles */

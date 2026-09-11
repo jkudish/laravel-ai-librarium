@@ -503,7 +503,7 @@ it('quotes all six exact pricing identities offline and enforces maxCost before 
 
     expect($preview->pricingStatus)->toBe('complete')
         ->and($preview->maximumEstimatedCost)->toBe($cost)
-        ->and($preview->hardCostCeilingAvailable)->toBeTrue();
+        ->and($preview->preflightCostCheckAvailable)->toBeTrue();
     Http::assertNothingSent();
 
     expect(fn () => Librarium::query('pricing')->using($profile)->maxCost('0.001')->run())

@@ -43,10 +43,10 @@ it('runs one explicitly approved provider-parity canary', function (
     $pending = Librarium::query($query)->using($profile)->timeout($timeout);
     $preview = $pending->preview();
 
-    if ($preview->hardCostCeilingAvailable) {
+    if ($preview->preflightCostCheckAvailable) {
         $pending->maxCost($maximumUsd);
     } elseif (getenv('LIBRARIUM_LIVE_UNPRICED_ACK') !== "external-cap:{$profile}:USD:{$maximumUsd}") {
-        $this->markTestSkipped("This Profile has no enforceable preview ceiling. Set LIBRARIUM_LIVE_UNPRICED_ACK=external-cap:{$profile}:USD:{$maximumUsd} only after applying that provider/account cap externally.");
+        $this->markTestSkipped("This Profile has no conservative pre-dispatch estimate. Set LIBRARIUM_LIVE_UNPRICED_ACK=external-cap:{$profile}:USD:{$maximumUsd} only after applying that provider/account cap externally.");
     }
 
     $exactSubmissionUrl = match ($profile) {
@@ -89,6 +89,7 @@ it('runs one explicitly approved provider-parity canary', function (
     'Exa Research' => ['exa-research', 'EXA_API_KEY', 'services.exa.key', 'exa', ResultKind::ResearchReport, 3600, 'POST', 'https://api.exa.ai/agent/runs'],
     'Gemini Deep Research' => ['gemini-deep-research', 'GEMINI_API_KEY', 'ai.providers.gemini.key', 'gemini-deep', ResultKind::ResearchReport, 3600, 'POST', 'https://generativelanguage.googleapis.com/v1beta/interactions'],
     'Perplexity Deep Research' => ['perplexity-deep-research', 'PERPLEXITY_API_KEY', 'services.perplexity.key', 'perplexity', ResultKind::ResearchReport, 3600, 'POST', 'https://api.perplexity.ai/v1/agent'],
+    'Perplexity frozen low' => ['perplexity-low-frozen', 'PERPLEXITY_API_KEY', 'services.perplexity.key', 'perplexity', ResultKind::GroundedAnswer, 180, 'POST', 'https://api.perplexity.ai/v1/agent'],
     'Grok X-only' => ['grok-x-only', 'XAI_API_KEY', 'ai.providers.xai.key', 'xai', ResultKind::GroundedAnswer, 180, 'POST', 'https://api.x.ai/v1/responses'],
     'Grok combined' => ['grok-combined', 'XAI_API_KEY', 'ai.providers.xai.key', 'xai', ResultKind::GroundedAnswer, 180, 'POST', 'https://api.x.ai/v1/responses'],
     'Parallel Search' => ['parallel-search', 'PARALLEL_API_KEY', 'services.parallel.key', 'parallel', ResultKind::SearchResults, 120, 'POST', 'https://api.parallel.ai/v1/search'],

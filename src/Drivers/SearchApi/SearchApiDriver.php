@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
@@ -174,18 +175,24 @@ final readonly class SearchApiDriver implements Driver
         }
 
         try {
-            return Http::withToken((string) $request->profile->credential)
+            $response = Http::withToken((string) $request->profile->credential)
                 ->acceptJson()
                 ->connectTimeout(min(self::CONNECT_TIMEOUT_SECONDS, $remaining))
                 ->timeout(min(self::REQUEST_TIMEOUT_SECONDS, $remaining))
                 ->get(self::ENDPOINT, $query);
         } catch (ConnectionException) {
+            $request->captureNoResponse(Operation::Inline);
+
             if (CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
                 throw $this->fail('searchapi.deadline_exceeded', 'SearchAPI did not respond before the research deadline.', $zeroRetention);
             }
 
             throw $this->fail('searchapi.connection', 'SearchAPI could not be reached.', $zeroRetention);
         }
+
+        $request->captureResponse($response, Operation::Inline);
+
+        return $response;
     }
 
     private function httpFailure(Response $response, bool $zeroRetention): DriverException

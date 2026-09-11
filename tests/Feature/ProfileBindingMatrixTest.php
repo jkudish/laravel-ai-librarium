@@ -180,6 +180,7 @@ it('reconciles every TypeScript matrix row with the landed PHP catalog', functio
     sort($configuredProfiles);
     $expectedProfiles = [
         ...array_values($landed),
+        'perplexity-low-frozen',
         'dataforseo-chatgpt',
         'dataforseo-chatgpt-live',
         'dataforseo-gemini',
@@ -218,8 +219,8 @@ it('keeps one separately gated live canary for every landed PHP Profile', functi
     sort($profiles);
     sort($configuredProfiles);
 
-    expect($matches)->toHaveCount(45)
-        ->and($ids)->toBe(array_map(static fn (int $id): string => sprintf('%02d', $id), range(1, 45)))
+    expect($matches)->toHaveCount(46)
+        ->and($ids)->toBe(array_map(static fn (int $id): string => sprintf('%02d', $id), range(1, 46)))
         ->and($profiles)->toBe($configuredProfiles)
         ->and($canaries)->toContain('unless an approval names a')
         ->toContain('| Monthly Search | C30–C34, C40–C41, C43, C45 | 0.02, 0.10, 0.02, 0.10, 0.10, 0.10, 0.01, 0.15, 0.10 | 0.70 |')
@@ -229,7 +230,7 @@ it('keeps one separately gated live canary for every landed PHP Profile', functi
         ->toContain('It never authorizes a retry')
         ->toContain('Unknown cost is not zero.')
         ->toContain('C01–C13 passed separately authorized live checks')
-        ->toContain('C14–C29 remain unverified live.')
+        ->toContain('C14–C29 and C46 remain unverified live.')
         ->toContain('C30–C37 and C39–C45 passed on 2026-09-11')
         ->toContain('all C30–C45 Profiles have now passed their live canary')
         ->toContain('env -i HOME="$HOME" PATH="$PATH"')

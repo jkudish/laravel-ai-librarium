@@ -9,6 +9,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
 use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
@@ -144,7 +145,7 @@ final readonly class BraveSearchDriver implements Driver
         $remaining = $this->remainingSeconds($request);
 
         try {
-            return Http::withHeaders([
+            $response = Http::withHeaders([
                 'X-Subscription-Token' => (string) $request->profile->credential,
             ])
                 ->acceptJson()
@@ -153,12 +154,18 @@ final readonly class BraveSearchDriver implements Driver
                 ->timeout(min(self::REQUEST_TIMEOUT_SECONDS, $remaining))
                 ->get(self::ENDPOINT, ['q' => $request->prompt]);
         } catch (ConnectionException) {
+            $request->captureNoResponse(Operation::Inline);
+
             if (CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
                 throw $this->deadlineExceeded('Brave Search did not respond before the research deadline.');
             }
 
             throw new DriverException('brave_search.connection', 'Brave Search could not be reached.');
         }
+
+        $request->captureResponse($response, Operation::Inline);
+
+        return $response;
     }
 
     private function httpFailure(Response $response): DriverException

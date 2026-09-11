@@ -9,6 +9,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
@@ -186,6 +187,7 @@ final readonly class OpenAiResearchDriver implements Driver
                 'tool_choice' => 'required',
                 'include' => ['web_search_call.action.sources'],
             ],
+            operation: Operation::Submit,
         );
         $this->remainingSeconds($request, 'OpenAI did not accept the research request before the research deadline.');
 
@@ -204,6 +206,7 @@ final readonly class OpenAiResearchDriver implements Driver
                 request: $request,
                 method: 'get',
                 url: self::ENDPOINT.'/'.rawurlencode($responseId),
+                operation: Operation::Retrieve,
             );
         } catch (ConnectionException) {
             if (CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
@@ -238,8 +241,13 @@ final readonly class OpenAiResearchDriver implements Driver
     /**
      * @param  array<string, mixed>  $payload
      */
-    private function send(DriverRequest $request, string $method, string $url, array $payload = []): Response
-    {
+    private function send(
+        DriverRequest $request,
+        string $method,
+        string $url,
+        array $payload = [],
+        Operation $operation = Operation::Inline,
+    ): Response {
         $remaining = $this->remainingSeconds($request, 'OpenAI did not complete before the research deadline.');
 
         $pending = Http::withToken((string) $request->profile->credential)
@@ -250,17 +258,29 @@ final readonly class OpenAiResearchDriver implements Driver
 
         if ($method === 'post') {
             try {
-                return $pending->post($url, $payload);
+                $response = $pending->post($url, $payload);
             } catch (ConnectionException) {
+                $request->captureNoResponse($operation);
+
                 throw new DriverException(
                     'openai.submit_connection',
                     'The OpenAI background request did not return a response.',
                     false,
                 );
             }
+        } else {
+            try {
+                $response = $pending->get($url);
+            } catch (ConnectionException $exception) {
+                $request->captureNoResponse($operation);
+
+                throw $exception;
+            }
         }
 
-        return $pending->get($url);
+        $request->captureResponse($response, $operation);
+
+        return $response;
     }
 
     private function waitBeforePolling(DriverRequest $request): void

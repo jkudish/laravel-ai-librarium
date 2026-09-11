@@ -7,7 +7,12 @@ namespace Jkudish\LaravelAiLibrarium;
 use Closure;
 use Illuminate\Contracts\Validation\Factory as ValidationFactory;
 use Illuminate\Validation\ValidationException;
+use Jkudish\LaravelAiLibrarium\Collection\CollectedResponse;
+use Jkudish\LaravelAiLibrarium\Collection\ResponseRedactor;
+use Jkudish\LaravelAiLibrarium\Collection\SensitiveCollection;
+use Jkudish\LaravelAiLibrarium\Contracts\CollectsResearch;
 use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
+use Jkudish\LaravelAiLibrarium\Contracts\RecoversResearch;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
@@ -31,13 +36,20 @@ final class PendingResearch
 
     private ?int $timeoutSeconds = null;
 
-    /** @param Closure(): ExecutesResearch $resolveExecutor */
+    /**
+     * @param  Closure(): ExecutesResearch  $resolveExecutor
+     * @param  Closure(): CollectsResearch  $resolveCollector
+     * @param  Closure(): RecoversResearch  $resolveRecovery
+     */
     public function __construct(
         public readonly string $input,
         public readonly string $requestId,
         private readonly ValidationFactory $validator,
         private readonly ResearchCompiler $compiler,
         private readonly Closure $resolveExecutor,
+        private readonly Closure $resolveCollector,
+        private readonly Closure $resolveRecovery,
+        private readonly ResponseRedactor $redactor,
     ) {}
 
     public function using(string $profile): self
@@ -121,6 +133,30 @@ final class PendingResearch
     public function run(): ResearchResponse
     {
         return ($this->resolveExecutor)()->run($this->compiler->compile($this));
+    }
+
+    public function collect(): CollectedResponse
+    {
+        $plan = $this->compiler->compile($this);
+        $policy = $this->redactor->prepare($plan);
+
+        return $this->redactor->redact(($this->resolveCollector)()->collect($plan), $policy);
+    }
+
+    public function collectSensitive(): SensitiveCollection
+    {
+        return ($this->resolveCollector)()->collect($this->compiler->compile($this));
+    }
+
+    public function submit(bool $capture = true): DurableOutcome
+    {
+        if ($this->selector !== 'using' || $this->fallbackProfiles !== []) {
+            throw ValidationException::withMessages([
+                'selector' => 'Durable submission requires using() with one exact Profile and no fallbacks.',
+            ]);
+        }
+
+        return ($this->resolveRecovery)()->submit($this->compiler->compile($this), $capture);
     }
 
     public function queue(): QueuedResearchResponse

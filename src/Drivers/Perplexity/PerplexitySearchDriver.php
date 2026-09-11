@@ -10,6 +10,7 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
 use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
@@ -181,7 +182,7 @@ final readonly class PerplexitySearchDriver implements Driver
         $remaining = $this->remainingSeconds($request);
 
         try {
-            return Http::withToken((string) $request->profile->credential)
+            $response = Http::withToken((string) $request->profile->credential)
                 ->acceptJson()
                 ->asJson()
                 ->withOptions(['allow_redirects' => false])
@@ -189,12 +190,18 @@ final readonly class PerplexitySearchDriver implements Driver
                 ->timeout(min(self::REQUEST_TIMEOUT_SECONDS, $remaining))
                 ->post(self::ENDPOINT, $this->requestBody($request));
         } catch (ConnectionException) {
+            $request->captureNoResponse(Operation::Inline);
+
             if (CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
                 throw new DriverException('perplexity_search.deadline_exceeded', 'Perplexity Search did not respond before the research deadline.');
             }
 
             throw new DriverException('perplexity_search.connection', 'Perplexity Search could not be reached.');
         }
+
+        $request->captureResponse($response, Operation::Inline);
+
+        return $response;
     }
 
     /** @return array<string, mixed> */

@@ -45,6 +45,15 @@ it('registers the manager behind the package contract', function (): void {
         ->toBe(app(LibrariumManager::class));
 });
 
+it('marks published OpenRouter Profiles without an explicit search engine unavailable', function (): void {
+    config()->set('librarium.profiles.openrouter-grounded.options', []);
+
+    $profile = app(ProfileCatalog::class)->find('openrouter-grounded');
+
+    expect($profile)->not->toBeNull()
+        ->and($profile?->reasons)->toContain('OpenRouter web search requires an explicit search_engine option.');
+});
+
 it('merges the package configuration', function (): void {
     expect(config('librarium.default_group'))->toBe('quick')
         ->and(config('librarium.timeout'))->toBe(6900)
@@ -128,6 +137,7 @@ it('registers the accepted core HTTP Profiles with resolved credentials', functi
     'Exa Search' => ['exa', ExaSearchDriver::class, 'exa', null, 'search_results', 'none', 'search_endpoint', 'services.exa.key', 'exa:search'],
     'Kagi FastGPT' => ['kagi-fastgpt', KagiFastGptDriver::class, 'kagi-fastgpt', null, 'grounded_answer', 'required', 'search_endpoint', 'services.kagi.key', 'kagi:fastgpt'],
     'Perplexity Sonar Pro' => ['perplexity-sonar-pro', PerplexityAgentDriver::class, 'perplexity', null, 'grounded_answer', 'required', 'model_search_tool', 'services.perplexity.key', 'perplexity:agent-low'],
+    'Perplexity frozen low' => ['perplexity-low-frozen', PerplexityAgentDriver::class, 'perplexity', 'openai/gpt-5.6-luna', 'grounded_answer', 'required', 'model_search_tool', 'services.perplexity.key', 'perplexity:openai/gpt-5.6-luna'],
     'Grok web search' => ['grok', XaiGrokDriver::class, 'xai', 'grok-4.6', 'grounded_answer', 'required', 'model_search_tool', 'ai.providers.xai.key', 'xai:grok-4.6'],
     'OpenAI research' => ['openai-research', OpenAiResearchDriver::class, 'openai', 'gpt-5.6-sol', 'research_report', 'required', 'research_agent', 'ai.providers.openai.key', 'openai:gpt-5.6-sol'],
     'Perplexity Sonar Deep' => ['perplexity-sonar-deep', PerplexityAgentDriver::class, 'perplexity', null, 'research_report', 'required', 'research_agent', 'services.perplexity.key', 'perplexity:agent-high'],
@@ -250,6 +260,7 @@ it('resolves curated and derived groups from the complete built-in catalog', fun
         'you-research-grounded',
         'you-research-research',
         'perplexity-sonar-pro',
+        'perplexity-low-frozen',
         'grok',
         'openai-research',
         'perplexity-sonar-deep',
@@ -277,7 +288,7 @@ it('resolves curated and derived groups from the complete built-in catalog', fun
         'valyu-research',
     ]);
 
-    expect($catalog->all()->keys()->all())->toHaveCount(44)
+    expect($catalog->all()->keys()->all())->toHaveCount(45)
         ->and(array_keys($catalog->group('all')['unavailable']))->toBe([
             'dataforseo-chatgpt',
             'dataforseo-chatgpt-live',

@@ -106,10 +106,10 @@ final readonly class ResearchCompiler
                 pricingQuotes: $pricing['quotes'],
                 knownCostSubtotals: $pricing['known_subtotals'],
                 pricingStatus: $pricing['status'],
-                hardCostCeilingAvailable: $pricing['hard_ceiling_available'],
+                hardCostCeilingAvailable: $pricing['preflight_cost_check_available'],
                 maximumEstimatedCost: $pricing['maximum_estimated_cost'],
                 currency: $pricing['currency'],
-                costEstimateComplete: $pricing['hard_ceiling_available'],
+                costEstimateComplete: $pricing['preflight_cost_check_available'],
             ),
             timeout: $timeout,
             jobTimeout: $jobTimeout,
@@ -213,7 +213,7 @@ final readonly class ResearchCompiler
      *     }>,
      *     known_subtotals: Collection<string, non-empty-string>,
      *     status: string,
-     *     hard_ceiling_available: bool,
+     *     preflight_cost_check_available: bool,
      *     maximum_estimated_cost: string|null,
      *     currency: string|null
      * }
@@ -275,16 +275,16 @@ final readonly class ResearchCompiler
         $fresh = $quotes->every(fn (array $entry): bool => $entry['freshness'] === 'current');
         $conservative = $quotes->every(fn (array $entry): bool => $entry['conservative']);
         $singleCurrency = count($subtotals) === 1;
-        $hardCeilingAvailable = $quotesComplete && $fresh && $conservative && $singleCurrency;
+        $preflightCostCheckAvailable = $quotesComplete && $fresh && $conservative && $singleCurrency;
         $currency = $singleCurrency ? array_key_first($subtotals) : null;
         $status = $quotesComplete
             ? CostCompleteness::Complete->value
             : ($subtotals === [] ? CostCompleteness::Unavailable->value : CostCompleteness::Partial->value);
 
         if ($maximum !== null) {
-            if (! $hardCeilingAvailable || $currency === null) {
+            if (! $preflightCostCheckAvailable || $currency === null) {
                 throw ValidationException::withMessages([
-                    'maxCost' => 'A hard cost ceiling requires complete, current, single-currency quotes from conservative usage bounds for every primary and reachable fallback.',
+                    'maxCost' => 'A maximum-cost preflight check requires complete, current, single-currency quotes from configured conservative usage estimates for every primary and reachable fallback.',
                 ]);
             }
 
@@ -296,7 +296,7 @@ final readonly class ResearchCompiler
 
             if ($subtotals[$currency]->amount->isGreaterThan($maximum['amount'])) {
                 throw ValidationException::withMessages([
-                    'maxCost' => 'The maximum quoted cost exceeds the configured hard ceiling.',
+                    'maxCost' => 'The conservative pre-dispatch estimate exceeds the configured maximum cost.',
                 ]);
             }
         }
@@ -305,11 +305,11 @@ final readonly class ResearchCompiler
             'quotes' => $quotes,
             'known_subtotals' => $knownSubtotals,
             'status' => $status,
-            'hard_ceiling_available' => $hardCeilingAvailable,
-            'maximum_estimated_cost' => $hardCeilingAvailable && $currency !== null
+            'preflight_cost_check_available' => $preflightCostCheckAvailable,
+            'maximum_estimated_cost' => $preflightCostCheckAvailable && $currency !== null
                 ? (string) $subtotals[$currency]->amount
                 : null,
-            'currency' => $hardCeilingAvailable ? $currency : null,
+            'currency' => $preflightCostCheckAvailable ? $currency : null,
         ];
     }
 

@@ -10,12 +10,14 @@ use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
 use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\ResearchResultMapper;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
+use Jkudish\LaravelAiLibrarium\Recovery\RecoveryRequest;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
+use Jkudish\LaravelAiLibrarium\Responses\Usage;
 use Laravel\Ai\Responses\AgentResponse;
 use Laravel\Ai\Responses\Data\Citation;
 use Laravel\Ai\Responses\Data\Meta;
 use Laravel\Ai\Responses\Data\UrlCitation;
-use Laravel\Ai\Responses\Data\Usage;
+use Laravel\Ai\Responses\Data\Usage as AiUsage;
 
 /** @internal */
 final readonly class GeminiDeepResultMapper
@@ -23,17 +25,18 @@ final readonly class GeminiDeepResultMapper
     public function __construct(private ResearchResultMapper $results) {}
 
     /** @param array<array-key, mixed> $interaction */
-    public function map(array $interaction, DriverRequest $request): ResearchResult
+    public function map(array $interaction, DriverRequest|RecoveryRequest $request): ResearchResult
     {
         return $this->results->map(
             response: $this->toAgentResponse($interaction, $request),
             request: $request,
             completedAt: $this->completedAt($interaction),
+            usage: $this->usage(data_get($interaction, 'usage')),
         );
     }
 
     /** @param array<array-key, mixed> $interaction */
-    public function toAgentResponse(array $interaction, DriverRequest $request): AgentResponse
+    public function toAgentResponse(array $interaction, DriverRequest|RecoveryRequest $request): AgentResponse
     {
         $text = $this->str(data_get($interaction, 'output_text')) ?? implode("\n", $this->textParts($interaction));
         $citations = $this->citations($interaction);
@@ -44,7 +47,7 @@ final readonly class GeminiDeepResultMapper
         return new AgentResponse(
             invocationId: $request->requestId,
             text: $text,
-            usage: $this->usage(data_get($interaction, 'usage')),
+            usage: new AiUsage,
             meta: new Meta(
                 provider: $request->profile->provider,
                 model: $this->str(data_get($interaction, 'agent'))
@@ -138,14 +141,14 @@ final readonly class GeminiDeepResultMapper
             return new Usage;
         }
 
-        $input = $this->nonNegativeInt(data_get($value, 'total_input_tokens')) ?? 0;
-        $cached = $this->nonNegativeInt(data_get($value, 'total_cached_tokens')) ?? 0;
+        $input = $this->nonNegativeInt(data_get($value, 'total_input_tokens'));
+        $cached = $this->nonNegativeInt(data_get($value, 'total_cached_tokens'));
 
         return new Usage(
-            promptTokens: max(0, $input - $cached),
-            completionTokens: $this->nonNegativeInt(data_get($value, 'total_output_tokens')) ?? 0,
+            promptTokens: $input === null ? null : max(0, $input - ($cached ?? 0)),
+            completionTokens: $this->nonNegativeInt(data_get($value, 'total_output_tokens')),
             cacheReadInputTokens: $cached,
-            reasoningTokens: $this->nonNegativeInt(data_get($value, 'total_thought_tokens')) ?? 0,
+            reasoningTokens: $this->nonNegativeInt(data_get($value, 'total_thought_tokens')),
         );
     }
 

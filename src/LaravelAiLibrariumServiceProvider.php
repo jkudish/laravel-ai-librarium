@@ -10,8 +10,10 @@ use Illuminate\Support\ServiceProvider;
 use Jkudish\LaravelAiLibrarium\Console\Commands\ProfilesCommand;
 use Jkudish\LaravelAiLibrarium\Console\Commands\QueryCommand;
 use Jkudish\LaravelAiLibrarium\Console\Commands\StatusCommand;
+use Jkudish\LaravelAiLibrarium\Contracts\CollectsResearch;
 use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
 use Jkudish\LaravelAiLibrarium\Contracts\Librarium;
+use Jkudish\LaravelAiLibrarium\Contracts\RecoversResearch;
 use Jkudish\LaravelAiLibrarium\Drivers\Brave\BraveAnswersDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Brave\BraveSearchDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\DataForSeo\DataForSeoCredential;
@@ -36,6 +38,7 @@ use Jkudish\LaravelAiLibrarium\Drivers\Valyu\ValyuSearchDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Xai\XaiGrokDriver;
 use Jkudish\LaravelAiLibrarium\Execution\ProfileCompatibility;
 use Jkudish\LaravelAiLibrarium\Execution\ResearchRuntime;
+use Jkudish\LaravelAiLibrarium\Recovery\DurableResearchRuntime;
 use Jkudish\LaravelAiLibrarium\Webhooks\WebhookSignalStore;
 use Jkudish\LaravelAiPricing\Contracts\CostResolver;
 use Jkudish\LaravelAiPricing\LaravelAiPricingServiceProvider as PricingServiceProvider;
@@ -64,6 +67,8 @@ final class LaravelAiLibrariumServiceProvider extends ServiceProvider
             ->needs(CostResolver::class)
             ->give(fn (): CostResolver => $this->offlineCostResolver());
         $this->app->singleton(ExecutesResearch::class, ResearchRuntime::class);
+        $this->app->singleton(CollectsResearch::class, ResearchRuntime::class);
+        $this->app->singleton(RecoversResearch::class, DurableResearchRuntime::class);
         $this->app->singleton(
             ResearchStatusStore::class,
             function (): ResearchStatusStore {

@@ -9,6 +9,7 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
 use Jkudish\LaravelAiLibrarium\Drivers\Gemini\GeminiDeepDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Gemini\GeminiDeepResultMapper;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profile;
@@ -131,6 +132,31 @@ it('retrieves canonical output when submission itself reports completion', funct
     expect($result->content)->toBe('Canonical Deep Research report.');
     Http::assertSentCount(2);
     Sleep::assertNeverSlept();
+});
+
+it('preserves reported zero usage while leaving absent Gemini usage unknown', function (): void {
+    $reported = geminiDeepInteraction('completed', completed: true);
+    $reported['usage'] = [
+        'total_input_tokens' => 0,
+        'total_cached_tokens' => 0,
+        'total_output_tokens' => 0,
+        'total_thought_tokens' => 0,
+    ];
+    $unknown = geminiDeepInteraction('completed', completed: true);
+    unset($unknown['usage']);
+    $mapper = app(GeminiDeepResultMapper::class);
+
+    $reportedUsage = $mapper->map($reported, geminiDeepRequest())->usage;
+    $unknownUsage = $mapper->map($unknown, geminiDeepRequest())->usage;
+
+    expect($reportedUsage?->promptTokens)->toBe(0)
+        ->and($reportedUsage?->completionTokens)->toBe(0)
+        ->and($reportedUsage?->cacheReadInputTokens)->toBe(0)
+        ->and($reportedUsage?->reasoningTokens)->toBe(0)
+        ->and($unknownUsage?->promptTokens)->toBeNull()
+        ->and($unknownUsage?->completionTokens)->toBeNull()
+        ->and($unknownUsage?->cacheReadInputTokens)->toBeNull()
+        ->and($unknownUsage?->reasoningTokens)->toBeNull();
 });
 
 it('falls back to ordered model output text blocks when output_text is absent', function (): void {

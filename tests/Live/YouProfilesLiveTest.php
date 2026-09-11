@@ -23,19 +23,19 @@ it('runs an explicitly funded You.com canary', function (
     config()->set("librarium.profiles.{$profile}.credential", $credential);
 
     $preview = Librarium::query($query)->using($profile)->preview();
-    $spend = $preview->maximumEstimatedCost;
+    $estimate = $preview->maximumEstimatedCost;
 
-    if (! $preview->hardCostCeilingAvailable || $spend === null) {
-        $this->markTestSkipped('The current pricing quote does not provide a conservative hard bound for this canary.');
+    if (! $preview->preflightCostCheckAvailable || $estimate === null) {
+        $this->markTestSkipped('The current pricing quote does not support a maximum-cost preflight check for this canary.');
     }
 
-    if (getenv('LIBRARIUM_YOU_LIVE_SPEND_USD') !== $spend) {
-        $this->markTestSkipped("Set LIBRARIUM_YOU_LIVE_SPEND_USD={$spend} to acknowledge this canary's current pricing bound.");
+    if (getenv('LIBRARIUM_YOU_LIVE_SPEND_USD') !== $estimate) {
+        $this->markTestSkipped("Set LIBRARIUM_YOU_LIVE_SPEND_USD={$estimate} to acknowledge this canary's current pre-dispatch estimate.");
     }
 
     $response = Librarium::query($query)
         ->using($profile)
-        ->maxCost($spend)
+        ->maxCost($estimate)
         ->timeout($timeout)
         ->run();
 

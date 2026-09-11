@@ -9,19 +9,22 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
-use Jkudish\LaravelAiLibrarium\Contracts\Driver;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
+use Jkudish\LaravelAiLibrarium\Contracts\DurableDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
+use Jkudish\LaravelAiLibrarium\Recovery\DurableSubmission;
+use Jkudish\LaravelAiLibrarium\Recovery\RecoveryRequest;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 
 /** Runs one durable Gemini Deep Research interaction to a terminal report. */
-final readonly class GeminiDeepDriver implements Driver
+final readonly class GeminiDeepDriver implements DurableDriver
 {
     private const string ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/interactions';
 
@@ -110,7 +113,51 @@ final readonly class GeminiDeepDriver implements Driver
         }
     }
 
-    private function preflight(DriverRequest $request): string
+    public function submitDurable(DriverRequest $request): DurableSubmission
+    {
+        $credential = $this->preflight($request);
+
+        return new DurableSubmission(
+            reference: $this->interactionId($this->submit($request, $credential, false)),
+        );
+    }
+
+    public function retrieveDurable(RecoveryRequest $request, string $reference): ?ResearchResult
+    {
+        $credential = $this->preflight($request);
+        $interaction = $this->get(
+            $request,
+            $credential,
+            $reference,
+            self::RETRIEVE_TIMEOUT_SECONDS,
+            Operation::Retrieve,
+            false,
+        );
+        if ($interaction === null) {
+            throw $this->invalidResponse();
+        }
+
+        return match ($this->status($interaction)) {
+            'completed' => TerminalRedaction::guard(
+                $this->mapper->map($interaction, $request),
+                [$credential, $reference],
+                $this->invalidResponse(),
+            ),
+            'cancelled' => throw new DriverException(
+                'gemini_deep.cancelled',
+                'The Gemini Deep Research interaction was cancelled.',
+                false,
+            ),
+            'budget_exceeded' => throw new DriverException(
+                'gemini_deep.budget_exceeded',
+                'Gemini Deep Research stopped after exceeding its token budget.',
+                false,
+            ),
+            default => null,
+        };
+    }
+
+    private function preflight(DriverRequest|RecoveryRequest $request): string
     {
         $profile = $request->profile;
         if ($profile->id !== 'gemini-deep-research'
@@ -129,7 +176,8 @@ final readonly class GeminiDeepDriver implements Driver
             );
         }
 
-        if ($profile->options !== [] || trim($request->prompt) === '') {
+        if ($profile->options !== []
+            || ($request instanceof DriverRequest && trim($request->prompt) === '')) {
             throw new DriverException(
                 'gemini_deep.invalid_request',
                 'The Gemini Deep Research request is invalid.',
@@ -151,7 +199,7 @@ final readonly class GeminiDeepDriver implements Driver
     }
 
     /** @return array<array-key, mixed> */
-    private function submit(DriverRequest $request, string $credential): array
+    private function submit(DriverRequest $request, string $credential, bool $enforcePostResponseDeadline = true): array
     {
         try {
             $response = $this->send(
@@ -171,6 +219,7 @@ final readonly class GeminiDeepDriver implements Driver
                     ],
                     'tools' => [['type' => 'google_search']],
                 ],
+                operation: Operation::Submit,
             );
         } catch (ConnectionException) {
             // The paid background interaction may exist even though its handle
@@ -196,7 +245,9 @@ final readonly class GeminiDeepDriver implements Driver
 
         // Preserve the validated private handle before enforcing the
         // post-response deadline; an unparseable success remains ambiguous.
-        $this->remainingSeconds($request);
+        if ($enforcePostResponseDeadline) {
+            $this->remainingSeconds($request);
+        }
 
         return $payload;
     }
@@ -204,18 +255,24 @@ final readonly class GeminiDeepDriver implements Driver
     /** @return array<array-key, mixed>|null */
     private function poll(DriverRequest $request, string $credential, string $interactionId): ?array
     {
-        return $this->get($request, $credential, $interactionId, self::POLL_TIMEOUT_SECONDS);
+        return $this->get($request, $credential, $interactionId, self::POLL_TIMEOUT_SECONDS, Operation::Poll);
     }
 
     /** @return array<array-key, mixed>|null */
     private function retrieve(DriverRequest $request, string $credential, string $interactionId): ?array
     {
-        return $this->get($request, $credential, $interactionId, self::RETRIEVE_TIMEOUT_SECONDS);
+        return $this->get($request, $credential, $interactionId, self::RETRIEVE_TIMEOUT_SECONDS, Operation::Retrieve);
     }
 
     /** @return array<array-key, mixed>|null */
-    private function get(DriverRequest $request, string $credential, string $interactionId, int $timeout): ?array
-    {
+    private function get(
+        DriverRequest|RecoveryRequest $request,
+        string $credential,
+        string $interactionId,
+        int $timeout,
+        Operation $operation,
+        bool $transientAsPending = true,
+    ): ?array {
         try {
             $response = $this->send(
                 request: $request,
@@ -223,10 +280,19 @@ final readonly class GeminiDeepDriver implements Driver
                 method: 'get',
                 url: self::ENDPOINT.'/'.rawurlencode($interactionId),
                 timeout: $timeout,
+                operation: $operation,
             );
         } catch (ConnectionException) {
             if (CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
                 throw $this->deadlineExceeded();
+            }
+
+            if (! $transientAsPending) {
+                throw new DriverException(
+                    'gemini_deep.connection',
+                    'Gemini Deep Research could not be reached while retrieving the accepted interaction.',
+                    false,
+                );
             }
 
             return null;
@@ -234,6 +300,10 @@ final readonly class GeminiDeepDriver implements Driver
 
         $this->remainingSeconds($request);
         if ($response->status() === 408 || $response->status() === 429 || $response->serverError()) {
+            if (! $transientAsPending) {
+                throw $this->httpFailure($response, true);
+            }
+
             return null;
         }
         if ($response->failed() || $response->redirect()) {
@@ -251,12 +321,13 @@ final readonly class GeminiDeepDriver implements Driver
 
     /** @param array<string, mixed> $payload */
     private function send(
-        DriverRequest $request,
+        DriverRequest|RecoveryRequest $request,
         string $credential,
         string $method,
         string $url,
         int $timeout,
         array $payload = [],
+        Operation $operation = Operation::Inline,
     ): Response {
         $remaining = $this->remainingSeconds($request);
         $pending = Http::withHeaders([
@@ -269,9 +340,19 @@ final readonly class GeminiDeepDriver implements Driver
             ->connectTimeout(min(self::CONNECT_TIMEOUT_SECONDS, $remaining))
             ->timeout(min($timeout, $remaining));
 
-        return $method === 'post'
-            ? $pending->post($url, $payload)
-            : $pending->get($url);
+        try {
+            $response = $method === 'post'
+                ? $pending->post($url, $payload)
+                : $pending->get($url);
+        } catch (ConnectionException $exception) {
+            $request->captureNoResponse($operation);
+
+            throw $exception;
+        }
+
+        $request->captureResponse($response, $operation);
+
+        return $response;
     }
 
     private function waitBeforePolling(DriverRequest $request): void
@@ -284,7 +365,7 @@ final readonly class GeminiDeepDriver implements Driver
         }
     }
 
-    private function remainingSeconds(DriverRequest $request): float
+    private function remainingSeconds(DriverRequest|RecoveryRequest $request): float
     {
         $seconds = CarbonImmutable::now()->diffInMilliseconds($request->deadline, false) / 1000;
         if ($seconds < 0.001) {

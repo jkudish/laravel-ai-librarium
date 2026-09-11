@@ -11,9 +11,11 @@ All notable changes to this project will be documented in this file.
   surface observations.
 - Add provider-safe option validation, credential handling, deadlines,
   fallbacks, webhook wake hints, provenance, citations, usage, and errors.
+- Require published OpenRouter Profiles that enable web search to declare a
+  supported `search_engine`; no engine is selected implicitly.
 - Pin and verify the accepted TypeScript terminal-interchange snapshot offline.
 - Replace static Profile cost estimates with offline, provenance-aware
-  `laravel-ai-pricing` quotes and fail-closed conservative cost ceilings.
+  `laravel-ai-pricing` quotes and fail-closed maximum-cost preflight checks.
 - Support Laravel AI SDK 0.11 with a package-owned queued research test fake.
 - Document the reconciled 40-row TypeScript/PHP binding matrix and separately
   approval-gated live provider canaries.
