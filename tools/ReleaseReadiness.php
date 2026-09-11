@@ -10,6 +10,8 @@ use RuntimeException;
 
 final readonly class ReleaseReadiness
 {
+    private const string PROFILE_SNAPSHOT_SHA256 = '83739ba138c2db2c4673aada5834a5586f085a6c971253b155339eb570dbb9f9';
+
     /** @var list<array{id: string, title: string}> */
     private const array GATES = [
         ['id' => 'php-8.4-lowest-compatibility', 'title' => 'PHP 8.4 lowest-dependency compatibility'],
@@ -155,7 +157,8 @@ final readonly class ReleaseReadiness
             || $typescript['version'] !== '2.0.0'
             || ! in_array($typescript['tag'], [null, 'v2.0.0'], true)
             || $typescript['commit'] !== '889b0366b5baafff117198632e04b24e521ac93d'
-            || $typescript['profile_snapshot_sha256'] !== $profileSnapshotHash
+            || $profileSnapshotHash !== self::PROFILE_SNAPSHOT_SHA256
+            || $typescript['profile_snapshot_sha256'] !== self::PROFILE_SNAPSHOT_SHA256
             || ! is_array($gates)
             || ! array_is_list($gates)
             || $gates === []
@@ -205,6 +208,8 @@ final readonly class ReleaseReadiness
             || parse_url($evidence['uri'], PHP_URL_SCHEME) !== 'https'
             || parse_url($evidence['uri'], PHP_URL_USER) !== null
             || parse_url($evidence['uri'], PHP_URL_PASS) !== null
+            || parse_url($evidence['uri'], PHP_URL_QUERY) !== null
+            || parse_url($evidence['uri'], PHP_URL_FRAGMENT) !== null
         ) {
             return false;
         }

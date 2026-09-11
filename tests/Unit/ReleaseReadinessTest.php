@@ -6,6 +6,8 @@ use Jkudish\LaravelAiLibrarium\Tools\ReleaseReadiness;
 
 require_once dirname(__DIR__, 2).'/tools/ReleaseReadiness.php';
 
+const RELEASE_PROFILE_SNAPSHOT_SHA256 = '83739ba138c2db2c4673aada5834a5586f085a6c971253b155339eb570dbb9f9';
+
 /** @return array<string, mixed> */
 function releaseReadinessComposerFixture(): array
 {
@@ -42,7 +44,7 @@ function releaseReadinessManifestFixture(): array
             'version' => '2.0.0',
             'tag' => 'v2.0.0',
             'commit' => '889b0366b5baafff117198632e04b24e521ac93d',
-            'profile_snapshot_sha256' => 'snapshot-hash',
+            'profile_snapshot_sha256' => RELEASE_PROFILE_SNAPSHOT_SHA256,
         ],
         'gates' => [
             ['id' => 'php-8.4-lowest-compatibility', 'title' => 'PHP 8.4 lowest-dependency compatibility', 'status' => 'complete', 'evidence' => $evidence('compatibility-lowest')],
@@ -81,7 +83,7 @@ it('passes only stable versioned metadata with completed evidenced gates', funct
         $composer,
         "# Changelog\n\n## [1.0.0] - 2026-09-11\n",
         $manifest,
-        'snapshot-hash',
+        RELEASE_PROFILE_SNAPSHOT_SHA256,
     ))->toBe([]);
 });
 
@@ -94,7 +96,7 @@ it('blocks every Composer development or prerelease runtime constraint', functio
         $composer,
         "## 1.0.0 - 2026-09-11\n",
         $manifest,
-        'snapshot-hash',
+        RELEASE_PROFILE_SNAPSHOT_SHA256,
     ))->toBe(["Runtime dependency example/package uses non-stable constraint [{$constraint}]."]);
 })->with([
     'development branch' => 'dev-main',
@@ -113,7 +115,7 @@ it('requires the exact supported PHP, Laravel, and Laravel AI compatibility poli
         $composer,
         "## 1.0.0 - 2026-09-11\n",
         releaseReadinessManifestFixture(),
-        'snapshot-hash',
+        RELEASE_PROFILE_SNAPSHOT_SHA256,
     ))->toBe([$message]);
 })->with([
     'PHP floor' => ['require', 'php', '^8.3', 'Runtime dependency php must use the release compatibility constraint [^8.4].'],
@@ -130,7 +132,7 @@ it('rejects a completed gate without durable evidence', function (): void {
         releaseReadinessComposerFixture(),
         "## 1.0.0 - 2026-09-11\n",
         $manifest,
-        'snapshot-hash',
+        RELEASE_PROFILE_SNAPSHOT_SHA256,
     ))->toBe(['Gate [2593] is missing evidence: SearchAPI and Firecrawl fidelity bake-off.']);
 });
 
@@ -142,14 +144,28 @@ it('rejects evidence that is not a durable HTTPS reference with a content digest
         releaseReadinessComposerFixture(),
         "## 1.0.0 - 2026-09-11\n",
         $manifest,
-        'snapshot-hash',
+        RELEASE_PROFILE_SNAPSHOT_SHA256,
     ))->toThrow(RuntimeException::class, 'The release-readiness manifest contains an invalid gate.');
 })->with([
     'arbitrary text' => ['x'],
     'non-HTTPS URI' => [['uri' => 'file:///tmp/evidence.txt', 'sha256' => str_repeat('a', 64)]],
     'credential-bearing URI' => [['uri' => 'https://user:secret@example.com/evidence', 'sha256' => str_repeat('a', 64)]],
+    'query-bearing URI' => [['uri' => 'https://example.com/evidence?token=secret', 'sha256' => str_repeat('a', 64)]],
+    'fragment-bearing URI' => [['uri' => 'https://example.com/evidence#token=secret', 'sha256' => str_repeat('a', 64)]],
     'malformed digest' => [['uri' => 'https://example.com/evidence', 'sha256' => 'abc123']],
 ]);
+
+it('rejects a Profile snapshot and manifest that drift together from the accepted digest', function (): void {
+    $manifest = releaseReadinessManifestFixture();
+    $manifest['typescript']['profile_snapshot_sha256'] = str_repeat('b', 64);
+
+    expect(fn (): array => ReleaseReadiness::evaluate(
+        releaseReadinessComposerFixture(),
+        "## 1.0.0 - 2026-09-11\n",
+        $manifest,
+        str_repeat('b', 64),
+    ))->toThrow(RuntimeException::class, 'The release-readiness manifest is malformed or does not match the accepted v2 Profile snapshot.');
+});
 
 it('rejects missing, replaced, or retitled canonical release gates', function (string $mutation): void {
     $manifest = releaseReadinessManifestFixture();
@@ -172,7 +188,7 @@ it('rejects missing, replaced, or retitled canonical release gates', function (s
         releaseReadinessComposerFixture(),
         "## 1.0.0 - 2026-09-11\n",
         $manifest,
-        'snapshot-hash',
+        RELEASE_PROFILE_SNAPSHOT_SHA256,
     ))->toThrow(RuntimeException::class, 'The release-readiness manifest must contain the canonical 1.0 release gates.');
 })->with(['missing', 'replaced', 'retitled']);
 
@@ -184,7 +200,7 @@ it('rejects any TypeScript tag other than the exact accepted v2 release tag', fu
         releaseReadinessComposerFixture(),
         "## 1.0.0 - 2026-09-11\n",
         $manifest,
-        'snapshot-hash',
+        RELEASE_PROFILE_SNAPSHOT_SHA256,
     ))->toThrow(RuntimeException::class);
 });
 
@@ -193,6 +209,6 @@ it('rejects impossible changelog release dates', function (string $date): void {
         releaseReadinessComposerFixture(),
         "## 1.0.0 - {$date}\n",
         releaseReadinessManifestFixture(),
-        'snapshot-hash',
+        RELEASE_PROFILE_SNAPSHOT_SHA256,
     ))->toBe(['CHANGELOG.md does not contain a dated 1.0.0 release heading.']);
 })->with(['2026-02-29', '2026-13-01', '2026-99-99']);
