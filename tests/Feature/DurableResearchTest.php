@@ -165,6 +165,20 @@ it('requires using with one exact profile and forbids fallbacks before any reque
     'fallback' => ['fallback'],
 ]);
 
+it('requires a valid application key before durable submission', function (?string $key): void {
+    config()->set('app.key', $key);
+    Http::fake();
+
+    expect(fn () => Librarium::query('Must not submit')->using('exa-research')->submit())
+        ->toThrow(LogicException::class, $key === null
+            ? 'A configured application key is required'
+            : 'The configured application key is invalid');
+    Http::assertNothingSent();
+})->with([
+    'missing key' => [null],
+    'invalid base64 key' => ['base64:not-valid-base64'],
+]);
+
 it('rejects unsupported and inline profiles before HTTP', function (string $profile, string $exception, string $message): void {
     Http::fake();
 

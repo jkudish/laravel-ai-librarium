@@ -18,6 +18,11 @@ final readonly class ResearchHandleSigner
 {
     public function __construct(private ConfigRepository $config) {}
 
+    public function assertConfigured(): void
+    {
+        $this->key();
+    }
+
     public function issue(
         Profile $profile,
         string $requestId,

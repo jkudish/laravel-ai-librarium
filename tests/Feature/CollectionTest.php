@@ -130,6 +130,27 @@ it('fails closed when a structured response cannot be safely redacted', function
         ->and($evidence->omittedReason)->toBe('invalid_json');
 });
 
+it('omits evidence instead of losing a successful result when header redaction fails', function (): void {
+    config()->set('librarium.redaction.patterns', ['~(*LIMIT_MATCH=1)(a+)+$~']);
+    FakeRuntimeDriver::$outcomes['collected'] = [function (DriverRequest $request): ResearchResult {
+        $request->captureResponse(collectionHttpResponse(
+            200,
+            ['X-Request-Id' => str_repeat('a', 100).'X'],
+            '{"answer":"Safe"}',
+        ));
+
+        return collectionResult($request, 'Safe answer.');
+    }];
+
+    $collected = Librarium::query('Research this.')->using('collected')->collect();
+    $evidence = $collected->evidence->sole();
+
+    expect($collected->response->results->sole()->content)->toBe('Safe answer.')
+        ->and($evidence->headers)->toBe([])
+        ->and($evidence->body)->toBeNull()
+        ->and($evidence->omittedReason)->toBe('redaction_failed');
+});
+
 it('redacts sensitive key variants and credential-bearing encoded URLs', function (): void {
     FakeRuntimeDriver::$outcomes['collected'] = [function (DriverRequest $request): ResearchResult {
         $request->captureResponse(collectionHttpResponse(

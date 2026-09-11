@@ -123,7 +123,9 @@ body, URL, or a class name. Verification binds the handle to the current
 Profile semantics and credential identity using Laravel's `app.key`; changed
 bindings fail before HTTP. Credential rotation therefore invalidates existing
 handles unless the application retains the matching Profile binding in a
-controlled recovery deployment.
+controlled recovery deployment. Librarium validates `app.key` before the paid
+submission so a local signing-configuration failure cannot consume the only
+copy of a successful provider handle.
 
 Each `retrieve()` call validates the handle and performs one provider
 observation without internal polling. Most providers need one known-handle GET;

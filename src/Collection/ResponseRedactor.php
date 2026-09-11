@@ -101,13 +101,20 @@ final readonly class ResponseRedactor
     private function redactResponse(SensitiveProviderResponse $response, RedactionPolicy $policy): RedactedProviderResponse
     {
         [$body, $reason] = $this->body($response, $policy);
+        try {
+            $headers = $this->headers($response->headers(), $policy);
+        } catch (Throwable) {
+            $headers = [];
+            $body = null;
+            $reason = 'redaction_failed';
+        }
 
         return new RedactedProviderResponse(
             provider: $response->provider(),
             profile: $response->profile(),
             operation: $response->operation(),
             status: $response->status(),
-            headers: $this->headers($response->headers(), $policy),
+            headers: $headers,
             body: $body,
             omittedReason: $reason,
             receivedAt: $response->receivedAt(),
