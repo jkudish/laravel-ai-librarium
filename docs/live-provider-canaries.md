@@ -105,8 +105,8 @@ provider/model and truthful search-on terminal projection differ materially.
 | C44 | `valyu-research` | Valyu standard Deep Research submit/poll/retrieve | `VALYU_API_KEY` | `ProviderParityProfilesLiveTest` — Valyu Research; passed 2026-09-11 | Standard base/selected-option quote plus external cap |
 | C45 | `firecrawl-search` | Optional adapter raw `POST /v2/search` | `FIRECRAWL_API_KEY` | Adapter `FirecrawlSearchLiveTest`; passed 2026-09-11 | Provider credit use has no truthful preflight quantity; search-specific acknowledgement and external cap required |
 | C46 | `perplexity-low-frozen` | Perplexity Agent API frozen low configuration from 2026-09-11, inline result | `PERPLEXITY_API_KEY` | `PerplexityAgentDriverTest`; not run live | Output and tool token limits constrain work, not total USD spend; explicit external cap required |
-| C47 | `serpbase-search` | One SerpBase Google Search POST, one page, no retry | `SERPBASE_API_KEY` | `ProviderParityProfilesLiveTest` — SerpBase Search; not run | Account-configured credit rate and independently enforced account cap required |
-| C48 | `serpbase-news` | One SerpBase Google News POST, one page, no retry | `SERPBASE_API_KEY` | `ProviderParityProfilesLiveTest` — SerpBase News; not run | Account-configured credit rate and independently enforced account cap required |
+| C47 | `serpbase-search` | One SerpBase Google Search POST, one page, no retry | `SERPBASE_API_KEY` | Approved ephemeral harness passed 2026-09-11; durable dataset: `ProviderParityProfilesLiveTest` — SerpBase Search | Account-configured credit rate and independently enforced account cap required |
+| C48 | `serpbase-news` | One SerpBase Google News POST, one page, no retry | `SERPBASE_API_KEY` | Approved ephemeral harness passed 2026-09-11; durable dataset: `ProviderParityProfilesLiveTest` — SerpBase News | Account-configured credit rate and independently enforced account cap required |
 
 ## Narrow invocation
 
@@ -154,8 +154,17 @@ allowed only after a validated provider handle and within the shared deadline.
   implementation heads. PlanMode tasks #2834, #2836, and #2901 retain the
   frozen SHAs and redacted receipts. That evidence does not authorize a rerun or
   claim that a later release-candidate SHA was exercised.
-- C14–C29 and C46–C48 remain unverified live. Their committed opt-in harness is
+- C14–C29 and C46 remain unverified live. Their committed opt-in harness is
   runnable one dataset at a time after the approval contract above is satisfied.
+- C47 passed at core `51ce3c85cbe44202bc5496c8a459abf58a62400d`, returning
+  nine citations and one reported credit. C48 first failed without a response
+  or known charge; after removing an extra 20-second request cap, a separately
+  approved request passed at core `30fc3177de29c308412d080b06830b7cca3785a3`
+  with a 45-second caller deadline, ten citations, and one reported credit.
+  Both used pricing `8c6386432240ddae1018cd856279cf0d5d7b6d21` and bounded
+  ephemeral harnesses with one request and no retries. Search exercised
+  related-search rendering; PAA and the opaque rich modules were not returned
+  and remain live-unverified. PlanMode #3650 retains the attempt evidence.
 - C30–C37 and C39–C45 passed on 2026-09-11 against core
   `dfce4d2b3f06147ff0e1f94bafd54eb44141d179`, pricing
   `7caa14b59ef56724718c63e2f9b170b296ba8e9e`, and Firecrawl

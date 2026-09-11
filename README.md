@@ -308,8 +308,10 @@ organic/news fields remain strict, People Also Ask uses only the documented
 strings are suggestions rather than evidence. The undocumented
 `featured_snippet`, `top_stories`, and `knowledge_graph` shapes are rendered as
 bounded sanitized JSON-like text without interpreting child keys or deriving
-citations. Unsupported or unsafe values are omitted; keyed live schema
-validation remains pending and the offline rich tests use synthetic payloads.
+citations. Unsupported or unsafe values are omitted. Search, News, and
+related-search rendering passed live smoke checks; PAA and the opaque rich
+modules were not returned and remain live-unverified. Offline rich tests use
+synthetic payloads.
 
 Responses exceeding 2 MB or 100 primary results are rejected. Retained text
 fields are capped at 2,000 UTF-8 bytes. Options require native integer/boolean
@@ -448,6 +450,11 @@ Development currently follows the latest `jkudish/laravel-ai-pricing`
 `dev-main` through Packagist. Librarium must not be released or published with
 this development constraint; replace it with the corresponding stable version
 after the pricing package is released.
+
+Merge the SerpBase configured-only pricing policy into the pricing package
+before merging these PHP Profiles. Consumers must install pricing that includes
+that policy; an older pricing build can incorrectly attempt remote fallback for
+SerpBase instead of requiring an account-configured credit rate.
 
 ## Development
 
