@@ -11,12 +11,16 @@ use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
+use Jkudish\LaravelAiLibrarium\ResearchCompiler;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 use Jkudish\LaravelAiLibrarium\SpendingBound;
 use Jkudish\LaravelAiLibrarium\SpendingBoundKind;
+use Jkudish\LaravelAiPricing\Contracts\CostResolver;
+use Jkudish\LaravelAiPricing\ValueObjects\CostQuote;
+use Jkudish\LaravelAiPricing\ValueObjects\PricingObservation;
 
 beforeEach(function (): void {
     foreach (array_keys(config('librarium.profiles')) as $profile) {
@@ -164,6 +168,76 @@ it('fails closed for ambiguous selections and fallback execution paths', functio
     'fallback' => fn () => Librarium::query('ambiguous')->using('exa')->fallbacks(['brave-search']),
 ]);
 
+it('does not resolve pricing or apply maxCost estimates while compiling an exact spending bound', function (): void {
+    $resolver = new class implements CostResolver
+    {
+        public int $calls = 0;
+
+        public function resolve(PricingObservation $observation): CostQuote
+        {
+            $this->calls++;
+
+            throw new LogicException('Spending-bound compilation must not resolve rates.');
+        }
+    };
+    app()->when(ResearchCompiler::class)
+        ->needs(CostResolver::class)
+        ->give(fn (): CostResolver => $resolver);
+
+    $bound = Librarium::query('No rate lookup')
+        ->using('exa')
+        ->maxCost('0.000001')
+        ->spendingBound();
+
+    expect($bound->kind)->toBe(SpendingBoundKind::BillableQuantities)
+        ->and($resolver->calls)->toBe(0);
+    Http::assertNothingSent();
+});
+
+it('returns unknown for an unsupported driver without constructing it', function (): void {
+    UnsupportedSpendingBoundDriver::$constructed = 0;
+    config()->set('librarium.profiles', [
+        'unsupported-bound' => [
+            'driver' => UnsupportedSpendingBoundDriver::class,
+            'provider' => 'unsupported',
+            'model' => null,
+            'result_kind' => ResultKind::SearchResults->value,
+            'grounding' => GroundingPolicy::None->value,
+            'observation' => ObservationMode::ApiOutput->value,
+            'corpora' => [Corpus::Web->value],
+            'retrieval_methods' => [RetrievalMethod::SearchEndpoint->value],
+            'prompt' => '{{ query }}',
+            'enabled' => true,
+            'options' => [],
+        ],
+    ]);
+
+    $bound = Librarium::query('Do not construct')->using('unsupported-bound')->spendingBound();
+
+    expect($bound->kind)->toBe(SpendingBoundKind::Unknown)
+        ->and(UnsupportedSpendingBoundDriver::$constructed)->toBe(0);
+    Http::assertNothingSent();
+});
+
+it('treats a bound as a snapshot and requires revalidation after controls change', function (): void {
+    config()->set('librarium.profiles.exa-research.options', [
+        'effort' => 'auto',
+        'max_cost_dollars' => 3,
+    ]);
+    $research = Librarium::query('Snapshot controls')->using('exa-research');
+    $original = $research->spendingBound();
+
+    config()->set('librarium.profiles.exa-research.options.max_cost_dollars', 8);
+    $updated = $research->spendingBound();
+    $research->fallbacks(['brave-search']);
+
+    expect((string) $original->maximumCost?->amount)->toBe('3')
+        ->and((string) $updated->maximumCost?->amount)->toBe('8')
+        ->and(fn () => $research->spendingBound())
+        ->toThrow(ValidationException::class, 'using() with one exact Profile and no fallbacks');
+    Http::assertNothingSent();
+});
+
 it('passes the compiled exact prompt, profile, request ID, and timeout to the optional driver capability', function (): void {
     config()->set('librarium.profiles', [
         'spending-probe' => [
@@ -234,5 +308,26 @@ final class SpendingBoundProbeDriver implements DefinesSpendingBound, Driver
     public function run(DriverRequest $request): ResearchResult
     {
         throw new LogicException('The spending-bound probe never executes research.');
+    }
+}
+
+final class UnsupportedSpendingBoundDriver implements Driver
+{
+    public static int $constructed = 0;
+
+    public function __construct()
+    {
+        self::$constructed++;
+    }
+
+    /** @return array<string, mixed> */
+    public static function profileOptionRules(): array
+    {
+        return [];
+    }
+
+    public function run(DriverRequest $request): ResearchResult
+    {
+        throw new LogicException('The unsupported spending-bound driver never executes research.');
     }
 }

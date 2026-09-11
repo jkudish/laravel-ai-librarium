@@ -78,5 +78,9 @@ xAI Grok, OpenAI Research, Jina, Gemini Deep Research, Parallel, and Valyu.
   retries, and settlement.
 
 Recompute the bound after changing the query builder or Profile configuration.
-Do not dispatch when policy requires a proven bound and the result is
-`unknown`.
+Each result is a snapshot bound only to the exact request and Profile controls
+that existed when `spendingBound()` was called; it is not an execution permit.
+Mutating the builder or Profile configuration invalidates that result. A
+consumer enforcing spend must rebuild and revalidate its exact stored execution
+controls immediately before the paid POST, with no fallbacks. Do not dispatch
+when policy requires a proven bound and the result is `unknown`.

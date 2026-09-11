@@ -31,19 +31,20 @@ final readonly class SpendingBoundResolver
             ]);
         }
 
-        $plan = $this->compiler->compile($research);
+        $plan = $this->compiler->compileSpendingBoundRequest($research);
         if ($plan->preview->profiles->count() !== 1 || $plan->preview->fallbacks->isNotEmpty()) {
             throw new LogicException('The exact spending-bound request did not compile to one Profile.');
         }
 
         /** @var Profile $profile */
         $profile = $plan->preview->profiles->sole();
-        $driver = $this->container->make($profile->driver);
-        if (! $driver instanceof Driver) {
-            throw new LogicException("Research Driver [{$profile->driver}] is invalid.");
-        }
-        if (! $driver instanceof DefinesSpendingBound) {
+        if (! is_a($profile->driver, DefinesSpendingBound::class, true)) {
             return SpendingBound::unknown();
+        }
+
+        $driver = $this->container->make($profile->driver);
+        if (! $driver instanceof Driver || ! $driver instanceof DefinesSpendingBound) {
+            throw new LogicException("Research Driver [{$profile->driver}] is invalid.");
         }
 
         $prompt = $plan->preview->prompts->get($profile->id);
