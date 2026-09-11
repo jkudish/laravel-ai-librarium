@@ -189,6 +189,8 @@ final readonly class LaravelAiDriver implements Driver
                 return;
             }
         }
+
+        $request->captureNoResponse(Operation::Inline);
     }
 
     private function remainingSeconds(DriverRequest $request): int

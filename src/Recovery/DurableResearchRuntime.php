@@ -65,7 +65,7 @@ final readonly class DurableResearchRuntime implements RecoversResearch
 
         $startedAt = CarbonImmutable::now();
         $session = new CaptureSession($startedAt);
-        $policy = $this->redactor->prepareProfiles(collect([$profile]));
+        $policy = $capture ? $this->redactor->prepareProfiles(collect([$profile])) : null;
         $request = new DriverRequest(
             requestId: $plan->requestId,
             requestedProfile: $profile,
@@ -114,7 +114,7 @@ final readonly class DurableResearchRuntime implements RecoversResearch
         $driver = $this->driver($profile);
         $startedAt = CarbonImmutable::now();
         $session = new CaptureSession($startedAt);
-        $policy = $this->redactor->prepareProfiles(collect([$profile]));
+        $policy = $capture ? $this->redactor->prepareProfiles(collect([$profile])) : null;
         $timeout = $this->config->get('librarium.timeout', 6900);
         if (! is_int($timeout) || $timeout < 1 || $timeout > 86400) {
             throw ValidationException::withMessages(['timeout' => 'The configured timeout must be between 1 and 86400 seconds.']);
@@ -198,14 +198,16 @@ final readonly class DurableResearchRuntime implements RecoversResearch
         ResearchHandle $handle,
         ?ResearchResponse $response,
         CaptureSession $session,
-        RedactionPolicy $policy,
+        ?RedactionPolicy $policy,
         bool $capture,
     ): DurableOutcome {
         return new DurableOutcome(
             handle: $handle,
             response: $response,
             coverage: $capture ? $session->coverage() : CaptureCoverage::Unavailable,
-            evidence: $capture ? $this->redactor->redactResponses($session->responses(), $policy) : collect(),
+            evidence: $capture && $policy !== null
+                ? $this->redactor->redactResponses($session->responses(), $policy)
+                : collect(),
             diagnostics: $session->diagnostics(),
             startedAt: $session->startedAt(),
         );

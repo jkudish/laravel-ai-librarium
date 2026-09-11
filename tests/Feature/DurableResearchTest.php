@@ -294,6 +294,7 @@ it('rejects changed profile binding or credential after process reconstruction b
 ]);
 
 it('omits evidence when capture is disabled for submit and retrieve', function (): void {
+    config()->set('librarium.redaction', ['invalid' => true]);
     Http::fake(['https://api.exa.ai/agent/runs*' => Http::sequence()
         ->push(durableExaRun('running'))
         ->push(durableExaRun('running'))]);
@@ -305,6 +306,30 @@ it('omits evidence when capture is disabled for submit and retrieve', function (
         ->and($submitted->evidence)->toBeEmpty()
         ->and($retrieved->coverage)->toBe(CaptureCoverage::Unavailable)
         ->and($retrieved->evidence)->toBeEmpty();
+});
+
+it('labels both completed Parallel public requests as retrieval observations', function (): void {
+    $handle = durableHandle('parallel-research', durableParallelReference());
+    Http::fakeSequence()
+        ->push(durableParallelRun('completed'))
+        ->push(durableParallelResult());
+
+    $outcome = Librarium::retrieve($handle);
+    $requests = Http::recorded()->map(fn (array $pair): Request => $pair[0]);
+
+    expect($outcome->pending())->toBeFalse()
+        ->and($outcome->response?->results->sole()->content)->toBe('Durable Parallel report.')
+        ->and($outcome->evidence)->toHaveCount(2)
+        ->and($outcome->evidence->pluck('operation')->all())->toBe([
+            Operation::Retrieve,
+            Operation::Retrieve,
+        ])
+        ->and($requests->map(fn (Request $request): string => $request->method())->all())->toBe(['GET', 'GET'])
+        ->and($requests->map(fn (Request $request): string => $request->url())->all())->toBe([
+            'https://api.parallel.ai/v1/tasks/runs/'.durableParallelReference(),
+            'https://api.parallel.ai/v1/tasks/runs/'.durableParallelReference().'/result?timeout=25',
+        ]);
+    Sleep::assertNeverSlept();
 });
 
 it('rejects altered submitted usage before HTTP', function (): void {
@@ -549,5 +574,27 @@ function durableParallelRun(string $status): array
         'run_id' => durableParallelReference(),
         'status' => $status,
         'processor' => 'pro',
+    ];
+}
+
+/** @return array<string, mixed> */
+function durableParallelResult(): array
+{
+    return [
+        'run' => durableParallelRun('completed'),
+        'output' => [
+            'type' => 'text',
+            'content' => 'Durable Parallel report.',
+            'basis' => [[
+                'field' => 'output',
+                'reasoning' => 'Provider-reported basis.',
+                'confidence' => 'high',
+                'citations' => [[
+                    'url' => 'https://example.com/parallel-evidence',
+                    'title' => 'Parallel evidence',
+                    'excerpts' => ['Supporting evidence.'],
+                ]],
+            ]],
+        ],
     ];
 }

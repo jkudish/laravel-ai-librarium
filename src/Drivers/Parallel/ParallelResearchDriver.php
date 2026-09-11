@@ -96,7 +96,7 @@ final readonly class ParallelResearchDriver implements DurableDriver
     public function retrieveDurable(RecoveryRequest $request, string $reference): ?ResearchResult
     {
         $processor = $this->validateProfile($request);
-        $status = $this->status($request, $reference, $processor, false);
+        $status = $this->status($request, $reference, $processor, false, Operation::Retrieve);
         if ($status === null) {
             throw $this->invalidResponse();
         }
@@ -215,9 +215,10 @@ final readonly class ParallelResearchDriver implements DurableDriver
         string $runId,
         string $processor,
         bool $transientAsPending = true,
+        Operation $operation = Operation::Poll,
     ): ?string {
         try {
-            $response = $this->transport->get($request, self::ENDPOINT.'/'.rawurlencode($runId));
+            $response = $this->transport->get($request, self::ENDPOINT.'/'.rawurlencode($runId), $operation);
         } catch (DriverException $exception) {
             if ($exception->errorCode === 'parallel.connection') {
                 if (! $transientAsPending) {

@@ -32,6 +32,7 @@ final readonly class ResearchResultMapper
         DriverRequest|RecoveryRequest $request,
         bool $usesWebSearch = true,
         ?CarbonImmutable $completedAt = null,
+        ?Usage $usage = null,
     ): ResearchResult {
         $text = data_get($response, 'text');
         $provider = data_get($response, 'meta.provider');
@@ -55,7 +56,7 @@ final readonly class ResearchResultMapper
             citations: $citations,
             completedAt: $completedAt,
             model: is_string($model) && $model !== '' ? $model : $request->profile->model,
-            usage: $this->usage($response),
+            usage: $usage ?? $this->usage($response),
             providerMeta: $this->providerMeta($response),
         );
     }

@@ -8,6 +8,9 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Validation\ValidationException;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\CaptureCoverage;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\FailureCategory;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\SubmissionState;
 use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\LaravelAiDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\ResearchAgent;
 use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\ResearchResultMapper;
@@ -354,6 +357,22 @@ it('maps expected SDK and HTTP failures without exposing provider details', func
     'validation failure' => ['validation failure', 'laravel_ai.validation', false],
     'generic AI failure' => ['generic AI failure', 'laravel_ai.provider', true],
 ]);
+
+it('treats an SDK failure without an exposed HTTP cause as a possibly accepted request', function (): void {
+    ResearchAgent::fake([
+        fn (): never => throw RateLimitedException::forProvider('gemini'),
+    ])->preventStrayPrompts();
+
+    $collected = Librarium::query('Research this question.')
+        ->using('gemini-grounded')
+        ->collect();
+    $diagnostic = $collected->diagnostics->sole();
+
+    expect($collected->coverage)->toBe(CaptureCoverage::NoResponse)
+        ->and($diagnostic->category)->toBe(FailureCategory::RateLimit)
+        ->and($diagnostic->submissionState)->toBe(SubmissionState::PossiblyAccepted)
+        ->and($diagnostic->httpStatus)->toBeNull();
+});
 
 it('does not hide unexpected programming failures', function (): void {
     ResearchAgent::fake([
