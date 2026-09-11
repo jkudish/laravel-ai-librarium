@@ -240,6 +240,13 @@ it('reconciles every TypeScript matrix row with the landed PHP catalog', functio
     sort($expectedProfiles);
 
     $upstream = acceptedTypeScriptProfiles();
+    $semanticKeys = [
+        'result_kind',
+        'grounding',
+        'observation',
+        'corpora',
+        'retrieval_methods',
+    ];
 
     foreach ($landed as $typescriptProfile => $phpProfile) {
         $configuration = config("librarium.profiles.{$phpProfile}");
@@ -255,13 +262,10 @@ it('reconciles every TypeScript matrix row with the landed PHP catalog', functio
                 'corpora' => $upstream[$typescriptProfile]['corpora'],
                 'retrieval_methods' => $upstream[$typescriptProfile]['retrieval_methods'],
             ],
-            array_intersect_key($configuration, array_flip([
-                'result_kind',
-                'grounding',
-                'observation',
-                'corpora',
-                'retrieval_methods',
-            ])),
+            array_replace(
+                array_fill_keys($semanticKeys, null),
+                array_intersect_key($configuration, array_flip($semanticKeys)),
+            ),
             "PHP Profile {$phpProfile} has drifted from accepted TypeScript semantics {$typescriptProfile}.",
         );
     }

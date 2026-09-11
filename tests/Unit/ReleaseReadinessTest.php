@@ -105,7 +105,21 @@ it('blocks every Composer development or prerelease runtime constraint', functio
     'alpha stability flag' => '^1.0@alpha',
     'beta release' => '1.0.0-beta.2',
     'release candidate' => '1.0.0-RC1',
+    'short alpha release' => '1.0.0-a1',
+    'short beta release' => '1.0.0b2',
 ]);
+
+it('requires stable Composer minimum stability', function (string $stability): void {
+    $composer = releaseReadinessComposerFixture();
+    $composer['minimum-stability'] = $stability;
+
+    expect(ReleaseReadiness::evaluate(
+        $composer,
+        "## 1.0.0 - 2026-09-11\n",
+        releaseReadinessManifestFixture(),
+        RELEASE_PROFILE_SNAPSHOT_SHA256,
+    ))->toContain('Composer minimum-stability must remain [stable].');
+})->with(['dev', 'alpha', 'beta', 'RC']);
 
 it('requires the exact supported PHP, Laravel, and Laravel AI compatibility policy', function (string $section, string $package, string $constraint, string $message): void {
     $composer = releaseReadinessComposerFixture();
@@ -163,6 +177,15 @@ it('rejects a Profile snapshot and manifest that drift together from the accepte
         releaseReadinessComposerFixture(),
         "## 1.0.0 - 2026-09-11\n",
         $manifest,
+        str_repeat('b', 64),
+    ))->toThrow(RuntimeException::class, 'The release-readiness manifest is malformed or does not match the accepted v2 Profile snapshot.');
+});
+
+it('rejects Profile file drift while the manifest retains the accepted digest', function (): void {
+    expect(fn (): array => ReleaseReadiness::evaluate(
+        releaseReadinessComposerFixture(),
+        "## 1.0.0 - 2026-09-11\n",
+        releaseReadinessManifestFixture(),
         str_repeat('b', 64),
     ))->toThrow(RuntimeException::class, 'The release-readiness manifest is malformed or does not match the accepted v2 Profile snapshot.');
 });

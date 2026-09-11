@@ -19,8 +19,9 @@ recorded, `laravel-ai-pricing` uses a stable constraint, and `CHANGELOG.md` has
 a dated 1.0.0 heading. It also pins the release compatibility policy to PHP
 8.4+, Laravel 13, Testbench 11, and the reviewed Laravel AI 0.10.3–0.11 range.
 
-A gate may be marked `complete` only with an `https` evidence URI and the
-lowercase SHA-256 digest of the referenced evidence artifact:
+A gate may be marked `complete` only with an `https` evidence URI without
+userinfo, a query string, or a fragment, plus the lowercase SHA-256 digest of
+the referenced evidence artifact:
 
 ```json
 {

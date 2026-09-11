@@ -20,6 +20,7 @@ afterEach(function (): void {
 });
 
 it('executes an application-defined Driver through the public query runtime without provider access', function (): void {
+    Http::fake();
     CarbonImmutable::setTestNow('2026-09-11T12:00:00Z');
     config()->set('librarium.profiles', [
         'application-search' => [

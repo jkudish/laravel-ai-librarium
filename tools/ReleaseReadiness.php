@@ -91,12 +91,16 @@ final readonly class ReleaseReadiness
             throw new RuntimeException('composer.json must contain runtime and development requirements.');
         }
 
+        if (($composer['minimum-stability'] ?? 'stable') !== 'stable') {
+            $blockers[] = 'Composer minimum-stability must remain [stable].';
+        }
+
         foreach ($requirements as $package => $constraint) {
             if (! is_string($package) || ! is_string($constraint)) {
                 throw new RuntimeException('composer.json contains an invalid runtime requirement.');
             }
 
-            if (preg_match('/(?:^|[^a-z])(?:dev|alpha|beta|rc)(?:[^a-z]|$)/i', $constraint) === 1) {
+            if (preg_match('/(?:^|[^a-z])(?:dev|alpha|beta|rc|a|b)(?:[^a-z]|$)/i', $constraint) === 1) {
                 $blockers[] = "Runtime dependency {$package} uses non-stable constraint [{$constraint}].";
             }
         }
