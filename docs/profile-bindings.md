@@ -10,14 +10,26 @@ No row authorizes a provider request or a paid call.
 
 - TypeScript catalog: [`jkudish/librarium` at `889b0366b5baafff117198632e04b24e521ac93d`](https://github.com/jkudish/librarium/tree/889b0366b5baafff117198632e04b24e521ac93d)
 - Catalog source: `src/core/provider-profiles.ts` and its exact profile bindings
+- Vendored inventory: `tests/Support/Profiles/v2/catalog.tsv`, SHA-256
+  `83739ba138c2db2c4673aada5834a5586f085a6c971253b155339eb570dbb9f9`
 - Implemented TypeScript inventory: **33 providers and 39 Profiles**
 - Planned or non-selectable catalog declarations: **0**
 - Laravel AI SDK: [`laravel/ai` v0.10.3 at `c3848aae389f45c605eefb0dda5bd5fa7df76eaa`](https://github.com/laravel/ai/tree/c3848aae389f45c605eefb0dda5bd5fa7df76eaa)
 - SDK evidence: exact package source plus the [Laravel 13 AI SDK documentation](https://laravel.com/docs/13.x/ai-sdk)
 
-The one-off source comparison used the TypeScript catalog itself and returned
-39 unique implemented keys with no missing or extra matrix row. The committed
-Pest test locks that result without introducing a TypeScript runtime dependency.
+The vendored inventory was generated from the accepted TypeScript catalog and
+pins its catalog and binding source hashes, every implemented key, semantic
+fields, workflow membership, lifecycle, and target. The committed Pest test
+checks its checksum, reconciles all 39 matrix rows, and compares PHP result,
+grounding, observation, corpora, retrieval, and workflow semantics without a
+TypeScript runtime or network dependency.
+
+Target defaults are intentionally allowed to differ after explicit PHP review.
+At the pinned TypeScript commit, `gemini-grounded/grounded` defaults to
+`gemini-2.5-flash`, `openrouter/grounded` to `openai/gpt-4o-mini`,
+`openai-chat/chat` to `gpt-5-mini`, and `gemini-chat/chat` to
+`gemini-3.6-flash`. The PHP defaults below are newer reviewed targets. All
+three xAI Profiles already use `grok-4.6` in the pinned TypeScript source.
 
 ## Summary
 
@@ -30,16 +42,23 @@ Pest test locks that result without introducing a TypeScript runtime dependency.
 
 The TypeScript inventory contains 14 grounded answers, 11 search-result
 Profiles, 8 durable research reports, and 6 surface observations. All 39 map to
-PHP core or the optional Firecrawl adapter. PHP additionally ships six
-provider-local DataForSEO surface Profiles approved under #3481 and two
-SerpBase Profiles approved under #3650. The JavaScript SerpBase work was still
-unmerged at this baseline, so these additions are not part of the frozen 39-row
-reconciliation and do not rewrite it.
+PHP core or the optional Firecrawl adapter. PHP additionally ships the frozen
+Perplexity low Profile approved under #3653, six provider-local DataForSEO
+surface Profiles approved under #3481, and two SerpBase Profiles approved under
+#3650. The JavaScript SerpBase work was still unmerged at this baseline, so
+these nine additions are not part of the frozen 39-row reconciliation and do
+not rewrite it.
+
 `quick` has six curated members, `visibility` remains nine, `deep` derives its
 eight configured research Profiles, and `all` derives all 41 currently eligible
 core Profiles from a 47-Profile configured catalog.
 
 ## Provider-local PHP extension
+
+The enabled `perplexity-low-frozen` Profile preserves the reviewed
+`frozen-low-2026-09-11` Agent configuration. It is a PHP-only reproducibility
+variant of the accepted `perplexity-sonar-pro/grounded` semantics and has
+offline coverage in `PerplexityAgentDriverTest`.
 
 The following disabled-by-default Profiles implement DataForSEO collection
 modes that are not rows in the frozen TypeScript inventory above:
@@ -174,19 +193,19 @@ cost remains `null`, never zero.
 
 - **Workflow:** quick, visibility
 - **Semantics:** grounded_answer; required; api_output; web; model_search_tool/direct; google
-- **Target:** configurable model `gemini-3.6-flash`
+- **Target:** TypeScript default `gemini-2.5-flash`; approved PHP 1.0 default `gemini-3.6-flash`
 - **PHP path:** #2591 core SDK
 - **Binding:** Laravel AI Gemini, exact model, native `WebSearch`
 - **Execution:** inline; no provider-durable handle
 - **Terminal:** SDK answer
 - **Pricing:** model token/tool units quoted through `laravel-ai-pricing`; assumptions are not a hard bound
-- **Test and proof:** SDK fake; D + L; Wave 1 exemplar under #2833; target refreshed to the installed Laravel AI SDK v0.10.3 default during #2834
+- **Test and proof:** SDK fake; D + L; Wave 1 exemplar under #2833; PHP target refreshed to the installed Laravel AI SDK v0.10.3 default during #2834
 
 ### `openrouter/grounded`
 
 - **Workflow:** quick
 - **Semantics:** grounded_answer; required; api_output; web; model_search_tool/brokered; openrouter
-- **Target:** configurable model `openai/gpt-5.6-luna`
+- **Target:** TypeScript default `openai/gpt-4o-mini`; approved PHP 1.0 default `openai/gpt-5.6-luna`
 - **PHP path:** #2591 core SDK
 - **Binding:** Laravel AI OpenRouter, exact model, native `WebSearch`
 - **Execution:** inline; no provider-durable handle
@@ -222,7 +241,7 @@ cost remains `null`, never zero.
 
 - **Workflow:** none
 - **Semantics:** grounded_answer; optional; api_output; web; model_search_tool/direct; openai
-- **Target:** configurable model `gpt-5.6-luna`
+- **Target:** TypeScript default `gpt-5-mini`; approved PHP 1.0 default `gpt-5.6-luna`
 - **PHP path:** #2591 core SDK
 - **Binding:** Laravel AI OpenAI and native `WebSearch`, on by default; search-off becomes `model_answer`
 - **Execution:** inline; no provider-durable handle
@@ -234,7 +253,7 @@ cost remains `null`, never zero.
 
 - **Workflow:** none
 - **Semantics:** grounded_answer; optional; api_output; web; model_search_tool/direct; google
-- **Target:** configurable model `gemini-3.7-flash`
+- **Target:** TypeScript default `gemini-3.6-flash`; approved PHP 1.0 default `gemini-3.7-flash`
 - **PHP path:** #2591 core SDK
 - **Binding:** Laravel AI Gemini and native `WebSearch`, on by default; search-off becomes `model_answer`
 - **Execution:** inline; no provider-durable handle
@@ -296,7 +315,7 @@ cost remains `null`, never zero.
 
 - **Workflow:** visibility
 - **Semantics:** grounded_answer; required; api_output; web; model_search_tool/direct; xai
-- **Target:** configurable model `grok-4.5` in the accepted TypeScript snapshot; approved PHP 1.0 default `grok-4.6`
+- **Target:** configurable model `grok-4.6` in both the accepted TypeScript snapshot and PHP 1.0
 - **PHP path:** #2591 core HTTP
 - **Binding:** xAI Responses API web-search tool; Laravel AI v0.10.3 text support does not expose this corpus-specific tool
 - **Execution:** inline
@@ -424,7 +443,7 @@ cost remains `null`, never zero.
 - **Execution:** inline search; Firecrawl research/browser async remains separately designed
 - **Terminal:** HTTP search
 - **Pricing:** owned by the separate adapter package and consuming account
-- **Test and proof:** Adapter fake plus shipped-adapter paid query; D + L; B where used for collection
+- **Test and proof:** Adapter fake plus passed paid canary on 2026-09-11; D; B remains pending where used for collection
 
 ## #2694 You.com: landed 1.0 Profiles (3)
 
@@ -546,7 +565,7 @@ and provenance semantics.
 
 - **Workflow:** none
 - **Semantics:** grounded_answer; required; api_output; x; model_search_tool/direct; xai
-- **Target:** accepted candidate `grok-4.5`; approved PHP default `grok-4.6`
+- **Target:** configurable model `grok-4.6` in both the accepted TypeScript snapshot and PHP 1.0
 - **PHP path:** #3604 core parity; provider implementation #2843
 - **Binding:** xAI Responses API with X-only search tool
 - **Execution:** inline
@@ -558,7 +577,7 @@ and provenance semantics.
 
 - **Workflow:** none
 - **Semantics:** grounded_answer; required; api_output; web+x; model_search_tool/direct; xai
-- **Target:** accepted candidate `grok-4.5`; approved PHP default `grok-4.6`
+- **Target:** configurable model `grok-4.6` in both the accepted TypeScript snapshot and PHP 1.0
 - **PHP path:** #3604 core parity; provider implementation #2843
 - **Binding:** one xAI Responses attempt with both web and X tools
 - **Execution:** inline; one origin, never two independent confirmations

@@ -6,9 +6,9 @@ All notable changes to this project will be documented in this file.
 
 - Add the Laravel-native query, preview, synchronous, queued, event, and
   terminal-response APIs without package-owned persistence.
-- Add six Laravel AI SDK Profiles and seventeen focused HTTP Profiles, including
-  You.com Answer and Research, three durable research paths, and six SearchAPI
-  surface observations.
+- Add six Laravel AI SDK Profiles and 41 focused HTTP Profiles, including
+  You.com Answer and Research, recoverable durable research, SearchAPI and
+  DataForSEO surface observations, and the accepted TypeScript v2 parity set.
 - Add provider-safe option validation, credential handling, deadlines,
   fallbacks, webhook wake hints, provenance, citations, usage, and errors.
 - Add optional SerpBase Google Search and News Profiles with one-request
@@ -20,5 +20,8 @@ All notable changes to this project will be documented in this file.
 - Replace static Profile cost estimates with offline, provenance-aware
   `laravel-ai-pricing` quotes and fail-closed maximum-cost preflight checks.
 - Support Laravel AI SDK 0.11 with a package-owned queued research test fake.
-- Document the reconciled 40-row TypeScript/PHP binding matrix and separately
-  approval-gated live provider canaries.
+- Document and checksum the reconciled 39-row TypeScript v2/PHP binding matrix,
+  the nine post-baseline PHP Profiles, and separately approval-gated live
+  provider canaries.
+- Prove application-defined Drivers through the public query runtime and add
+  executable compatibility and release-readiness checks.

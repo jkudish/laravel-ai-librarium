@@ -215,13 +215,16 @@ final class ResearchResult
             throw ValidationException::withMessages([$key => 'must be a list.']);
         }
 
+        $list = [];
         foreach ($item as $entry) {
             if (! is_array($entry)) {
                 throw ValidationException::withMessages([$key => 'must contain objects.']);
             }
+
+            $list[] = $entry;
         }
 
-        return $item;
+        return $list;
     }
 
     /** @param array<array-key, mixed> $value

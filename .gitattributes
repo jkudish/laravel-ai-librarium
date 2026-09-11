@@ -1,7 +1,13 @@
 * text=auto eol=lf
 
 /.github export-ignore
+/.agents export-ignore
 /tests export-ignore
+/tools export-ignore
+/build export-ignore
+/vendor export-ignore
+/.env* export-ignore
+/composer.lock export-ignore
 /.editorconfig export-ignore
 /.gitattributes export-ignore
 /.gitignore export-ignore
