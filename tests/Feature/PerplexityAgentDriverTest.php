@@ -29,9 +29,11 @@ afterEach(function (): void {
 });
 
 it('runs the low preset inline with one exact POST and strictly normalizes reported facts', function (): void {
-    Http::fake([
-        'https://api.perplexity.ai/v1/agent' => Http::response(perplexityCompletedResponse()),
-    ]);
+    Http::fake(function (Request $request, array $options) {
+        expect($options['allow_redirects'] ?? null)->toBeFalse();
+
+        return Http::response(perplexityCompletedResponse());
+    });
 
     $result = perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-sonar-pro'));
 
@@ -76,16 +78,16 @@ it('runs the low preset inline with one exact POST and strictly normalizes repor
         ->not->toContain('uncited.example.com');
 });
 
-it('submits the high preset once and uses only canonical GET retrieval until completion', function (): void {
+it('submits each durable preset once and uses only canonical GET retrieval until completion', function (string $profile, string $preset): void {
     Http::fakeSequence()
         ->push(['id' => 'resp_private_1', 'status' => 'queued'])
         ->push(['id' => 'resp_private_1', 'status' => 'in_progress'])
         ->push(perplexityCompletedResponse());
     $progress = [];
 
-    $result = perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-sonar-deep', progress: $progress));
+    $result = perplexityAgentDriver()->run(perplexityAgentRequest($profile, progress: $progress));
 
-    expect($result->profile)->toBe('perplexity-sonar-deep')
+    expect($result->profile)->toBe($profile)
         ->and($result->provenance->resultKind)->toBe(ResultKind::ResearchReport)
         ->and($result->provenance->retrievalMethods->all())->toBe([RetrievalMethod::ResearchAgent])
         ->and($progress)->toBe(['Perplexity is researching in the background.']);
@@ -99,27 +101,30 @@ it('submits the high preset once and uses only canonical GET retrieval until com
         ])
         ->and($requests->first()->data())->toBe([
             'input' => 'Research current agent APIs.',
-            'preset' => 'high',
+            'preset' => $preset,
             'background' => true,
         ]);
     Sleep::assertSleptTimes(2);
-});
+})->with([
+    'medium' => ['perplexity-deep-research', 'medium'],
+    'high' => ['perplexity-sonar-deep', 'high'],
+]);
 
-it('always retrieves canonical background output even when submission reports completion', function (): void {
+it('always retrieves canonical background output even when submission reports completion', function (string $profile): void {
     $submission = perplexityCompletedResponse();
     data_set($submission, 'output.1.content.0.text', 'Untrusted submission [web:1].');
     Http::fakeSequence()
         ->push($submission)
         ->push(perplexityCompletedResponse());
 
-    $result = perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-sonar-deep'));
+    $result = perplexityAgentDriver()->run(perplexityAgentRequest($profile));
 
     expect($result->content)->toBe('A current answer [web:1] with another fact [news:story-2].');
     Http::assertSentCount(2);
     Http::assertSent(fn (Request $request): bool => $request->method() === 'GET'
         && $request->url() === 'https://api.perplexity.ai/v1/agent/resp_private_1');
     Sleep::assertNeverSlept();
-});
+})->with(['medium' => ['perplexity-deep-research'], 'high' => ['perplexity-sonar-deep']]);
 
 it('uses canonical retrieval when a background submission reports another terminal state', function (string $status): void {
     Http::fakeSequence()
@@ -130,7 +135,7 @@ it('uses canonical retrieval when a background submission reports another termin
         ])
         ->push(perplexityCompletedResponse());
 
-    $result = perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-sonar-deep'));
+    $result = perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-deep-research'));
 
     expect($result->content)->toContain('current answer');
     $requests = Http::recorded()->map(fn (array $record): Request => $record[0]);
@@ -152,7 +157,7 @@ it('reconciles transient GET connection and HTTP failures without resubmitting',
         };
     });
 
-    $result = perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-sonar-deep'));
+    $result = perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-deep-research'));
 
     expect($result->content)->toContain('current answer');
     expect($calls)->toBe(4);
@@ -162,7 +167,7 @@ it('reconciles transient GET connection and HTTP failures without resubmitting',
     Sleep::assertSleptTimes(3);
 });
 
-it('does not retry an ambiguous submission for either profile', function (string $profile): void {
+it('does not retry an ambiguous submission for any Agent profile', function (string $profile): void {
     $calls = 0;
     Http::fake(function () use (&$calls): never {
         $calls++;
@@ -181,7 +186,43 @@ it('does not retry an ambiguous submission for either profile', function (string
 
     expect($calls)->toBe(1);
     Http::assertNothingSent();
-})->with(['inline' => ['perplexity-sonar-pro'], 'background' => ['perplexity-sonar-deep']]);
+})->with([
+    'inline low' => ['perplexity-sonar-pro'],
+    'background medium' => ['perplexity-deep-research'],
+    'background high' => ['perplexity-sonar-deep'],
+]);
+
+it('makes uncertain background HTTP and malformed acknowledgements ambiguous and non-fallback', function (mixed $payload, int $status): void {
+    Http::fake(['https://api.perplexity.ai/v1/agent' => Http::response($payload, $status)]);
+
+    expect(fn () => perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-deep-research')))
+        ->toThrow(function (DriverException $exception): void {
+            expect($exception->errorCode)->toBe('perplexity.ambiguous_submission')
+                ->and($exception->fallbackAllowed)->toBeFalse();
+        });
+
+    Http::assertSentCount(1);
+})->with([
+    'timeout' => [['error' => 'provider-secret'], 408],
+    'rate limit' => [['error' => 'provider-secret'], 429],
+    'unavailable' => [['error' => 'provider-secret'], 503],
+    'missing handle' => [['status' => 'queued'], 200],
+    'unknown status' => [['id' => 'resp_private_1', 'status' => 'paused'], 200],
+]);
+
+it('makes definitive background submission rejections non-fallback', function (int $status, string $code): void {
+    Http::fake(['https://api.perplexity.ai/v1/agent' => Http::response(['error' => 'provider-secret'], $status)]);
+
+    expect(fn () => perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-deep-research')))
+        ->toThrow(function (DriverException $exception) use ($code): void {
+            expect($exception->errorCode)->toBe($code)
+                ->and($exception->fallbackAllowed)->toBeFalse();
+        });
+})->with([
+    'authentication' => [401, 'perplexity.authentication'],
+    'billing' => [402, 'perplexity.billing'],
+    'invalid request' => [422, 'perplexity.invalid_request'],
+]);
 
 it('maps all terminal Agent states to safe errors', function (string $status, string $code): void {
     Http::fake([
@@ -229,6 +270,32 @@ it('maps allowlisted provider terminal failure codes without exposing raw errors
     'invalid request' => ['validation_error', 'perplexity.invalid_request'],
 ]);
 
+it('maps a retrieved medium Agent failure without exposing its handle or body', function (): void {
+    Http::fakeSequence()
+        ->push(['id' => 'resp_private_1', 'status' => 'queued'])
+        ->push([
+            'id' => 'resp_private_1',
+            'status' => 'failed',
+            'error' => [
+                'code' => 'rate_limit_exceeded',
+                'message' => 'resp_private_1 Bearer provider-secret https://private.example/signed?token=secret',
+            ],
+        ]);
+
+    try {
+        perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-deep-research'));
+        $this->fail('A retrieved medium failure must fail safely.');
+    } catch (DriverException $exception) {
+        expect($exception->errorCode)->toBe('perplexity.rate_limited')
+            ->and($exception->fallbackAllowed)->toBeFalse()
+            ->and($exception->getMessage())->not->toContain('resp_private_1')
+            ->not->toContain('provider-secret')
+            ->not->toContain('private.example');
+    }
+
+    expect(Http::recorded()->map(fn (array $record): string => $record[0]->method())->all())->toBe(['POST', 'GET']);
+});
+
 it('maps submit HTTP failures safely and sends only once', function (int $status, string $code): void {
     Http::fake([
         'https://api.perplexity.ai/v1/agent' => Http::response([
@@ -262,7 +329,7 @@ it('maps a missing canonical background response without exposing its private ID
         ->push(['error' => ['message' => 'resp_private_1 provider-secret']], 404);
 
     try {
-        perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-sonar-deep'));
+        perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-deep-research'));
         $this->fail('A missing canonical response must fail safely.');
     } catch (DriverException $exception) {
         expect($exception->errorCode)->toBe('perplexity.response_missing')
@@ -283,10 +350,11 @@ it('rejects unknown states and mismatched canonical response IDs', function (str
         ->push($retrieved);
 
     try {
-        perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-sonar-deep'));
+        perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-deep-research'));
         $this->fail('Invalid canonical state must fail.');
     } catch (DriverException $exception) {
-        expect($exception->errorCode)->toBe('perplexity.invalid_response');
+        expect($exception->errorCode)->toBe('perplexity.invalid_response')
+            ->and($exception->fallbackAllowed)->toBeFalse();
     }
 })->with(['unknown state' => ['state'], 'mismatched id' => ['id']]);
 
@@ -298,7 +366,7 @@ it('fails at one shared deadline without another retrieval or wall-clock sleep',
 
     try {
         perplexityAgentDriver()->run(perplexityAgentRequest(
-            'perplexity-sonar-deep',
+            'perplexity-deep-research',
             deadline: CarbonImmutable::now()->addSeconds(2),
         ));
         $this->fail('The Driver must stop at the shared deadline.');
@@ -312,7 +380,7 @@ it('fails at one shared deadline without another retrieval or wall-clock sleep',
 
 it('rejects responses arriving after the shared deadline', function (string $profile): void {
     Http::fake(function (Request $request) use ($profile) {
-        if ($profile === 'perplexity-sonar-deep' && $request->method() === 'POST') {
+        if ($profile !== 'perplexity-sonar-pro' && $request->method() === 'POST') {
             return Http::response(['id' => 'resp_private_1', 'status' => 'completed']);
         }
 
@@ -330,7 +398,11 @@ it('rejects responses arriving after the shared deadline', function (string $pro
     } catch (DriverException $exception) {
         expect($exception->errorCode)->toBe('perplexity.deadline_exceeded');
     }
-})->with(['late inline POST' => ['perplexity-sonar-pro'], 'late background GET' => ['perplexity-sonar-deep']]);
+})->with([
+    'late inline low POST' => ['perplexity-sonar-pro'],
+    'late background medium GET' => ['perplexity-deep-research'],
+    'late background high GET' => ['perplexity-sonar-deep'],
+]);
 
 it('rejects malformed or unknown completed output', function (string $path, mixed $value): void {
     $response = perplexityCompletedResponse();
@@ -351,6 +423,24 @@ it('rejects malformed or unknown completed output', function (string $path, mixe
     'missing effective model' => ['model', null],
     'invalid effective model' => ['model', 'sonar'],
     'invalid timestamp' => ['completed_at', 'today'],
+]);
+
+it('rejects credentials and private handles reflected into retained Agent output', function (string $private, string $path): void {
+    $response = perplexityCompletedResponse();
+    data_set($response, $path, "Retained {$private} [web:1].");
+    Http::fakeSequence()
+        ->push(['id' => 'resp_private_1', 'status' => 'completed'])
+        ->push($response);
+
+    expect(fn () => perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-deep-research')))
+        ->toThrow(function (DriverException $exception) use ($private): void {
+            expect($exception->errorCode)->toBe('perplexity.invalid_response')
+                ->and($exception->fallbackAllowed)->toBeFalse()
+                ->and($exception->getMessage())->not->toContain($private);
+        });
+})->with([
+    'credential in report' => ['testing-perplexity-key', 'output.1.content.0.text'],
+    'private handle in citation title' => ['resp_private_1', 'output.0.results.0.title'],
 ]);
 
 it('strictly validates referenced search evidence and keeps only cited results', function (string $path, mixed $value): void {
@@ -471,7 +561,7 @@ function perplexityAgentRequest(
     array $corpora = [Corpus::Web],
     ?array $retrievalMethods = null,
 ): DriverRequest {
-    $deep = $profileId === 'perplexity-sonar-deep';
+    $deep = in_array($profileId, ['perplexity-deep-research', 'perplexity-sonar-deep'], true);
     $profile = new Profile(
         id: $profileId,
         driver: PerplexityAgentDriver::class,

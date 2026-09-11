@@ -11,6 +11,8 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
+use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
+use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
@@ -28,7 +30,7 @@ use Jkudish\LaravelAiLibrarium\Responses\Source;
 use Jkudish\LaravelAiLibrarium\Responses\Usage;
 use stdClass;
 
-/** Runs one inline xAI Responses API request with the web_search tool only. */
+/** Runs one inline xAI Responses API request with an exact web, X, or combined search strategy. */
 final readonly class XaiGrokDriver implements Driver
 {
     private const string ENDPOINT = 'https://api.x.ai/v1/responses';
@@ -55,12 +57,23 @@ final readonly class XaiGrokDriver implements Driver
             'allowed_domains.*' => ['required', 'string', 'max:253', 'distinct:ignore_case', "regex:{$hostname}"],
             'excluded_domains' => ['sometimes', 'array', 'list', 'min:1', 'max:5', 'prohibits:options.allowed_domains'],
             'excluded_domains.*' => ['required', 'string', 'max:253', 'distinct:ignore_case', "regex:{$hostname}"],
+            'allowed_x_handles' => ['sometimes', 'array', 'list', 'min:1', 'max:20', 'prohibits:options.excluded_x_handles'],
+            'allowed_x_handles.*' => ['required', 'string', 'distinct:ignore_case', 'regex:/^@?[A-Za-z0-9_]{1,15}$/'],
+            'excluded_x_handles' => ['sometimes', 'array', 'list', 'min:1', 'max:20', 'prohibits:options.allowed_x_handles'],
+            'excluded_x_handles.*' => ['required', 'string', 'distinct:ignore_case', 'regex:/^@?[A-Za-z0-9_]{1,15}$/'],
+            'from_date' => ['sometimes', 'date_format:Y-m-d', 'before_or_equal:options.to_date'],
+            'to_date' => ['sometimes', 'date_format:Y-m-d', 'after_or_equal:options.from_date'],
             'enable_image_search' => ['sometimes', static function (string $attribute, mixed $value, callable $fail): void {
                 if (! is_bool($value)) {
                     $fail("The {$attribute} field must be true or false.");
                 }
             }],
             'enable_image_understanding' => ['sometimes', static function (string $attribute, mixed $value, callable $fail): void {
+                if (! is_bool($value)) {
+                    $fail("The {$attribute} field must be true or false.");
+                }
+            }],
+            'enable_video_understanding' => ['sometimes', static function (string $attribute, mixed $value, callable $fail): void {
                 if (! is_bool($value)) {
                     $fail("The {$attribute} field must be true or false.");
                 }
@@ -77,6 +90,7 @@ final readonly class XaiGrokDriver implements Driver
             $response = Http::withToken((string) $request->profile->credential)
                 ->acceptJson()
                 ->asJson()
+                ->withOptions(['allow_redirects' => false])
                 ->connectTimeout(min(self::CONNECT_TIMEOUT_SECONDS, $remaining))
                 ->timeout(min(self::REQUEST_TIMEOUT_SECONDS, $remaining))
                 ->post(self::ENDPOINT, $this->payload($request));
@@ -105,7 +119,11 @@ final readonly class XaiGrokDriver implements Driver
             throw new DriverException('xai.invalid_response', 'xAI returned an unsuccessful response.');
         }
 
-        return $this->result($request, $json);
+        return TerminalRedaction::guard(
+            $this->result($request, $json),
+            [(string) $request->profile->credential],
+            new DriverException('xai.invalid_response', 'xAI returned an invalid grounded response.'),
+        );
     }
 
     private function validateRequest(DriverRequest $request): void
@@ -117,12 +135,25 @@ final readonly class XaiGrokDriver implements Driver
             || $profile->resultKind !== ResultKind::GroundedAnswer
             || $profile->grounding !== GroundingPolicy::Required
             || $profile->observation !== ObservationMode::ApiOutput
-            || $profile->corpora->values()->all() !== [Corpus::Web]
             || $profile->retrievalMethods->values()->all() !== [RetrievalMethod::ModelSearchTool]
         ) {
             throw new DriverException(
                 'xai.invalid_profile',
                 'The xAI Grok Profile has incompatible provider or provenance semantics.',
+                false,
+            );
+        }
+
+        $strategy = $this->strategy($request);
+        $options = $profile->options;
+        $webOptions = ['allowed_domains', 'excluded_domains', 'enable_image_search'];
+        $xOptions = ['allowed_x_handles', 'excluded_x_handles', 'from_date', 'to_date', 'enable_video_understanding'];
+
+        if (($strategy === 'web' && $this->hasAnyOption($options, $xOptions))
+            || ($strategy === 'x' && $this->hasAnyOption($options, $webOptions))) {
+            throw new DriverException(
+                'xai.invalid_options',
+                'The xAI Grok Profile contains options that are incompatible with its search corpus.',
                 false,
             );
         }
@@ -146,37 +177,62 @@ final readonly class XaiGrokDriver implements Driver
     private function payload(DriverRequest $request): array
     {
         $options = $request->profile->options;
-        $tool = ['type' => 'web_search'];
-        $filters = [];
+        $tools = [];
 
-        foreach (['allowed_domains', 'excluded_domains'] as $key) {
-            $domains = data_get($options, $key);
-            if (is_array($domains)) {
-                $filters[$key] = array_map(
-                    static function (mixed $domain): string {
-                        if (! is_string($domain)) {
-                            throw new DriverException(
-                                'xai.invalid_options',
-                                'The xAI Grok Profile received invalid domain options.',
-                                false,
-                            );
-                        }
+        if (in_array($this->strategy($request), ['web', 'combined'], true)) {
+            $tool = ['type' => 'web_search'];
+            $filters = [];
 
-                        return strtolower(trim($domain));
-                    },
-                    array_values($domains),
-                );
+            foreach (['allowed_domains', 'excluded_domains'] as $key) {
+                $domains = data_get($options, $key);
+                if (is_array($domains)) {
+                    $filters[$key] = array_map(
+                        fn (mixed $domain): string => strtolower($this->normalizedStringOption($domain, 'domain')),
+                        array_values($domains),
+                    );
+                }
             }
+
+            if ($filters !== []) {
+                $tool['filters'] = $filters;
+            }
+
+            foreach (['enable_image_search', 'enable_image_understanding'] as $key) {
+                if (data_get($options, $key) === true) {
+                    $tool[$key] = true;
+                }
+            }
+
+            $tools[] = $tool;
         }
 
-        if ($filters !== []) {
-            $tool['filters'] = $filters;
-        }
+        if (in_array($this->strategy($request), ['x', 'combined'], true)) {
+            $tool = ['type' => 'x_search'];
 
-        foreach (['enable_image_search', 'enable_image_understanding'] as $key) {
-            if (data_get($options, $key) === true) {
-                $tool[$key] = true;
+            foreach (['allowed_x_handles', 'excluded_x_handles'] as $key) {
+                $handles = data_get($options, $key);
+                if (is_array($handles)) {
+                    $tool[$key] = array_map(
+                        fn (mixed $handle): string => ltrim($this->normalizedStringOption($handle, 'X handle'), '@'),
+                        array_values($handles),
+                    );
+                }
             }
+
+            foreach (['from_date', 'to_date'] as $key) {
+                $date = data_get($options, $key);
+                if (is_string($date)) {
+                    $tool[$key] = $date;
+                }
+            }
+
+            foreach (['enable_image_understanding', 'enable_video_understanding'] as $key) {
+                if (data_get($options, $key) === true) {
+                    $tool[$key] = true;
+                }
+            }
+
+            $tools[] = $tool;
         }
 
         $payload = [
@@ -185,7 +241,7 @@ final readonly class XaiGrokDriver implements Driver
                 'role' => 'user',
                 'content' => $request->prompt,
             ]],
-            'tools' => [$tool],
+            'tools' => $tools,
         ];
 
         foreach (['max_turns', 'max_output_tokens'] as $key) {
@@ -297,7 +353,7 @@ final readonly class XaiGrokDriver implements Driver
                     $citations[] = Citation::make(
                         derivation: CitationDerivation::ProviderReported,
                         source: new Source(
-                            kind: SourceKind::WebPage,
+                            kind: $this->sourceKind($url),
                             url: $url,
                             title: $this->citationTitle($annotation, $text),
                         ),
@@ -460,23 +516,60 @@ final readonly class XaiGrokDriver implements Driver
 
     private function evidenceUrl(mixed $value): ?string
     {
-        if (! is_string($value) || trim($value) !== $value || $value === '') {
-            return null;
+        return EvidenceUrl::sanitize($value);
+    }
+
+    private function strategy(DriverRequest $request): string
+    {
+        return match ($request->profile->corpora->values()->all()) {
+            [Corpus::Web] => 'web',
+            [Corpus::X] => 'x',
+            [Corpus::Web, Corpus::X] => 'combined',
+            default => throw new DriverException(
+                'xai.invalid_profile',
+                'The xAI Grok Profile has incompatible provider or provenance semantics.',
+                false,
+            ),
+        };
+    }
+
+    /**
+     * @param  array<string, mixed>  $options
+     * @param  list<string>  $keys
+     */
+    private function hasAnyOption(array $options, array $keys): bool
+    {
+        return array_intersect(array_keys($options), $keys) !== [];
+    }
+
+    private function normalizedStringOption(mixed $value, string $name): string
+    {
+        if (! is_string($value)) {
+            throw new DriverException(
+                'xai.invalid_options',
+                "The xAI Grok Profile received an invalid {$name} option.",
+                false,
+            );
         }
 
-        if (filter_var($value, FILTER_VALIDATE_URL) === false) {
-            return null;
+        return trim($value);
+    }
+
+    private function sourceKind(string $url): SourceKind
+    {
+        $parts = parse_url($url);
+        $host = strtolower((string) ($parts['host'] ?? ''));
+        $host = str_starts_with($host, 'www.') ? substr($host, 4) : $host;
+
+        if (in_array($host, ['x.com', 'twitter.com', 'mobile.twitter.com'], true)) {
+            $path = (string) ($parts['path'] ?? '');
+
+            return preg_match('#^/(?:i|[^/]+)/status/\d+(?:/|$)#i', $path) === 1
+                ? SourceKind::XPost
+                : SourceKind::Unknown;
         }
 
-        $parts = parse_url($value);
-        if ($parts === false || isset($parts['user']) || isset($parts['pass'])) {
-            return null;
-        }
-
-        return in_array(strtolower($parts['scheme'] ?? ''), ['http', 'https'], true)
-            && ($parts['host'] ?? '') !== ''
-                ? $value
-                : null;
+        return SourceKind::WebPage;
     }
 
     /** @return list<array<array-key, mixed>> */

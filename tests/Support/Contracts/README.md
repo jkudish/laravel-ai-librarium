@@ -1,8 +1,11 @@
 # Development Contract Snapshot
 
-`v1/` is an exact, development-only copy of `contracts/v1` from
-[`jkudish/librarium`](https://github.com/jkudish/librarium) at commit
-`27236d2bdab90d0a77396666ae4acc344fcfb949`.
+`v1/` is a development-only terminal snapshot derived from
+[`jkudish/librarium`](https://github.com/jkudish/librarium) candidate commit
+`889b0366b5baafff117198632e04b24e521ac93d`. The candidate's accepted domain
+corpus vocabulary in `src/contracts/domain/semantic.ts` adds `specialized`;
+this snapshot carries that value into the terminal schema and enum coverage
+fixture while retaining the candidate's terminal-only structure.
 
 Pinned facts:
 
@@ -10,8 +13,8 @@ Pinned facts:
 - Snapshot version: `1`
 - Contract scope: terminal interchange only
 - Manifest SHA-256: `4b8667d98ea5334793e95ebf3c15c96518d42a5e0369ac5ed66fb599b0e1793f`
-- Checksum index SHA-256: `740b34d67fa2edfe25af93174080a6f9afb3d2a59b85919eb4fe7f2ead80bebd`
-- Interchange schema SHA-256: `a9a0092fc26f64111d8e4ff0ade4d7e72d382e5f9f005649928b1b777e412002`
+- Checksum index SHA-256: `ba0ecf38a6ade68d3b49d4c0d8bbbae74f05202ed718dd319c0c1bb0d341415f`
+- Interchange schema SHA-256: `ef938d851eee61bb2ce96c11669b355179bbd4e6b82cea4a71914671ab3450a1`
 - Schemas: 1
 - Top-level schema definitions: 7
 - Valid fixtures: 17

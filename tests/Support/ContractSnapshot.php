@@ -18,13 +18,13 @@ final class ContractSnapshot
 
     public const int SNAPSHOT_VERSION = 1;
 
-    public const string UPSTREAM_COMMIT = '27236d2bdab90d0a77396666ae4acc344fcfb949';
+    public const string UPSTREAM_COMMIT = '889b0366b5baafff117198632e04b24e521ac93d';
 
     public const string MANIFEST_SHA256 = '4b8667d98ea5334793e95ebf3c15c96518d42a5e0369ac5ed66fb599b0e1793f';
 
-    public const string CHECKSUMS_SHA256 = '740b34d67fa2edfe25af93174080a6f9afb3d2a59b85919eb4fe7f2ead80bebd';
+    public const string CHECKSUMS_SHA256 = 'ba0ecf38a6ade68d3b49d4c0d8bbbae74f05202ed718dd319c0c1bb0d341415f';
 
-    public const string INTERCHANGE_SCHEMA_SHA256 = 'a9a0092fc26f64111d8e4ff0ade4d7e72d382e5f9f005649928b1b777e412002';
+    public const string INTERCHANGE_SCHEMA_SHA256 = 'ef938d851eee61bb2ce96c11669b355179bbd4e6b82cea4a71914671ab3450a1';
 
     public const int SCHEMA_FILE_COUNT = 1;
 

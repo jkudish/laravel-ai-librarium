@@ -8,11 +8,23 @@ use Illuminate\Foundation\Application;
 use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Contracts\Librarium as LibrariumContract;
 use Jkudish\LaravelAiLibrarium\Drivers\Brave\BraveAnswersDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Brave\BraveSearchDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Exa\ExaResearchDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Exa\ExaSearchDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Gemini\GeminiDeepDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Jina\JinaSearchDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Kagi\KagiFastGptDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\LaravelAiDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\OpenAi\OpenAiResearchDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Parallel\ParallelResearchDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Parallel\ParallelSearchDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Parallel\ParallelTurboDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Perplexity\PerplexityAgentDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Perplexity\PerplexitySearchDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\SerpApi\SerpApiDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Tavily\TavilySearchDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Valyu\ValyuResearchDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Valyu\ValyuSearchDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Xai\XaiGrokDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\You\YouAnswerDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\You\YouResearchDriver;
@@ -121,6 +133,56 @@ it('registers the accepted core HTTP Profiles with resolved credentials', functi
     'Perplexity Sonar Deep' => ['perplexity-sonar-deep', PerplexityAgentDriver::class, 'perplexity', null, 'research_report', 'required', 'research_agent', 'services.perplexity.key', 'perplexity:agent-high'],
 ]);
 
+it('registers every accepted v2 parity Profile with exact shared semantics', function (
+    string $profileId,
+    string $driver,
+    string $provider,
+    ?string $model,
+    string $resultKind,
+    string $grounding,
+    array $corpora,
+    string $retrievalMethod,
+    string $credentialPath,
+    ?string $pricingIdentity,
+): void {
+    $profile = config("librarium.profiles.{$profileId}");
+
+    expect($profile)->toBeArray()
+        ->and(data_get($profile, 'driver'))->toBe($driver)
+        ->and(app($driver))->toBeInstanceOf($driver)
+        ->and(data_get($profile, 'provider'))->toBe($provider)
+        ->and(data_get($profile, 'model'))->toBe($model)
+        ->and(data_get($profile, 'result_kind'))->toBe($resultKind)
+        ->and(data_get($profile, 'grounding'))->toBe($grounding)
+        ->and(data_get($profile, 'observation'))->toBe('api_output')
+        ->and(data_get($profile, 'corpora'))->toBe($corpora)
+        ->and(data_get($profile, 'retrieval_methods'))->toBe([$retrievalMethod])
+        ->and(data_get($profile, 'credential'))->toBe(config($credentialPath))
+        ->and(data_get($profile, 'credential'))->not->toBe($credentialPath);
+
+    $actualPricingIdentity = data_get($profile, 'pricing') === null
+        ? null
+        : data_get($profile, 'pricing.provider').':'.data_get($profile, 'pricing.model');
+
+    expect($actualPricingIdentity)->toBe($pricingIdentity);
+})->with([
+    'Brave Search' => ['brave-search', BraveSearchDriver::class, 'brave-search', null, 'search_results', 'none', ['web'], 'search_endpoint', 'services.brave.key', 'brave:search'],
+    'Tavily Search' => ['tavily-search', TavilySearchDriver::class, 'tavily', null, 'search_results', 'none', ['web'], 'search_endpoint', 'services.tavily.key', 'tavily:search'],
+    'Perplexity Search' => ['perplexity-search', PerplexitySearchDriver::class, 'perplexity', null, 'search_results', 'none', ['web'], 'search_endpoint', 'services.perplexity.key', 'perplexity:search'],
+    'Jina Search' => ['jina-search', JinaSearchDriver::class, 'jina-search', null, 'search_results', 'none', ['web'], 'search_endpoint', 'services.jina.key', null],
+    'SerpAPI Search' => ['serpapi', SerpApiDriver::class, 'serpapi', null, 'search_results', 'none', ['web'], 'search_endpoint', 'services.serpapi.key', 'serpapi:search'],
+    'Exa Research' => ['exa-research', ExaResearchDriver::class, 'exa', null, 'research_report', 'required', ['web'], 'research_agent', 'services.exa.key', null],
+    'Gemini Deep Research' => ['gemini-deep-research', GeminiDeepDriver::class, 'gemini-deep', 'deep-research-preview-04-2026', 'research_report', 'required', ['web'], 'research_agent', 'ai.providers.gemini.key', null],
+    'Perplexity Deep Research' => ['perplexity-deep-research', PerplexityAgentDriver::class, 'perplexity', null, 'research_report', 'required', ['web'], 'research_agent', 'services.perplexity.key', 'perplexity:agent-medium'],
+    'Grok X-only' => ['grok-x-only', XaiGrokDriver::class, 'xai', 'grok-4.6', 'grounded_answer', 'required', ['x'], 'model_search_tool', 'ai.providers.xai.key', 'xai:grok-4.6'],
+    'Grok combined' => ['grok-combined', XaiGrokDriver::class, 'xai', 'grok-4.6', 'grounded_answer', 'required', ['web', 'x'], 'model_search_tool', 'ai.providers.xai.key', 'xai:grok-4.6'],
+    'Parallel Search' => ['parallel-search', ParallelSearchDriver::class, 'parallel', null, 'search_results', 'none', ['web'], 'search_endpoint', 'services.parallel.key', null],
+    'Parallel Turbo' => ['parallel-turbo', ParallelTurboDriver::class, 'parallel', null, 'search_results', 'none', ['web'], 'search_endpoint', 'services.parallel.key', 'parallel:turbo'],
+    'Parallel Research' => ['parallel-research', ParallelResearchDriver::class, 'parallel', 'pro', 'research_report', 'required', ['web'], 'research_agent', 'services.parallel.key', 'parallel:research-pro'],
+    'Valyu Search' => ['valyu-search', ValyuSearchDriver::class, 'valyu', null, 'search_results', 'none', ['web', 'specialized'], 'search_endpoint', 'services.valyu.key', null],
+    'Valyu Research' => ['valyu-research', ValyuResearchDriver::class, 'valyu', null, 'research_report', 'required', ['web', 'specialized'], 'research_agent', 'services.valyu.key', 'valyu:research-standard'],
+]);
+
 it('registers three distinct You.com Profiles with one compatible credential value', function (): void {
     config()->set('librarium.profiles.you-answer.credential', 'testing-you-key');
     config()->set('librarium.profiles.you-research-grounded.credential', 'testing-you-key');
@@ -154,6 +216,7 @@ it('resolves curated and derived groups from the complete built-in catalog', fun
         'brave-answers',
         'exa',
         'kagi-fastgpt',
+        'parallel-turbo',
     ])->and($catalog->group('visibility')['profiles']->pluck('id')->all())->toBe([
         'searchapi-chatgpt',
         'searchapi-gemini',
@@ -168,6 +231,11 @@ it('resolves curated and derived groups from the complete built-in catalog', fun
         'you-research-research',
         'openai-research',
         'perplexity-sonar-deep',
+        'exa-research',
+        'gemini-deep-research',
+        'perplexity-deep-research',
+        'parallel-research',
+        'valyu-research',
     ])->and($catalog->group('all')['profiles']->pluck('id')->all())->toBe([
         'gemini-grounded',
         'openrouter-grounded',
@@ -192,7 +260,32 @@ it('resolves curated and derived groups from the complete built-in catalog', fun
         'searchapi-google-ai-mode',
         'searchapi-bing-copilot',
         'searchapi-google-ai-overview',
+        'brave-search',
+        'tavily-search',
+        'perplexity-search',
+        'jina-search',
+        'serpapi',
+        'exa-research',
+        'gemini-deep-research',
+        'perplexity-deep-research',
+        'grok-x-only',
+        'grok-combined',
+        'parallel-search',
+        'parallel-turbo',
+        'parallel-research',
+        'valyu-search',
+        'valyu-research',
     ]);
+
+    expect($catalog->all()->keys()->all())->toHaveCount(44)
+        ->and(array_keys($catalog->group('all')['unavailable']))->toBe([
+            'dataforseo-chatgpt',
+            'dataforseo-chatgpt-live',
+            'dataforseo-gemini',
+            'dataforseo-gemini-live',
+            'dataforseo-google-ai-mode',
+            'dataforseo-google-ai-mode-live',
+        ]);
 });
 
 it('resolves Laravel AI credentials for Profile IDs containing dots', function (): void {

@@ -211,7 +211,7 @@ final readonly class ResearchCompiler
      *         quote: CostQuote,
      *         freshness: string
      *     }>,
-     *     known_subtotals: Collection<string, string>,
+     *     known_subtotals: Collection<string, non-empty-string>,
      *     status: string,
      *     hard_ceiling_available: bool,
      *     maximum_estimated_cost: string|null,

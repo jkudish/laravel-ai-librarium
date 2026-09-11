@@ -6,6 +6,8 @@ namespace Jkudish\LaravelAiLibrarium\Drivers\Perplexity;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
+use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
+use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Responses\Citation;
@@ -60,7 +62,7 @@ final readonly class PerplexityAgentResultMapper
 
         $completedAt = $this->completedAt(data_get($response, 'completed_at'));
 
-        return ResearchResult::make(
+        return TerminalRedaction::guard(ResearchResult::make(
             contentFormat: ContentFormat::Markdown,
             content: $content,
             requestedProfile: $request->requestedProfile->id,
@@ -76,7 +78,10 @@ final readonly class PerplexityAgentResultMapper
             completedAt: $completedAt,
             model: $model,
             usage: $this->usage(data_get($response, 'usage')),
-        );
+        ), [
+            (string) $request->profile->credential,
+            $this->optionalBoundedString(data_get($response, 'id')) ?? '',
+        ], $this->invalidResponse());
     }
 
     /**
@@ -407,20 +412,7 @@ final readonly class PerplexityAgentResultMapper
 
     private function evidenceUrl(mixed $value): ?string
     {
-        if (! is_string($value) || trim($value) !== $value || $value === '' || filter_var($value, FILTER_VALIDATE_URL) === false) {
-            return null;
-        }
-
-        $parts = parse_url($value);
-
-        if ($parts === false || isset($parts['user']) || isset($parts['pass'])) {
-            return null;
-        }
-
-        return in_array(strtolower($parts['scheme'] ?? ''), ['http', 'https'], true)
-            && ($parts['host'] ?? '') !== ''
-                ? $value
-                : null;
+        return EvidenceUrl::sanitize($value);
     }
 
     private function invalidGroundedResponse(): DriverException
@@ -428,6 +420,7 @@ final readonly class PerplexityAgentResultMapper
         return new DriverException(
             'perplexity.invalid_response',
             'Perplexity returned an incomplete grounded Agent response.',
+            false,
         );
     }
 
@@ -436,6 +429,7 @@ final readonly class PerplexityAgentResultMapper
         return new DriverException(
             'perplexity.invalid_response',
             'Perplexity returned a malformed Agent response.',
+            false,
         );
     }
 }

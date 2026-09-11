@@ -32,16 +32,16 @@ afterEach(function (): void {
     File::deleteDirectory($this->workingSnapshotDirectory);
 });
 
-it('verifies the exact accepted upstream snapshot offline and reports machine-readable totals', function (): void {
+it('verifies the accepted candidate-derived snapshot offline and reports machine-readable totals', function (): void {
     $report = ContractSnapshot::vendored()->verify();
 
     expect($report)->toBe([
         'contract_version' => 'v1',
         'snapshot_version' => 1,
-        'upstream_commit' => '27236d2bdab90d0a77396666ae4acc344fcfb949',
+        'upstream_commit' => '889b0366b5baafff117198632e04b24e521ac93d',
         'manifest_sha256' => '4b8667d98ea5334793e95ebf3c15c96518d42a5e0369ac5ed66fb599b0e1793f',
-        'checksums_sha256' => '740b34d67fa2edfe25af93174080a6f9afb3d2a59b85919eb4fe7f2ead80bebd',
-        'interchange_schema_sha256' => 'a9a0092fc26f64111d8e4ff0ade4d7e72d382e5f9f005649928b1b777e412002',
+        'checksums_sha256' => 'ba0ecf38a6ade68d3b49d4c0d8bbbae74f05202ed718dd319c0c1bb0d341415f',
+        'interchange_schema_sha256' => 'ef938d851eee61bb2ce96c11669b355179bbd4e6b82cea4a71914671ab3450a1',
         'totals' => [
             'schemas' => 1,
             'definitions' => 7,
@@ -123,6 +123,7 @@ it('keeps source URLs nonempty and untrusted', function (): void {
 
 it('pins every closed terminal vocabulary', function (): void {
     $schema = contractSnapshotJson('schema/interchange.schema.json');
+    $fixture = contractSnapshotJson('fixtures/valid/enum-branch-coverage.json');
     $definitions = $schema['$defs'];
     $contentFormats = array_column(array_map(
         static fn (array $branch): array => $branch['properties']['content_format'],
@@ -151,6 +152,14 @@ it('pins every closed terminal vocabulary', function (): void {
         'x',
         'files',
         'places',
+        'specialized',
+    ])->and($fixture['results'][0]['provenance']['corpora'])->toBe([
+        'web',
+        'news',
+        'x',
+        'files',
+        'places',
+        'specialized',
     ])->and($definitions['result_provenance']['properties']['context']['properties']['authentication']['enum'])->toBe([
         'anonymous',
         'authenticated',

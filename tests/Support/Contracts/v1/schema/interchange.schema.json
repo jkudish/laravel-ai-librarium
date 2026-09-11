@@ -102,7 +102,8 @@
                             "news",
                             "x",
                             "files",
-                            "places"
+                            "places",
+                            "specialized"
                           ]
                         }
                       },
@@ -412,7 +413,8 @@
                             "news",
                             "x",
                             "files",
-                            "places"
+                            "places",
+                            "specialized"
                           ]
                         }
                       },
@@ -722,7 +724,8 @@
                             "news",
                             "x",
                             "files",
-                            "places"
+                            "places",
+                            "specialized"
                           ]
                         }
                       },
@@ -1231,7 +1234,8 @@
                       "news",
                       "x",
                       "files",
-                      "places"
+                      "places",
+                      "specialized"
                     ]
                   }
                 },
@@ -1541,7 +1545,8 @@
                       "news",
                       "x",
                       "files",
-                      "places"
+                      "places",
+                      "specialized"
                     ]
                   }
                 },
@@ -1851,7 +1856,8 @@
                       "news",
                       "x",
                       "files",
-                      "places"
+                      "places",
+                      "specialized"
                     ]
                   }
                 },
@@ -2388,7 +2394,8 @@
               "news",
               "x",
               "files",
-              "places"
+              "places",
+              "specialized"
             ]
           }
         },

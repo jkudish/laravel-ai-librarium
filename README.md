@@ -173,15 +173,30 @@ that Laravel AI does not expose through its prompt API:
 | Profile | Provider target | Result | Execution | Credential config |
 | --- | --- | --- | --- | --- |
 | `brave-answers` | Brave Answers (`brave`) | Grounded answer | Inline | `services.brave.key` |
+| `brave-search` | Brave Web Search | Search results | Inline | `services.brave.key` |
 | `exa` | Exa Search | Search results | Inline | `services.exa.key` |
+| `exa-research` | Exa Agent Auto | Research report | Background | `services.exa.key` |
+| `tavily-search` | Tavily Search | Search results | Inline | `services.tavily.key` |
+| `jina-search` | Jina Search Foundation | Search results | Inline | `services.jina.key` |
+| `serpapi` | SerpAPI Google Search | Search results | Inline | `services.serpapi.key` |
 | `kagi-fastgpt` | Kagi FastGPT | Grounded answer | Inline | `services.kagi.key` |
 | `you-answer` | You.com Answer | Grounded answer | Inline | `YOU_COM_API_KEY` or `YDC_API_KEY` |
 | `you-research-grounded` | You.com Research (`standard`) | Grounded answer | Inline | `YOU_COM_API_KEY` or `YDC_API_KEY` |
 | `you-research-research` | You.com Research (`standard`) | Research report | Background | `YOU_COM_API_KEY` or `YDC_API_KEY` |
 | `perplexity-sonar-pro` | Perplexity Agent preset `low` | Grounded answer | Inline | `services.perplexity.key` |
+| `perplexity-search` | Perplexity Search | Search results | Inline | `services.perplexity.key` |
+| `perplexity-deep-research` | Perplexity Agent preset `medium` | Research report | Background | `services.perplexity.key` |
 | `grok` | xAI `grok-4.6` with web search | Grounded answer | Inline | `ai.providers.xai.key` |
+| `grok-x-only` | xAI `grok-4.6` with X Search | Grounded answer | Inline | `ai.providers.xai.key` |
+| `grok-combined` | xAI `grok-4.6` with web and X Search | Grounded answer | Inline | `ai.providers.xai.key` |
+| `gemini-deep-research` | Gemini Interactions Deep Research | Research report | Background | `ai.providers.gemini.key` |
 | `openai-research` | OpenAI `gpt-5.6-sol` with web research | Research report | Background | `ai.providers.openai.key` |
 | `perplexity-sonar-deep` | Perplexity Agent preset `high` | Research report | Background | `services.perplexity.key` |
+| `parallel-search` | Parallel Search, provider-managed mode | Search results | Inline | `services.parallel.key` |
+| `parallel-turbo` | Parallel Search, fixed `turbo` mode | Search results | Inline | `services.parallel.key` |
+| `parallel-research` | Parallel Task API, `pro` processor | Research report | Background | `services.parallel.key` |
+| `valyu-search` | Valyu Search, web and specialized corpora | Search results | Inline | `services.valyu.key` |
+| `valyu-research` | Valyu Deep Research, `standard` mode | Research report | Background | `services.valyu.key` |
 | `dataforseo-chatgpt` | DataForSEO ChatGPT LLM Scraper Standard | Surface observation | Background poll | `librarium.providers.dataforseo.*` |
 | `dataforseo-chatgpt-live` | DataForSEO ChatGPT LLM Scraper Live | Surface observation | Inline | `librarium.providers.dataforseo.*` |
 | `dataforseo-gemini` | DataForSEO Gemini LLM Scraper Standard | Surface observation | Background poll | `librarium.providers.dataforseo.*` |
@@ -189,17 +204,30 @@ that Laravel AI does not expose through its prompt API:
 | `dataforseo-google-ai-mode` | DataForSEO Google AI Mode Standard | Surface observation | Background poll | `librarium.providers.dataforseo.*` |
 | `dataforseo-google-ai-mode-live` | DataForSEO Google AI Mode Live | Surface observation | Inline | `librarium.providers.dataforseo.*` |
 
-OpenAI and xAI use Laravel AI's standard provider configuration even though
-these Drivers make focused HTTP requests. Add the remaining credentials to the
-consuming application's `config/services.php`:
+OpenAI, Gemini Deep Research, and xAI use Laravel AI's standard provider
+configuration even though these Drivers make focused HTTP requests. Add the
+remaining credentials to the consuming application's `config/services.php`:
 
 ```php
 'brave' => ['key' => env('BRAVE_API_KEY')],
 'exa' => ['key' => env('EXA_API_KEY')],
+'jina' => ['key' => env('JINA_API_KEY')],
 'kagi' => ['key' => env('KAGI_API_KEY')],
+'parallel' => ['key' => env('PARALLEL_API_KEY')],
 'perplexity' => ['key' => env('PERPLEXITY_API_KEY')],
 'searchapi' => ['key' => env('SEARCHAPI_KEY')],
+'serpapi' => ['key' => env('SERPAPI_API_KEY')],
+'tavily' => ['key' => env('TAVILY_API_KEY')],
+'valyu' => ['key' => env('VALYU_API_KEY')],
 ```
+
+Each profile keeps its provider's option schema, endpoint, and lifecycle. The
+five new durable profiles—Exa, Gemini Deep Research, Perplexity medium,
+Parallel Research, and Valyu Research—submit paid work at most once and retry
+only known-handle retrieval within the shared deadline. Unknown or
+account-specific pricing remains unavailable or partial rather than becoming an
+invented zero. See the [profile binding matrix](docs/profile-bindings.md) for
+exact semantics and pricing dispositions.
 
 DataForSEO login/password credentials, explicit location/language controls,
 Standard-versus-Live behavior, pricing, surface semantics, opt-in comparison
@@ -267,14 +295,14 @@ exposes credentials through previews and terminal results.
 
 `quick` is the default group and runs these eligible Profiles in order:
 `gemini-grounded`, `openrouter-grounded`, `brave-answers`, `exa`, and
-`kagi-fastgpt`.
+`kagi-fastgpt`, then `parallel-turbo`.
 
 `visibility` runs the six SearchAPI surface Profiles followed by
 `perplexity-sonar-pro`, `gemini-grounded`, and `grok`. `deep` is derived from
 every configured `research_report` Profile rather than maintained as a second
-list; the built-in catalog currently yields `openai-research` and
-`perplexity-sonar-deep`, plus standard-effort `you-research-research`. `all`
-similarly derives every configured Profile.
+list; the built-in catalog currently yields You.com standard, OpenAI,
+Perplexity high and medium, Exa, Gemini Deep Research, Parallel Research, and
+Valyu Research. `all` similarly derives all 44 configured core Profiles.
 Profiles that are disabled or missing a credential remain visible in preview
 diagnostics but are not executed by a group. Invalid Profile configuration
 fails preflight instead of being silently skipped.
@@ -299,7 +327,7 @@ prompt events, or runs its middleware and conversation lifecycle.
 ## Live validation
 
 Live checks are paid, separately authorized release gates. See the
-[live provider canary inventory](docs/live-provider-canaries.md) for the 29
+[live provider canary inventory](docs/live-provider-canaries.md) for the 45
 materially unique checks, their current harness coverage, credentials, pricing
 uncertainty, and the approval record required before each dispatch. Approval of
 one canary does not authorize another canary, a retry, or a bulk Profile group.

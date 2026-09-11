@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
+use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
 use Jkudish\LaravelAiLibrarium\Events\ResearchCompleted;
 use Jkudish\LaravelAiLibrarium\Events\ResearchFailed;
 use Jkudish\LaravelAiLibrarium\Events\ResearchProgressed;
@@ -139,6 +140,31 @@ it('attributes an expected fallback failure to the effective Profile', function 
 
     expect($response->status)->toBe(ResponseStatus::Failed)
         ->and($response->errors->sole()->profile)->toBe('fallback');
+});
+
+it('does not run a fallback after a driver rejects reflected private material', function (): void {
+    config()->set('librarium.profiles', [
+        'primary' => runtimeProfileConfig('primary', credential: 'testing-provider-key'),
+        'fallback' => runtimeProfileConfig('fallback'),
+    ]);
+    FakeRuntimeDriver::$outcomes = [
+        'primary' => [fn (DriverRequest $request): ResearchResult => TerminalRedaction::guard(
+            runtimeResult($request, 'Reflected testing-provider-key'),
+            ['testing-provider-key'],
+            new DriverException('test.invalid_response', 'The provider returned a malformed response.'),
+        )],
+        'fallback' => [fn (DriverRequest $request): ResearchResult => runtimeResult($request, 'Fallback answer.')],
+    ];
+
+    $response = Librarium::query('Research this.')
+        ->using('primary')
+        ->fallbacks(['fallback'])
+        ->run();
+
+    expect(FakeRuntimeDriver::$requests)->toHaveCount(1)
+        ->and($response->status)->toBe(ResponseStatus::Failed)
+        ->and($response->errors->sole()->code)->toBe('test.invalid_response')
+        ->and($response->errors->sole()->profile)->toBe('primary');
 });
 
 it('reports and rethrows unexpected infrastructure failures with the effective fallback Profile', function (): void {

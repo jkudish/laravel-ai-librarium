@@ -9,7 +9,7 @@ it('locks the accepted TypeScript Profile inventory and its PHP classifications'
     assert(is_string($matrix));
 
     expect($matrix)
-        ->toContain('5ec53f2517ffab4db2e4446d458f168f0388879b')
+        ->toContain('889b0366b5baafff117198632e04b24e521ac93d')
         ->toContain('`laravel/ai` v0.10.3 at `c3848aae389f45c605eefb0dda5bd5fa7df76eaa`');
 
     preg_match_all(
@@ -38,9 +38,9 @@ it('locks the accepted TypeScript Profile inventory and its PHP classifications'
         'openai-research/research',
         'openrouter/chat',
         'openrouter/grounded',
-        'parallel/chat',
         'parallel/research',
         'parallel/search',
+        'parallel/turbo',
         'perplexity-deep-research/research',
         'perplexity-search/search',
         'perplexity-sonar-deep/research',
@@ -53,7 +53,6 @@ it('locks the accepted TypeScript Profile inventory and its PHP classifications'
         'searchapi-perplexity/surface',
         'searchapi/search',
         'serpapi/search',
-        'tavily/research',
         'tavily/search',
         'valyu/research',
         'valyu/search',
@@ -69,7 +68,7 @@ it('locks the accepted TypeScript Profile inventory and its PHP classifications'
     sort($expectedKeys);
 
     expect($actualKeys)
-        ->toHaveCount(40)
+        ->toHaveCount(39)
         ->toBe($uniqueKeys)
         ->toBe($expectedKeys);
 
@@ -101,22 +100,9 @@ it('locks the accepted TypeScript Profile inventory and its PHP classifications'
         ->and(array_filter($rows, fn (string $row): bool => str_contains($row, '**PHP path:** #2591 core HTTP')))->toHaveCount(14)
         ->and(array_filter($rows, fn (string $row): bool => str_contains($row, '**PHP path:** #2592')))->toHaveCount(1)
         ->and(array_filter($rows, fn (string $row): bool => str_contains($row, '**PHP path:** #2694')))->toHaveCount(3)
-        ->and(array_filter($rows, fn (string $row): bool => str_contains($row, '**PHP path:** explicit holdback')))->toHaveCount(16)
+        ->and(array_filter($rows, fn (string $row): bool => str_contains($row, '**PHP path:** #3604 core parity')))->toHaveCount(15)
+        ->and(array_filter($rows, fn (string $row): bool => str_contains($row, '**PHP path:** explicit holdback')))->toBeEmpty()
         ->and(array_filter($rows, fn (string $row): bool => str_contains($row, '#2830')))->toHaveCount(6);
-
-    foreach (array_filter($rows, fn (string $row): bool => str_contains($row, '**PHP path:** explicit holdback')) as $key => $row) {
-        $this->assertStringContainsString(
-            '**Holdback reason:**',
-            $row,
-            "Holdback row {$key} needs an explicit reason.",
-        );
-    }
-
-    expect(array_filter($rows, fn (string $row): bool => str_contains($row, '**PHP path:** explicit holdback; #2841')))->toHaveCount(5)
-        ->and(array_filter($rows, fn (string $row): bool => str_contains($row, '**PHP path:** explicit holdback; #2842')))->toHaveCount(4)
-        ->and(array_filter($rows, fn (string $row): bool => str_contains($row, '**PHP path:** explicit holdback; #2843')))->toHaveCount(2)
-        ->and(array_filter($rows, fn (string $row): bool => str_contains($row, '**PHP path:** explicit holdback; #2844')))->toHaveCount(3)
-        ->and(array_filter($rows, fn (string $row): bool => str_contains($row, '**PHP path:** explicit holdback; #2845')))->toHaveCount(2);
 });
 
 it('reconciles every TypeScript matrix row with the landed PHP catalog', function (): void {
@@ -161,6 +147,21 @@ it('reconciles every TypeScript matrix row with the landed PHP catalog', functio
         'you-research/grounded' => 'you-research-grounded',
         'you-research/research' => 'you-research-research',
         'you-answer/grounded' => 'you-answer',
+        'brave-search/search' => 'brave-search',
+        'exa/research' => 'exa-research',
+        'tavily/search' => 'tavily-search',
+        'gemini-deep/research' => 'gemini-deep-research',
+        'perplexity-deep-research/research' => 'perplexity-deep-research',
+        'perplexity-search/search' => 'perplexity-search',
+        'grok-x-only/x' => 'grok-x-only',
+        'grok-combined/combined' => 'grok-combined',
+        'jina-search/search' => 'jina-search',
+        'serpapi/search' => 'serpapi',
+        'parallel/search' => 'parallel-search',
+        'parallel/turbo' => 'parallel-turbo',
+        'parallel/research' => 'parallel-research',
+        'valyu/search' => 'valyu-search',
+        'valyu/research' => 'valyu-research',
     ];
 
     $documentedLanded = [];
@@ -188,9 +189,9 @@ it('reconciles every TypeScript matrix row with the landed PHP catalog', functio
     ];
     sort($expectedProfiles);
 
-    expect($matches)->toHaveCount(40)
+    expect($matches)->toHaveCount(39)
         ->and($documentedLanded)->toBe($landed)
-        ->and($documentedAbsent)->toHaveCount(17)
+        ->and($documentedAbsent)->toBe(['firecrawl-search/search'])
         ->and($configuredProfiles)->toBe($expectedProfiles);
 });
 
@@ -210,16 +211,17 @@ it('keeps one separately gated live canary for every landed PHP Profile', functi
     $ids = array_column($matches, 'id');
     $profiles = array_column($matches, 'profile');
     $configuredProfiles = array_keys(config('librarium.profiles'));
+    $configuredProfiles[] = 'firecrawl-search';
     sort($profiles);
     sort($configuredProfiles);
 
-    expect($matches)->toHaveCount(29)
-        ->and($ids)->toBe(array_map(static fn (int $id): string => sprintf('%02d', $id), range(1, 29)))
+    expect($matches)->toHaveCount(45)
+        ->and($ids)->toBe(array_map(static fn (int $id): string => sprintf('%02d', $id), range(1, 45)))
         ->and($profiles)->toBe($configuredProfiles)
         ->and($canaries)->toContain('Approval for one ID does')
         ->toContain('No live provider or')
         ->toContain('Unknown cost is not zero.')
         ->toContain('C01–C13 passed separately authorized live checks')
-        ->toContain('C14–C29 remain unverified live.')
+        ->toContain('C14–C45 remain unverified live.')
         ->toContain("--filter='<exact dataset name from the table>' --fail-on-skipped");
 });

@@ -65,7 +65,7 @@ it('uses quick by default and exposes unavailable curated members', function ():
     $preview = Librarium::query('Compare memory systems.')->preview();
 
     expect($preview->profiles->pluck('id')->all())->toBe(['gemini-grounded', 'openrouter-grounded'])
-        ->and($preview->unavailable->keys()->all())->toBe(['brave-answers', 'exa', 'kagi-fastgpt'])
+        ->and($preview->unavailable->keys()->all())->toBe(['brave-answers', 'exa', 'kagi-fastgpt', 'parallel-turbo'])
         ->and($preview->prompts->get('gemini-grounded'))->toBe('Research carefully: Compare memory systems.')
         ->and($preview->maximumEstimatedCost)->toBe('0.15')
         ->and($preview->currency)->toBe('USD')

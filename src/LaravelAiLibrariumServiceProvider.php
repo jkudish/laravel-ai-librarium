@@ -13,14 +13,26 @@ use Jkudish\LaravelAiLibrarium\Console\Commands\StatusCommand;
 use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
 use Jkudish\LaravelAiLibrarium\Contracts\Librarium;
 use Jkudish\LaravelAiLibrarium\Drivers\Brave\BraveAnswersDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Brave\BraveSearchDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\DataForSeo\DataForSeoCredential;
 use Jkudish\LaravelAiLibrarium\Drivers\DataForSeo\DataForSeoDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Exa\ExaResearchDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Exa\ExaSearchDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Gemini\GeminiDeepDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Jina\JinaSearchDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Kagi\KagiFastGptDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\LaravelAiDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\OpenAi\OpenAiResearchDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Parallel\ParallelResearchDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Parallel\ParallelSearchDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Parallel\ParallelTurboDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Perplexity\PerplexityAgentDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Perplexity\PerplexitySearchDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\SearchApi\SearchApiDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\SerpApi\SerpApiDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Tavily\TavilySearchDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Valyu\ValyuResearchDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Valyu\ValyuSearchDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Xai\XaiGrokDriver;
 use Jkudish\LaravelAiLibrarium\Execution\ProfileCompatibility;
 use Jkudish\LaravelAiLibrarium\Execution\ResearchRuntime;
@@ -126,15 +138,21 @@ final class LaravelAiLibrariumServiceProvider extends ServiceProvider
 
             $credential = match ($driver) {
                 LaravelAiDriver::class, OpenAiResearchDriver::class, XaiGrokDriver::class => config("ai.providers.{$provider}.key"),
-                BraveAnswersDriver::class => config('services.brave.key'),
+                BraveAnswersDriver::class, BraveSearchDriver::class => config('services.brave.key'),
                 DataForSeoDriver::class => DataForSeoCredential::encode(
                     config('librarium.providers.dataforseo.login'),
                     config('librarium.providers.dataforseo.password'),
                 ),
-                ExaSearchDriver::class => config('services.exa.key'),
+                ExaResearchDriver::class, ExaSearchDriver::class => config('services.exa.key'),
+                GeminiDeepDriver::class => config('ai.providers.gemini.key'),
+                JinaSearchDriver::class => config('services.jina.key'),
                 KagiFastGptDriver::class => config('services.kagi.key'),
-                PerplexityAgentDriver::class => config('services.perplexity.key'),
+                ParallelResearchDriver::class, ParallelSearchDriver::class, ParallelTurboDriver::class => config('services.parallel.key'),
+                PerplexityAgentDriver::class, PerplexitySearchDriver::class => config('services.perplexity.key'),
                 SearchApiDriver::class => config('services.searchapi.key'),
+                SerpApiDriver::class => config('services.serpapi.key'),
+                TavilySearchDriver::class => config('services.tavily.key'),
+                ValyuResearchDriver::class, ValyuSearchDriver::class => config('services.valyu.key'),
                 default => null,
             };
 
