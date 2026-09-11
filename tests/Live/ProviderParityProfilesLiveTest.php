@@ -86,6 +86,8 @@ it('runs one explicitly approved provider-parity canary', function (
     'Perplexity Search' => ['perplexity-search', 'PERPLEXITY_API_KEY', 'services.perplexity.key', 'perplexity', ResultKind::SearchResults, 120, 'POST', 'https://api.perplexity.ai/search'],
     'Jina Search' => ['jina-search', 'JINA_API_KEY', 'services.jina.key', 'jina-search', ResultKind::SearchResults, 120, 'POST', 'https://s.jina.ai/'],
     'SerpAPI Search' => ['serpapi', 'SERPAPI_API_KEY', 'services.serpapi.key', 'serpapi', ResultKind::SearchResults, 120, 'GET', 'https://serpapi.com/search'],
+    'SerpBase Search' => ['serpbase-search', 'SERPBASE_API_KEY', 'services.serpbase.key', 'serpbase', ResultKind::SearchResults, 120, 'POST', 'https://api.serpbase.dev/google/search'],
+    'SerpBase News' => ['serpbase-news', 'SERPBASE_API_KEY', 'services.serpbase.key', 'serpbase', ResultKind::SearchResults, 120, 'POST', 'https://api.serpbase.dev/google/news'],
     'Exa Research' => ['exa-research', 'EXA_API_KEY', 'services.exa.key', 'exa', ResultKind::ResearchReport, 3600, 'POST', 'https://api.exa.ai/agent/runs'],
     'Gemini Deep Research' => ['gemini-deep-research', 'GEMINI_API_KEY', 'ai.providers.gemini.key', 'gemini-deep', ResultKind::ResearchReport, 3600, 'POST', 'https://generativelanguage.googleapis.com/v1beta/interactions'],
     'Perplexity Deep Research' => ['perplexity-deep-research', 'PERPLEXITY_API_KEY', 'services.perplexity.key', 'perplexity', ResultKind::ResearchReport, 3600, 'POST', 'https://api.perplexity.ai/v1/agent'],

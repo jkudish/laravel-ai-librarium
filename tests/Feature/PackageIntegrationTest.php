@@ -22,6 +22,7 @@ use Jkudish\LaravelAiLibrarium\Drivers\Parallel\ParallelTurboDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Perplexity\PerplexityAgentDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Perplexity\PerplexitySearchDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\SerpApi\SerpApiDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\SerpBase\SerpBaseDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Tavily\TavilySearchDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Valyu\ValyuResearchDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Valyu\ValyuSearchDriver;
@@ -181,6 +182,8 @@ it('registers every accepted v2 parity Profile with exact shared semantics', fun
     'Perplexity Search' => ['perplexity-search', PerplexitySearchDriver::class, 'perplexity', null, 'search_results', 'none', ['web'], 'search_endpoint', 'services.perplexity.key', 'perplexity:search'],
     'Jina Search' => ['jina-search', JinaSearchDriver::class, 'jina-search', null, 'search_results', 'none', ['web'], 'search_endpoint', 'services.jina.key', null],
     'SerpAPI Search' => ['serpapi', SerpApiDriver::class, 'serpapi', null, 'search_results', 'none', ['web'], 'search_endpoint', 'services.serpapi.key', 'serpapi:search'],
+    'SerpBase Search' => ['serpbase-search', SerpBaseDriver::class, 'serpbase', null, 'search_results', 'none', ['web'], 'search_endpoint', 'services.serpbase.key', 'serpbase:search'],
+    'SerpBase News' => ['serpbase-news', SerpBaseDriver::class, 'serpbase', null, 'search_results', 'none', ['news'], 'search_endpoint', 'services.serpbase.key', 'serpbase:news'],
     'Exa Research' => ['exa-research', ExaResearchDriver::class, 'exa', null, 'research_report', 'required', ['web'], 'research_agent', 'services.exa.key', null],
     'Gemini Deep Research' => ['gemini-deep-research', GeminiDeepDriver::class, 'gemini-deep', 'deep-research-preview-04-2026', 'research_report', 'required', ['web'], 'research_agent', 'ai.providers.gemini.key', null],
     'Perplexity Deep Research' => ['perplexity-deep-research', PerplexityAgentDriver::class, 'perplexity', null, 'research_report', 'required', ['web'], 'research_agent', 'services.perplexity.key', 'perplexity:agent-medium'],
@@ -276,6 +279,8 @@ it('resolves curated and derived groups from the complete built-in catalog', fun
         'perplexity-search',
         'jina-search',
         'serpapi',
+        'serpbase-search',
+        'serpbase-news',
         'exa-research',
         'gemini-deep-research',
         'perplexity-deep-research',
@@ -288,7 +293,7 @@ it('resolves curated and derived groups from the complete built-in catalog', fun
         'valyu-research',
     ]);
 
-    expect($catalog->all()->keys()->all())->toHaveCount(45)
+    expect($catalog->all()->keys()->all())->toHaveCount(47)
         ->and(array_keys($catalog->group('all')['unavailable']))->toBe([
             'dataforseo-chatgpt',
             'dataforseo-chatgpt-live',

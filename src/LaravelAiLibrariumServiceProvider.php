@@ -32,6 +32,7 @@ use Jkudish\LaravelAiLibrarium\Drivers\Perplexity\PerplexityAgentDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Perplexity\PerplexitySearchDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\SearchApi\SearchApiDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\SerpApi\SerpApiDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\SerpBase\SerpBaseDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Tavily\TavilySearchDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Valyu\ValyuResearchDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Valyu\ValyuSearchDriver;
@@ -156,6 +157,7 @@ final class LaravelAiLibrariumServiceProvider extends ServiceProvider
                 PerplexityAgentDriver::class, PerplexitySearchDriver::class => config('services.perplexity.key'),
                 SearchApiDriver::class => config('services.searchapi.key'),
                 SerpApiDriver::class => config('services.serpapi.key'),
+                SerpBaseDriver::class => config('services.serpbase.key'),
                 TavilySearchDriver::class => config('services.tavily.key'),
                 ValyuResearchDriver::class, ValyuSearchDriver::class => config('services.valyu.key'),
                 default => null,

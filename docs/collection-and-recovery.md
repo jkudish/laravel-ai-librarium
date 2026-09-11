@@ -185,6 +185,7 @@ unknown options fail preflight instead of being ignored.
 | Tavily Search | `services.tavily.key` / suggested `TAVILY_API_KEY` | Captured | No | fixed advanced search binding |
 | Jina Search | `services.jina.key` / suggested `JINA_API_KEY` | Captured | No | fixed search binding |
 | SerpAPI | `services.serpapi.key` / suggested `SERPAPI_API_KEY` | Captured | No | fixed Google search binding |
+| SerpBase Search/News | `services.serpbase.key` / `SERPBASE_API_KEY` | Captured | No | one page/request; `hl`, `gl`, and `page`; Search-only `device` and opt-in bounded rich text |
 | Parallel Search/Research | `services.parallel.key` / suggested `PARALLEL_API_KEY` | Captured | `parallel-research` | managed or exact search mode, query/result/fetch limits, location/source policy; Research fixed to `pro` with location/domain policy |
 | Valyu Search/Research | `services.valyu.key` / suggested `VALYU_API_KEY` | Captured | `valyu-research` | search type/result/price/relevance/date/country/source controls; Research fixed to `standard` with source/date/country policy |
 | DataForSEO surface Profiles | `librarium.providers.dataforseo.login/password` / `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` | Captured | three Standard task Profiles | required location/language plus supported device, OS, and web-search controls |
