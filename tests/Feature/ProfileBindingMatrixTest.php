@@ -235,7 +235,7 @@ it('keeps one separately gated live canary for every landed PHP Profile', functi
         ->toContain('It never authorizes a retry')
         ->toContain('Unknown cost is not zero.')
         ->toContain('C01–C13 passed separately authorized live checks')
-        ->toContain('C14–C29 and C46–C48 remain unverified live.')
+        ->toContain('C14–C29 and C46 remain unverified live.')
         ->toContain('C30–C37 and C39–C45 passed on 2026-09-11')
         ->toContain('all C30–C45 Profiles have now passed their live canary')
         ->toContain('env -i HOME="$HOME" PATH="$PATH"')
