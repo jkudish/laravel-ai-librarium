@@ -149,6 +149,45 @@ it('recovers a DataForSEO task whose canonical encoded identity exceeds the deco
     Http::assertSentCount(1);
 });
 
+it('rejects DataForSEO recovery identities outside the canonical decoded query boundary', function (Closure $mutate, string $message): void {
+    $query = str_repeat('é', 2000);
+    durableConfigureDataForSeo();
+    $handle = durableHandle('dataforseo-gemini', durableDataForSeoReference());
+    $payload = durableDataForSeoEnvelope(
+        operation: 'task_get/advanced/'.durableDataForSeoReference(),
+        status: 20000,
+        completed: true,
+        cost: '0',
+        query: $query,
+        encodedIdentity: true,
+    );
+    $mutate($payload, $query);
+    Http::fake(fn () => Http::response($payload));
+
+    expect(fn () => Librarium::retrieve($handle))->toThrow(RecoveryException::class, $message);
+    expect(Http::recorded())->toHaveCount(1)
+        ->and(Http::recorded()->sole()[0]->method())->toBe('GET');
+})->with([
+    'decoded query over limit' => [
+        function (array &$payload): void {
+            $payload['tasks'][0]['data']['keyword'] = rawurlencode(str_repeat('é', 2001));
+        },
+        'different task family or request',
+    ],
+    'noncanonical encoded query over limit' => [
+        function (array &$payload, string $query): void {
+            $payload['tasks'][0]['data']['keyword'] = strtolower(rawurlencode($query));
+        },
+        'different task family or request',
+    ],
+    'completed result for another query' => [
+        function (array &$payload): void {
+            $payload['tasks'][0]['result'][0]['keyword'] = 'another query';
+        },
+        'different request controls',
+    ],
+]);
+
 it('distinguishes a reported zero DataForSEO submission cost from unknown cost', function (?string $cost, ?string $expected): void {
     durableConfigureDataForSeo();
     Http::fake(fn (Request $request) => Http::response(durableDataForSeoEnvelope(
