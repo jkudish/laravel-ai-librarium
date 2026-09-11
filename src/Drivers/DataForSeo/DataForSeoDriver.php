@@ -492,8 +492,17 @@ final readonly class DataForSeoDriver implements DurableDriver
         $expectedKeyword = $request instanceof DriverRequest
             ? $request->prompt
             : data_get($receipt, 'data.keyword');
+        $acceptedKeywords = is_string($expectedKeyword) ? [$expectedKeyword] : [];
+        if ($request instanceof DriverRequest && is_string($expectedKeyword)) {
+            $acceptedKeywords[] = rawurlencode($expectedKeyword);
+        } elseif (is_string($expectedKeyword)) {
+            $decodedKeyword = rawurldecode($expectedKeyword);
+            if (rawurlencode($decodedKeyword) === $expectedKeyword) {
+                $acceptedKeywords[] = $decodedKeyword;
+            }
+        }
         if (! is_string($expectedKeyword) || trim($expectedKeyword) === ''
-            || ($result['keyword'] ?? null) !== $expectedKeyword
+            || ! in_array($result['keyword'] ?? null, $acceptedKeywords, true)
             || ($result['location_code'] ?? null) !== data_get($request->profile->options, 'location_code')
             || ($result['language_code'] ?? null) !== data_get($request->profile->options, 'language_code')) {
             throw self::invalidResponse('DataForSEO returned a result for different request controls.');
@@ -521,11 +530,15 @@ final readonly class DataForSeoDriver implements DurableDriver
             default => ['live'],
         };
         $keyword = is_array($data) ? ($data['keyword'] ?? null) : null;
+        $decodedKeyword = is_string($keyword) ? rawurldecode($keyword) : null;
         $keywordValid = is_string($keyword)
             && trim($keyword) !== ''
             && ($request instanceof DriverRequest
                 ? in_array($keyword, [$request->prompt, rawurlencode($request->prompt)], true)
-                : mb_strlen($keyword) <= $descriptor['max_chars']);
+                : mb_strlen($keyword) <= $descriptor['max_chars']
+                    || (is_string($decodedKeyword)
+                        && rawurlencode($decodedKeyword) === $keyword
+                        && mb_strlen($decodedKeyword) <= $descriptor['max_chars']));
         if (! is_array($data) || array_is_list($data)
             || ($data['api'] ?? null) !== $descriptor['api']
             || ! in_array($data['function'] ?? null, $functions, true)

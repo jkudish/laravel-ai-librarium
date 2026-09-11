@@ -22,6 +22,7 @@ use Jkudish\LaravelAiLibrarium\ProfileCatalog;
 use Jkudish\LaravelAiLibrarium\Recovery\ResearchHandleSigner;
 use Jkudish\LaravelAiLibrarium\ResearchHandle;
 use Jkudish\LaravelAiLibrarium\ResearchStatusStore;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\ResponseStatus;
 use PHPUnit\Framework\Assert as PHPUnit;
 use RuntimeException;
 
@@ -106,6 +107,46 @@ it('preserves DataForSEO submission cost across restart and never treats retriev
         ->and(data_get($completed->response?->results->sole()->providerMeta, 'task_id'))->toBeNull();
     expect(Http::recorded())->toHaveCount(1)
         ->and(Http::recorded()->sole()[0]->method())->toBe('GET');
+});
+
+it('recovers a DataForSEO task whose canonical encoded identity exceeds the decoded query limit', function (): void {
+    $query = str_repeat('é', 2000);
+    durableConfigureDataForSeo();
+    Http::fake(fn (Request $request) => Http::response(durableDataForSeoEnvelope(
+        operation: $request->method() === 'POST'
+            ? 'task_post'
+            : 'task_get/advanced/'.durableDataForSeoReference(),
+        status: $request->method() === 'POST' ? 20100 : 20000,
+        completed: $request->method() === 'GET',
+        cost: $request->method() === 'POST' ? '0.001200' : '0',
+        query: $query,
+        encodedIdentity: true,
+    )));
+
+    $submitted = Librarium::query($query)->using('dataforseo-gemini')->submit();
+    $wire = json_encode($submitted->handle, JSON_THROW_ON_ERROR);
+    $stored = json_decode($wire, true, 512, JSON_THROW_ON_ERROR);
+    if (! is_array($stored)) {
+        throw new RuntimeException('The encoded handle must decode to an array.');
+    }
+
+    durableReconstructRuntime();
+    Http::preventStrayRequests();
+    Http::fake(fn () => Http::response(durableDataForSeoEnvelope(
+        operation: 'task_get/advanced/'.durableDataForSeoReference(),
+        status: 20000,
+        completed: true,
+        cost: '0',
+        query: $query,
+        encodedIdentity: true,
+    )));
+
+    $completed = Librarium::retrieve(ResearchHandle::fromArray($stored));
+
+    expect($completed->response?->status)->toBe(ResponseStatus::Succeeded)
+        ->and($completed->usage()?->actualCost)->toBe('0.001200')
+        ->and($completed->response?->results->sole()->content)->toBe('Collected durable answer.');
+    Http::assertSentCount(1);
 });
 
 it('distinguishes a reported zero DataForSEO submission cost from unknown cost', function (?string $cost, ?string $expected): void {
@@ -613,10 +654,14 @@ function durableConfigureDataForSeo(string $profile = 'dataforseo-gemini'): void
 }
 
 /** @return array<string, mixed> */
-function durableDataForSeoEnvelope(string $operation, int $status, bool $completed, ?string $cost): array
-{
-    $query = 'DataForSEO durable query';
-
+function durableDataForSeoEnvelope(
+    string $operation,
+    int $status,
+    bool $completed,
+    ?string $cost,
+    string $query = 'DataForSEO durable query',
+    bool $encodedIdentity = false,
+): array {
     return [
         'version' => '0.1.20260911',
         'status_code' => 20000,
@@ -633,7 +678,7 @@ function durableDataForSeoEnvelope(string $operation, int $status, bool $complet
                 'api' => 'ai_optimization',
                 'function' => 'llm_scraper',
                 'se' => 'gemini',
-                'keyword' => $query,
+                'keyword' => $encodedIdentity ? rawurlencode($query) : $query,
                 'location_code' => 2840,
                 'language_code' => 'en',
             ],

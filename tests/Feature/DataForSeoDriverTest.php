@@ -13,6 +13,7 @@ use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
 use Jkudish\LaravelAiLibrarium\Drivers\DataForSeo\DataForSeoCredential;
 use Jkudish\LaravelAiLibrarium\Drivers\DataForSeo\DataForSeoDriver;
+use Jkudish\LaravelAiLibrarium\Exceptions\RecoveryException;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\Jobs\RunResearch;
 use Jkudish\LaravelAiLibrarium\LaravelAiLibrariumServiceProvider;
@@ -365,6 +366,35 @@ it('accepts the observed ChatGPT Standard creation receipt identity', function (
         ->and($submission->usage()?->actualCost)->toBe('0.0012');
     Http::assertSentCount(1);
 });
+
+it('keeps observed Standard receipt aliases exact', function (string $profile, string $family, string $surface, Closure $mutate): void {
+    $query = 'literal + %20 % café';
+    $payload = dataForSeoEnvelope($profile, $family, 'task_post', $surface, $query, 20100, false, '0.0012');
+    $mutate($payload, $query);
+    Http::fake(fn () => Http::response($payload));
+
+    expect(fn () => Librarium::query($query)->using($profile)->submit())
+        ->toThrow(RecoveryException::class, 'different task family or request');
+    Http::assertSentCount(1);
+})->with([
+    'encoded echo of another prompt' => [
+        'dataforseo-chatgpt',
+        'ai_optimization/chat_gpt/llm_scraper',
+        'chatgpt',
+        function (array &$payload, string $query): void {
+            $payload['tasks'][0]['data']['function'] = 'llm_scraper';
+            $payload['tasks'][0]['data']['keyword'] = rawurlencode($query.' changed');
+        },
+    ],
+    'AI Optimization function on a SERP receipt' => [
+        'dataforseo-google-ai-mode',
+        'serp/google/ai_mode',
+        'google_ai_mode',
+        function (array &$payload): void {
+            $payload['tasks'][0]['data']['function'] = 'llm_scraper';
+        },
+    ],
+]);
 
 it('accepts omitted optional scraper echoes but rejects contradictory product or control echoes', function (array $echo, bool $accepted): void {
     $payload = dataForSeoEnvelope('dataforseo-chatgpt-live', 'ai_optimization/chat_gpt/llm_scraper', 'live/advanced', 'chatgpt', 'echo', 20000, true, '0.004');
