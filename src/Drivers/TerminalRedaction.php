@@ -23,9 +23,17 @@ final class TerminalRedaction
         ));
 
         if ($privateValues !== [] && self::contains($result->toArray(), $privateValues)) {
-            throw $failure ?? new DriverException(
-                'librarium.unsafe_result',
-                'The provider result contained private credential or task material.',
+            if ($failure === null) {
+                throw new DriverException(
+                    'librarium.unsafe_result',
+                    'The provider result contained private credential or task material.',
+                    false,
+                );
+            }
+
+            throw new DriverException(
+                $failure->errorCode,
+                $failure->getMessage(),
                 false,
             );
         }

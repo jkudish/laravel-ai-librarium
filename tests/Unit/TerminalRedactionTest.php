@@ -38,6 +38,23 @@ it('accepts nested retained terminal values that do not reflect private material
     expect(TerminalRedaction::guard($result, ['private/value', 'testing-provider-key']))->toBe($result);
 });
 
+it('preserves a provider failure summary while making redaction failures non-fallback', function (): void {
+    $failure = new DriverException(
+        'test.invalid_response',
+        'The provider returned a malformed response.',
+    );
+
+    expect(fn () => TerminalRedaction::guard(
+        terminalRedactionResult((object) ['report' => 'Reflected testing-provider-key']),
+        ['testing-provider-key'],
+        $failure,
+    ))->toThrow(function (DriverException $exception): void {
+        expect($exception->errorCode)->toBe('test.invalid_response')
+            ->and($exception->getMessage())->toBe('The provider returned a malformed response.')
+            ->and($exception->fallbackAllowed)->toBeFalse();
+    });
+});
+
 function terminalRedactionResult(stdClass $content): ResearchResult
 {
     return new ResearchResult(
