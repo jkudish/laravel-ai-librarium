@@ -10,7 +10,10 @@ it('locks the accepted TypeScript Profile inventory and its PHP classifications'
 
     expect($matrix)
         ->toContain('889b0366b5baafff117198632e04b24e521ac93d')
-        ->toContain('`laravel/ai` v0.10.3 at `c3848aae389f45c605eefb0dda5bd5fa7df76eaa`');
+        ->toContain('`laravel/ai` v0.10.3 at `c3848aae389f45c605eefb0dda5bd5fa7df76eaa`')
+        ->toContain('| `serpbase-search` | `serpbase/search` |')
+        ->toContain('| `serpbase-news` | `serpbase/news` |')
+        ->toContain('not part of the frozen 39-row');
 
     preg_match_all(
         '/^### `(?<key>[^`]+\/[^`]+)`\R(?<body>.*?)(?=^### |^## |\z)/ms',
@@ -187,6 +190,8 @@ it('reconciles every TypeScript matrix row with the landed PHP catalog', functio
         'dataforseo-gemini-live',
         'dataforseo-google-ai-mode',
         'dataforseo-google-ai-mode-live',
+        'serpbase-search',
+        'serpbase-news',
     ];
     sort($expectedProfiles);
 
@@ -219,8 +224,8 @@ it('keeps one separately gated live canary for every landed PHP Profile', functi
     sort($profiles);
     sort($configuredProfiles);
 
-    expect($matches)->toHaveCount(46)
-        ->and($ids)->toBe(array_map(static fn (int $id): string => sprintf('%02d', $id), range(1, 46)))
+    expect($matches)->toHaveCount(48)
+        ->and($ids)->toBe(array_map(static fn (int $id): string => sprintf('%02d', $id), range(1, 48)))
         ->and($profiles)->toBe($configuredProfiles)
         ->and($canaries)->toContain('unless an approval names a')
         ->toContain('| Monthly Search | C30–C34, C40–C41, C43, C45 | 0.02, 0.10, 0.02, 0.10, 0.10, 0.10, 0.01, 0.15, 0.10 | 0.70 |')
@@ -230,7 +235,7 @@ it('keeps one separately gated live canary for every landed PHP Profile', functi
         ->toContain('It never authorizes a retry')
         ->toContain('Unknown cost is not zero.')
         ->toContain('C01–C13 passed separately authorized live checks')
-        ->toContain('C14–C29 and C46 remain unverified live.')
+        ->toContain('C14–C29 and C46–C48 remain unverified live.')
         ->toContain('C30–C37 and C39–C45 passed on 2026-09-11')
         ->toContain('all C30–C45 Profiles have now passed their live canary')
         ->toContain('env -i HOME="$HOME" PATH="$PATH"')

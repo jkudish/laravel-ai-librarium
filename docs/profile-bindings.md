@@ -31,10 +31,13 @@ Pest test locks that result without introducing a TypeScript runtime dependency.
 The TypeScript inventory contains 14 grounded answers, 11 search-result
 Profiles, 8 durable research reports, and 6 surface observations. All 39 map to
 PHP core or the optional Firecrawl adapter. PHP additionally ships six
-provider-local DataForSEO surface Profiles approved under #3481; they extend
-the PHP catalog without rewriting this frozen TypeScript reconciliation.
+provider-local DataForSEO surface Profiles approved under #3481 and two
+SerpBase Profiles approved under #3650. The JavaScript SerpBase work was still
+unmerged at this baseline, so these additions are not part of the frozen 39-row
+reconciliation and do not rewrite it.
 `quick` has six curated members, `visibility` remains nine, `deep` derives its
-eight configured research Profiles, and `all` derives all 44 core Profiles.
+eight configured research Profiles, and `all` derives all 41 currently eligible
+core Profiles from a 47-Profile configured catalog.
 
 ## Provider-local PHP extension
 
@@ -54,6 +57,18 @@ All six are `surface_observation` / `surface_snapshot` Profiles collected by
 `dataforseo`. They do not join `quick` or `visibility`; enabled Profiles join
 the derived `all` group. See [`dataforseo-profiles.md`](dataforseo-profiles.md)
 for the endpoint, configuration, polling, pricing, and worker-loss contracts.
+
+The two enabled post-baseline SerpBase Profiles are likewise PHP catalog
+extensions until the independently implemented JavaScript profiles merge:
+
+| PHP Profile | Semantic identity | Offline evidence |
+| --- | --- | --- |
+| `serpbase-search` | `serpbase/search` | `SerpBaseDriverTest` |
+| `serpbase-news` | `serpbase/news` | `SerpBaseDriverTest` |
+
+They preserve ranked Search and News results respectively. Search can opt into
+bounded rich-result text, but undocumented rich child schemas are not treated
+as interchange contracts and receive no inferred citations.
 
 ## Landed PHP reconciliation
 

@@ -157,6 +157,12 @@ SearchAPI remains configured-only. To price its built-in
 is unavailable. Provider-reported actual totals continue to take precedence in
 the pricing resolver after execution.
 
+SerpBase is also configured-only because public headline minimums do not
+describe an account's actual credit price. Configure a `credits` rate for
+`serpbase:search` and/or `serpbase:news`; each built-in Profile reserves one
+credit and remains unavailable to hard-budget preflight until its account rate
+is configured.
+
 `ResearchPreview::preflightCostCheckAvailable` and the agent JSON
 `preflight_cost_check_available` member indicate only that `maxCost()` can
 perform this quote comparison. They do not indicate a provider-enforced
@@ -215,6 +221,8 @@ that Laravel AI does not expose through its prompt API:
 | `tavily-search` | Tavily Search | Search results | Inline | `services.tavily.key` |
 | `jina-search` | Jina Search Foundation | Search results | Inline | `services.jina.key` |
 | `serpapi` | SerpAPI Google Search | Search results | Inline | `services.serpapi.key` |
+| `serpbase-search` | SerpBase Google Search | Search results | Inline | `services.serpbase.key` |
+| `serpbase-news` | SerpBase Google News | Search results | Inline | `services.serpbase.key` |
 | `kagi-fastgpt` | Kagi FastGPT | Grounded answer | Inline | `services.kagi.key` |
 | `you-answer` | You.com Answer | Grounded answer | Inline | `YOU_COM_API_KEY` or `YDC_API_KEY` |
 | `you-research-grounded` | You.com Research (`standard`) | Grounded answer | Inline | `YOU_COM_API_KEY` or `YDC_API_KEY` |
@@ -254,6 +262,7 @@ remaining credentials to the consuming application's `config/services.php`:
 'perplexity' => ['key' => env('PERPLEXITY_API_KEY')],
 'searchapi' => ['key' => env('SEARCHAPI_KEY')],
 'serpapi' => ['key' => env('SERPAPI_API_KEY')],
+'serpbase' => ['key' => env('SERPBASE_API_KEY')],
 'tavily' => ['key' => env('TAVILY_API_KEY')],
 'valyu' => ['key' => env('VALYU_API_KEY')],
 ```
@@ -284,6 +293,24 @@ participates only in the non-default derived `deep` group. See
 [the You.com Profile guide](docs/you-com-profiles.md) for options, evidence
 mapping, pricing-quote assumptions, failed-call billing uncertainty, and the
 paid live gate.
+
+SerpBase Search and News each issue exactly one synchronous POST and never
+retry or paginate automatically. Both accept `hl`, `gl`, and a positive `page`;
+Search alone accepts `device` (`default`, `pc`, or `mobile`). Search's
+`include_rich_results` option defaults to `false`. When enabled, documented
+organic/news fields remain strict, People Also Ask uses only the documented
+`question`, `snippet`, `link`, and `displayed_link` fields, and related-search
+strings are suggestions rather than evidence. The undocumented
+`featured_snippet`, `top_stories`, and `knowledge_graph` shapes are rendered as
+bounded sanitized JSON-like text without interpreting child keys or deriving
+citations. Unsupported or unsafe values are omitted; keyed live schema
+validation remains pending and the offline rich tests use synthetic payloads.
+
+SerpBase's public policy says requests may log query text, locale, search type,
+status, latency, credits charged, API/account identifiers, and IP metadata. It
+does not promise zero retention, per-request suppression, self-service deletion,
+or a fixed public retention period. Do not send sensitive queries unless that
+policy fits the consuming application's privacy requirements.
 
 The package also ships SearchAPI.io Profiles served by a small Laravel HTTP
 Driver. `searchapi` returns raw Google search results; the surface Profiles
@@ -338,7 +365,8 @@ exposes credentials through previews and terminal results.
 every configured `research_report` Profile rather than maintained as a second
 list; the built-in catalog currently yields You.com standard, OpenAI,
 Perplexity high and medium, Exa, Gemini Deep Research, Parallel Research, and
-Valyu Research. `all` similarly derives all 45 configured core Profiles.
+Valyu Research. `all` similarly derives all 47 configured core Profiles; the
+two SerpBase Profiles join only this derived group and do not change `quick`.
 Profiles that are disabled or missing a credential remain visible in preview
 diagnostics but are not executed by a group. Invalid Profile configuration
 fails preflight instead of being silently skipped.
@@ -363,7 +391,7 @@ prompt events, or runs its middleware and conversation lifecycle.
 ## Live validation
 
 Live checks are paid, separately authorized release gates. See the
-[live provider canary inventory](docs/live-provider-canaries.md) for the 46
+[live provider canary inventory](docs/live-provider-canaries.md) for the 48
 materially unique checks, their current harness coverage, credentials, pricing
 uncertainty, and the approval record required before each dispatch. Approval of
 one canary does not authorize another canary, a retry, or a bulk Profile group.

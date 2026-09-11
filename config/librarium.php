@@ -19,6 +19,7 @@ use Jkudish\LaravelAiLibrarium\Drivers\Perplexity\PerplexityAgentDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Perplexity\PerplexitySearchDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\SearchApi\SearchApiDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\SerpApi\SerpApiDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\SerpBase\SerpBaseDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Tavily\TavilySearchDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Valyu\ValyuResearchDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Valyu\ValyuSearchDriver;
@@ -764,6 +765,46 @@ return [
                 'provider' => 'serpapi',
                 'model' => 'search',
                 'usage' => ['successful_search_request' => 1],
+                'conservative' => true,
+            ],
+        ],
+        'serpbase-search' => [
+            'driver' => SerpBaseDriver::class,
+            'provider' => 'serpbase',
+            'model' => null,
+            'result_kind' => 'search_results',
+            'grounding' => 'none',
+            'observation' => 'api_output',
+            'corpora' => ['web'],
+            'retrieval_methods' => ['search_endpoint'],
+            'prompt' => '{{ query }}',
+            'enabled' => true,
+            'options' => ['include_rich_results' => false],
+            'credential' => config('services.serpbase.key'),
+            'pricing' => [
+                'provider' => 'serpbase',
+                'model' => 'search',
+                'usage' => ['credits' => 1],
+                'conservative' => true,
+            ],
+        ],
+        'serpbase-news' => [
+            'driver' => SerpBaseDriver::class,
+            'provider' => 'serpbase',
+            'model' => null,
+            'result_kind' => 'search_results',
+            'grounding' => 'none',
+            'observation' => 'api_output',
+            'corpora' => ['news'],
+            'retrieval_methods' => ['search_endpoint'],
+            'prompt' => '{{ query }}',
+            'enabled' => true,
+            'options' => [],
+            'credential' => config('services.serpbase.key'),
+            'pricing' => [
+                'provider' => 'serpbase',
+                'model' => 'news',
+                'usage' => ['credits' => 1],
                 'conservative' => true,
             ],
         ],

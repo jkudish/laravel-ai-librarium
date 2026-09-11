@@ -11,6 +11,9 @@ All notable changes to this project will be documented in this file.
   surface observations.
 - Add provider-safe option validation, credential handling, deadlines,
   fallbacks, webhook wake hints, provenance, citations, usage, and errors.
+- Add optional SerpBase Google Search and News Profiles with one-request
+  billing bounds, strict ranked evidence, opt-in sanitized rich-result text,
+  and account-configured credit pricing.
 - Require published OpenRouter Profiles that enable web search to declare a
   supported `search_engine`; no engine is selected implicitly.
 - Pin and verify the accepted TypeScript terminal-interchange snapshot offline.

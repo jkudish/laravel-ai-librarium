@@ -44,7 +44,7 @@ abstract class TestCase extends Orchestra
             $app['config']->set("ai.providers.{$provider}.key", "testing-{$provider}-key");
         }
 
-        foreach (['brave', 'exa', 'jina', 'kagi', 'parallel', 'perplexity', 'searchapi', 'serpapi', 'tavily', 'valyu'] as $provider) {
+        foreach (['brave', 'exa', 'jina', 'kagi', 'parallel', 'perplexity', 'searchapi', 'serpapi', 'serpbase', 'tavily', 'valyu'] as $provider) {
             $app['config']->set("services.{$provider}.key", "testing-{$provider}-key");
         }
 
