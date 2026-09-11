@@ -59,7 +59,8 @@ the derived `all` group. See [`dataforseo-profiles.md`](dataforseo-profiles.md)
 for the endpoint, configuration, polling, pricing, and worker-loss contracts.
 
 The two enabled post-baseline SerpBase Profiles are likewise PHP catalog
-extensions until the independently implemented JavaScript profiles merge:
+extensions relative to the frozen baseline. Their JavaScript counterparts have
+now merged in [librarium #172](https://github.com/jkudish/librarium/pull/172):
 
 | PHP Profile | Semantic identity | Offline evidence |
 | --- | --- | --- |
