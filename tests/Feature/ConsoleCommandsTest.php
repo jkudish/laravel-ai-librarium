@@ -44,7 +44,7 @@ it('shows an interactive compiled preview and allows exiting without dispatch', 
         ->expectsQuestion('Add safeguards (optional)', [])
         ->expectsPromptsInfo('Compiled research preview')
         ->expectsOutputToContain('eligible')
-        ->expectsOutputToContain('Estimated cost: $0.05 max')
+        ->expectsOutputToContain('Conservative pre-dispatch estimate: $0.05')
         ->expectsQuestion('What would you like to do?', 'exit')
         ->expectsPromptsOutro('No research was dispatched.')
         ->assertSuccessful();
@@ -100,7 +100,7 @@ it('summarizes unavailable Profiles in one compact neutral note', function (): v
     $fake->assertNeverQueried()->assertNeverQueued();
 });
 
-it('suggests a verified conservative quote after preview when adding a cost ceiling', function (): void {
+it('suggests a verified conservative quote for the maximum-cost preflight check', function (): void {
     $fake = Librarium::fake()->preventStrayQueries();
 
     $this->artisan('librarium:query', [
@@ -109,16 +109,16 @@ it('suggests a verified conservative quote after preview when adding a cost ceil
     ])
         ->expectsQuestion('Add safeguards (optional)', ['max_cost'])
         ->expectsPromptsInfo('Compiled research preview')
-        ->expectsOutputToContain('Estimated cost: $0.05 max')
-        ->expectsQuestion('Maximum cost in USD', '0.05')
-        ->expectsOutputToContain('Cost ceiling set to 0.05 USD.')
+        ->expectsOutputToContain('Conservative pre-dispatch estimate: $0.05')
+        ->expectsQuestion('Maximum quoted cost in USD', '0.05')
+        ->expectsOutputToContain('Maximum quoted cost set to 0.05 USD; provider charges are not capped.')
         ->expectsQuestion('What would you like to do?', 'exit')
         ->assertSuccessful();
 
     $fake->assertNeverQueried()->assertNeverQueued();
 });
 
-it('stops safely when a requested cost ceiling cannot be suggested', function (): void {
+it('stops safely when a requested maximum-cost preflight check is unavailable', function (): void {
     config()->set('librarium.profiles.unknown', consoleProfileConfig('unknown-provider', '0.01'));
     config()->set('ai-pricing.prices', []);
     $fake = Librarium::fake()->preventStrayQueries();
@@ -129,7 +129,7 @@ it('stops safely when a requested cost ceiling cannot be suggested', function ()
     ])
         ->expectsQuestion('Add safeguards (optional)', ['max_cost'])
         ->expectsOutputToContain('Estimated cost: unavailable')
-        ->expectsPromptsWarning("A cost ceiling isn't available for this selection.")
+        ->expectsPromptsWarning("A conservative pre-dispatch estimate isn't available for this selection.")
         ->expectsPromptsOutro('No research was dispatched.')
         ->assertSuccessful();
 
@@ -166,6 +166,8 @@ it('returns a deterministic agent preview without dispatching', function (): voi
         ->and($decoded['pricing']['schema_version'])->toBe(1)
         ->and($decoded['pricing']['status'])->toBe('complete')
         ->and($decoded['pricing']['known_subtotals'])->toBe([['amount' => '0.07', 'currency' => 'USD']])
+        ->and($decoded['pricing']['preflight_cost_check_available'])->toBeTrue()
+        // Deprecated alias remains equivalent for existing consumers.
         ->and($decoded['pricing']['hard_ceiling_available'])->toBeTrue()
         ->and($decoded['pricing']['quotes'])->toHaveCount(2)
         ->and($decoded['pricing']['quotes'][0])->toMatchArray([

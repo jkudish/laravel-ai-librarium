@@ -43,10 +43,10 @@ it('runs one explicitly approved provider-parity canary', function (
     $pending = Librarium::query($query)->using($profile)->timeout($timeout);
     $preview = $pending->preview();
 
-    if ($preview->hardCostCeilingAvailable) {
+    if ($preview->preflightCostCheckAvailable) {
         $pending->maxCost($maximumUsd);
     } elseif (getenv('LIBRARIUM_LIVE_UNPRICED_ACK') !== "external-cap:{$profile}:USD:{$maximumUsd}") {
-        $this->markTestSkipped("This Profile has no enforceable preview ceiling. Set LIBRARIUM_LIVE_UNPRICED_ACK=external-cap:{$profile}:USD:{$maximumUsd} only after applying that provider/account cap externally.");
+        $this->markTestSkipped("This Profile has no conservative pre-dispatch estimate. Set LIBRARIUM_LIVE_UNPRICED_ACK=external-cap:{$profile}:USD:{$maximumUsd} only after applying that provider/account cap externally.");
     }
 
     $exactSubmissionUrl = match ($profile) {

@@ -213,3 +213,8 @@ deadline, and timeout bound work or local waiting; they do **not** prove a total
 dollar ceiling because input, tool, source, provider routing, already accepted
 background work, or account pricing can still vary. Use provider/account caps
 and application authorization when a hard spending bound is required.
+
+`ResearchPreview::preflightCostCheckAvailable` and agent JSON
+`preflight_cost_check_available` describe the pre-dispatch quote check.
+`hardCostCeilingAvailable` and `hard_ceiling_available` are deprecated aliases
+retained for compatibility; they do not indicate provider enforcement.

@@ -278,7 +278,7 @@ it('meters one successful search and leaves pricing unavailable without an opera
 
     $unconfigured = Librarium::query('pricing')->using('serpapi')->preview();
     expect($unconfigured->pricingStatus)->toBe('unavailable')
-        ->and($unconfigured->hardCostCeilingAvailable)->toBeFalse()
+        ->and($unconfigured->preflightCostCheckAvailable)->toBeFalse()
         ->and($unconfigured->knownCostSubtotals)->toBeEmpty();
 
     Http::assertNothingSent();

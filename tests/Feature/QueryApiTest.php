@@ -316,7 +316,7 @@ it('rejects unsafe Profile pricing identities before execution', function (strin
     'model control character' => ['model', "test\nmodel"],
 ]);
 
-it('rejects incomplete hard cost ceilings', function (): void {
+it('rejects incomplete maximum-cost preflight checks', function (): void {
     config()->set('librarium.profiles.gemini-grounded.pricing', null);
 
     expect(fn () => Librarium::query('Research this.')
@@ -326,7 +326,7 @@ it('rejects incomplete hard cost ceilings', function (): void {
         ->toThrow(ValidationException::class);
 });
 
-it('rejects over-budget hard cost ceilings', function (): void {
+it('rejects estimates above the configured maximum cost', function (): void {
     expect(fn () => Librarium::query('Research this.')
         ->using('gemini-grounded')
         ->maxCost('0.04')

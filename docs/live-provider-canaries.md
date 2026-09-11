@@ -11,7 +11,7 @@ Each canary ID below is an independent approval gate unless an approval names a
 defined tier below. A tier approval covers only its listed IDs, exact repository
 heads, fixed queries and models, per-canary reservations, aggregate ceiling,
 and one sequential attempt per canary. It never authorizes a retry or a changed
-model, query, timeout, or cost ceiling. Before dispatch, record:
+model, query, timeout, or maximum-cost threshold. Before dispatch, record:
 
 1. the exact commit or release candidate under test;
 2. the canary ID, Profile, query, model or provider-managed target, and timeout;
@@ -21,13 +21,13 @@ model, query, timeout, or cost ceiling. Before dispatch, record:
 5. the terminal receipt location with secrets and raw provider payloads removed.
 
 Unknown cost is not zero. A canary with unknown or variable pricing must not run
-until the approver supplies a dollar ceiling that the operator can enforce. A
-Librarium `--max-cost` ceiling is valid only when `laravel-ai-pricing` returns a
-complete, current, conservative, single-currency quote for the full reachable
-plan; otherwise the operator needs an independently enforced provider/account
-ceiling. The ordinary suite remains network-free. Existing live tests
-additionally require `LIBRARIUM_LIVE_TESTS=1`; the environment flag alone is
-not approval.
+until the approver supplies a dollar ceiling that the operator can enforce.
+Librarium enables its `--max-cost` preflight check only when
+`laravel-ai-pricing` returns a complete, current, conservative, single-currency
+quote for the full reachable plan. That check does not cap provider charges;
+every canary still needs an independently enforced provider/account ceiling.
+The ordinary suite remains network-free. Existing live tests additionally
+require `LIBRARIUM_LIVE_TESTS=1`; the environment flag alone is not approval.
 
 ## Provider-parity cadence and reservation ledger
 
@@ -98,10 +98,10 @@ provider/model and truthful search-on terminal projection differ materially.
 | C37 | `perplexity-deep-research` | Perplexity Agent API `medium`, background poll/retrieve | `PERPLEXITY_API_KEY` | `ProviderParityProfilesLiveTest` — Perplexity Deep Research; passed 2026-09-11 | Partial token/tool estimate only; explicit external cap required |
 | C38 | `grok-x-only` | One xAI Responses request with X Search only | `XAI_API_KEY` | `ProviderParityProfilesLiveTest` — Grok X-only; corrected query passed 2026-09-11 | Partial tokens/search estimate; refresh after 2026-09-21 billing change and apply external cap |
 | C39 | `grok-combined` | One xAI Responses request with web and X Search together | `XAI_API_KEY` | `ProviderParityProfilesLiveTest` — Grok combined; passed 2026-09-11 | Partial tokens/search estimate; refresh after 2026-09-21 billing change and apply external cap |
-| C40 | `parallel-search` | Parallel provider-managed Search mode | `PARALLEL_API_KEY` | `ProviderParityProfilesLiveTest` — Parallel Search; passed 2026-09-11 | Provider-managed mode prevents a hard preflight quote; external cap required |
+| C40 | `parallel-search` | Parallel provider-managed Search mode | `PARALLEL_API_KEY` | `ProviderParityProfilesLiveTest` — Parallel Search; passed 2026-09-11 | Provider-managed mode prevents a conservative preflight estimate; external cap required |
 | C41 | `parallel-turbo` | Parallel Search with `mode=turbo` fixed | `PARALLEL_API_KEY` | `ProviderParityProfilesLiveTest` — Parallel Turbo; passed 2026-09-11 | Fixed request/default-result quote plus external cap |
 | C42 | `parallel-research` | Parallel Task API `pro` submit/status/result | `PARALLEL_API_KEY` | `ProviderParityProfilesLiveTest` — Parallel Research; passed 2026-09-11 | Fixed successful processor-request quote plus external cap |
-| C43 | `valyu-search` | Valyu Search across web and specialized corpora | `VALYU_API_KEY` | `ProviderParityProfilesLiveTest` — Valyu Search; passed 2026-09-11 | Source-dependent charges prevent a hard preflight quote; external cap required |
+| C43 | `valyu-search` | Valyu Search across web and specialized corpora | `VALYU_API_KEY` | `ProviderParityProfilesLiveTest` — Valyu Search; passed 2026-09-11 | Source-dependent charges prevent a conservative preflight estimate; external cap required |
 | C44 | `valyu-research` | Valyu standard Deep Research submit/poll/retrieve | `VALYU_API_KEY` | `ProviderParityProfilesLiveTest` — Valyu Research; passed 2026-09-11 | Standard base/selected-option quote plus external cap |
 | C45 | `firecrawl-search` | Optional adapter raw `POST /v2/search` | `FIRECRAWL_API_KEY` | Adapter `FirecrawlSearchLiveTest`; passed 2026-09-11 | Provider credit use has no truthful preflight quantity; search-specific acknowledgement and external cap required |
 | C46 | `perplexity-low-frozen` | Perplexity Agent API frozen low configuration from 2026-09-11, inline result | `PERPLEXITY_API_KEY` | `PerplexityAgentDriverTest`; not run live | Output and tool token limits constrain work, not total USD spend; explicit external cap required |
@@ -133,7 +133,7 @@ C12 uses its single-test `composer test:live:openai-research` command. C07–C11
 and C13 were proved with approved ephemeral harnesses; a rerun needs a newly
 reviewed narrow harness rather than an ad hoc provider request. C30–C44 and C46
 also require `LIBRARIUM_LIVE_PROFILE`, `LIBRARIUM_LIVE_MAX_USD`, and, when
-preview pricing cannot enforce a hard ceiling, the exact
+preview pricing cannot support the maximum-cost preflight check, the exact
 `LIBRARIUM_LIVE_UNPRICED_ACK` printed by the harness after an external
 provider/account cap is applied. C45 uses the adapter's search-specific harness
 and acknowledgement under the same child-environment isolation.

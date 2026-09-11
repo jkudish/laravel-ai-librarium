@@ -126,11 +126,11 @@ each Profile at most once, while `reachable_from` records every compatible
 primary. The human preview summarizes known currency subtotals, unknown
 profiles or units, whether usage assumptions are conservative, and pricing
 source freshness in one compact statement. When the operator selects the
-interactive cost-ceiling safeguard, Librarium compiles and displays pricing
-first, then suggests the verified conservative bound as the default. If no safe
-bound exists, it explains why and exits without dispatching rather than asking
-the operator to invent one. Agent previews expose the same details beneath the
-versioned `pricing.schema_version: 1` object.
+interactive maximum-cost safeguard, Librarium compiles and displays pricing
+first, then suggests the conservative pre-dispatch estimate as the default. If
+no suitable estimate exists, it explains why and exits without dispatching
+rather than asking the operator to invent one. Agent previews expose the same
+details beneath the versioned `pricing.schema_version: 1` object.
 
 Preview resolution is offline by default. It can use configured rates, the
 pricing package's reviewed snapshot, and previously synchronized last-known-good
@@ -142,13 +142,14 @@ php artisan ai:pricing:sync
 ```
 
 Profiles declare a pricing `provider`, `model`, explicit usage units, and
-whether those units are a true conservative bound. Known cost from a partial or
-non-conservative quote remains useful preview information, but it is not a hard
-ceiling. `--max-cost` fails before dispatch unless every reachable quote is
-complete, current, conservative, and in one currency; unknown cost is never
-treated as zero. Configured rates are considered current until the application
-changes them. Other catalog prices must be no older than
-`librarium.pricing.max_age_days` (30 by default).
+whether those units are intended as a conservative estimate. Known cost from a
+partial or non-conservative quote remains useful preview information.
+`--max-cost` fails before dispatch unless every reachable quote is complete,
+current, conservative, and in one currency; unknown cost is never treated as
+zero. It does not send a budget to the provider or cap charges after dispatch.
+Configured rates are considered current until the application changes them.
+Other catalog prices must be no older than `librarium.pricing.max_age_days` (30
+by default).
 
 SearchAPI remains configured-only. To price its built-in
 `searchapi:search` identity, applications must define the
@@ -156,11 +157,15 @@ SearchAPI remains configured-only. To price its built-in
 is unavailable. Provider-reported actual totals continue to take precedence in
 the pricing resolver after execution.
 
-The legacy preview `cost` JSON member and the corresponding
-`maximumEstimatedCost`, `currency`, and `costEstimateComplete` properties are a
-narrow compatibility bridge. They are derived only from the aggregated
-`CostQuote` values and are populated as complete only when the same true hard
-ceiling is available. New consumers should use the versioned `pricing` object.
+`ResearchPreview::preflightCostCheckAvailable` and the agent JSON
+`preflight_cost_check_available` member indicate only that `maxCost()` can
+perform this quote comparison. They do not indicate a provider-enforced
+spending ceiling. `hardCostCeilingAvailable` and `hard_ceiling_available` remain
+deprecated compatibility aliases with the same preflight-only meaning. The
+legacy preview `cost` JSON member and the corresponding `maximumEstimatedCost`,
+`currency`, and `costEstimateComplete` properties are derived from the same
+aggregated `CostQuote` values. New consumers should use the versioned `pricing`
+object.
 
 Agent-mode exit codes are stable:
 

@@ -81,7 +81,7 @@ it('keeps YOU_COM_API_KEY canonical while accepting YDC_API_KEY as a nonbreaking
         ->toBe(config('librarium.profiles.you-research-research.credential'));
 });
 
-it('quotes an exact 5000 micro-USD Answer ceiling and refuses a lower hard budget before HTTP', function (): void {
+it('quotes an exact 5000 micro-USD Answer estimate and refuses a lower maximum before HTTP', function (): void {
     Http::fake();
 
     $preview = Librarium::query('What changed?')
@@ -103,7 +103,7 @@ it('quotes an exact 5000 micro-USD Answer ceiling and refuses a lower hard budge
     Http::assertNothingSent();
 });
 
-it('quotes an exact 50000 micro-USD ceiling for each Research Profile and refuses a lower budget before HTTP', function (string $profile): void {
+it('quotes an exact 50000 micro-USD estimate for each Research Profile and refuses a lower maximum before HTTP', function (string $profile): void {
     Http::fake();
 
     $preview = Librarium::query('Research this.')

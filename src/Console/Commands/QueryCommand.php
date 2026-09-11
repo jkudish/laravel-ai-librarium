@@ -34,7 +34,7 @@ final class QueryCommand extends LibrariumCommand
         {--group= : Profile group to use}
         {--fallback=* : Fallback Profile; repeat in priority order}
         {--timeout= : Timeout in seconds}
-        {--max-cost= : Hard maximum cost}
+        {--max-cost= : Reject dispatch when the conservative quoted estimate exceeds this amount}
         {--currency= : ISO 4217 currency for --max-cost (default: USD)}
         {--run : Run synchronously after preview}
         {--queue : Queue after preview}
@@ -71,7 +71,7 @@ final class QueryCommand extends LibrariumCommand
             $pending = $this->librarium->query($query);
 
             $this->applySelection($pending, $interactive);
-            $promptForCostCeiling = $this->applyControls($pending, $interactive);
+            $promptForMaximumCost = $this->applyControls($pending, $interactive);
 
             $preview = $pending->preview();
 
@@ -84,7 +84,7 @@ final class QueryCommand extends LibrariumCommand
             if ($interactive) {
                 $this->showPreview($pending, $preview);
 
-                if ($promptForCostCeiling && ! $this->applyInteractiveCostCeiling($pending, $preview)) {
+                if ($promptForMaximumCost && ! $this->applyInteractiveMaximumCost($pending, $preview)) {
                     outro('No research was dispatched.');
 
                     return self::SUCCESS;
@@ -252,13 +252,13 @@ final class QueryCommand extends LibrariumCommand
         $timeout = $this->stringOption('timeout');
         $maximumCost = $this->stringOption('max-cost');
         $currency = $this->stringOption('currency');
-        $promptForCostCeiling = false;
+        $promptForMaximumCost = false;
 
         if ($interactive && $fallbacks === [] && $timeout === null && $maximumCost === null && $currency === null) {
             $controls = multiselect('Add safeguards (optional)', [
                 'fallbacks' => 'Fallback Profiles — try alternatives after a failure',
                 'timeout' => 'Timeout — override the configured deadline',
-                'max_cost' => 'Cost ceiling — require a conservative hard bound',
+                'max_cost' => 'Maximum quoted cost — block dispatch above a conservative estimate',
             ], hint: 'Space selects; Enter continues with the configured defaults.');
 
             if (in_array('fallbacks', $controls, true)) {
@@ -268,7 +268,7 @@ final class QueryCommand extends LibrariumCommand
                 $timeout = text('Timeout in seconds', required: true, validate: fn (string $value): ?string => ctype_digit($value) ? null : 'Enter a whole number of seconds.');
             }
             if (in_array('max_cost', $controls, true)) {
-                $promptForCostCeiling = true;
+                $promptForMaximumCost = true;
             }
         }
 
@@ -285,28 +285,28 @@ final class QueryCommand extends LibrariumCommand
             $pending->maxCost($maximumCost, $currency ?? 'USD');
         }
 
-        return $promptForCostCeiling;
+        return $promptForMaximumCost;
     }
 
-    private function applyInteractiveCostCeiling(PendingResearch $pending, ResearchPreview $preview): bool
+    private function applyInteractiveMaximumCost(PendingResearch $pending, ResearchPreview $preview): bool
     {
-        if (! $preview->hardCostCeilingAvailable
+        if (! $preview->preflightCostCheckAvailable
             || $preview->maximumEstimatedCost === null
             || $preview->currency === null) {
-            warning("A cost ceiling isn't available for this selection.");
+            warning("A conservative pre-dispatch estimate isn't available for this selection.");
 
             return false;
         }
 
         $maximumCost = text(
-            "Maximum cost in {$preview->currency}",
+            "Maximum quoted cost in {$preview->currency}",
             default: $preview->maximumEstimatedCost,
             required: true,
-            hint: "Suggested from the conservative bound: {$preview->maximumEstimatedCost} {$preview->currency}.",
+            hint: "Current conservative pre-dispatch estimate: {$preview->maximumEstimatedCost} {$preview->currency}. This does not cap provider charges.",
         );
         $pending->maxCost($maximumCost, $preview->currency);
 
-        note("Cost ceiling set to {$maximumCost} {$preview->currency}.");
+        note("Maximum quoted cost set to {$maximumCost} {$preview->currency}; provider charges are not capped.");
 
         return true;
     }
@@ -433,14 +433,14 @@ final class QueryCommand extends LibrariumCommand
 
     private function pricingSummary(ResearchPreview $preview): string
     {
-        if ($preview->hardCostCeilingAvailable
+        if ($preview->preflightCostCheckAvailable
             && $preview->maximumEstimatedCost !== null
             && $preview->currency !== null) {
             $amount = $preview->currency === 'USD'
                 ? '$'.$preview->maximumEstimatedCost
                 : $preview->maximumEstimatedCost.' '.$preview->currency;
 
-            return "Estimated cost: {$amount} max";
+            return "Conservative pre-dispatch estimate: {$amount}";
         }
 
         return 'Estimated cost: unavailable';
@@ -481,6 +481,8 @@ final class QueryCommand extends LibrariumCommand
                 ])
                 ->values()
                 ->all(),
+            'preflight_cost_check_available' => $preview->preflightCostCheckAvailable,
+            // Deprecated compatibility alias; this is not a provider-enforced ceiling.
             'hard_ceiling_available' => $preview->hardCostCeilingAvailable,
             'quotes' => $preview->pricingQuotes->map(function (array $entry): array {
                 $quote = $entry['quote'];

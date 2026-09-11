@@ -66,7 +66,7 @@ it('keeps SearchAPI pricing unavailable until the operator configures its rate',
     $preview = Librarium::query('What changed?')->using('searchapi')->preview();
 
     expect($preview->pricingStatus)->toBe('unavailable')
-        ->and($preview->hardCostCeilingAvailable)->toBeFalse()
+        ->and($preview->preflightCostCheckAvailable)->toBeFalse()
         ->and($preview->knownCostSubtotals)->toBeEmpty()
         ->and($preview->pricingQuotes->sole()['quote']->completeness->value)->toBe('unavailable');
 
@@ -82,7 +82,7 @@ it('quotes SearchAPI offline after the operator configures its request rate', fu
 
     expect($preview->pricingStatus)->toBe('complete')
         ->and($preview->maximumEstimatedCost)->toBe($cost)
-        ->and($preview->hardCostCeilingAvailable)->toBeTrue()
+        ->and($preview->preflightCostCheckAvailable)->toBeTrue()
         ->and($preview->pricingQuotes->sole()['quote']->source->value)->toBe('configured');
 
     Http::assertNothingSent();

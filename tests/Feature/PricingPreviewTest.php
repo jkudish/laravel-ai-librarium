@@ -64,6 +64,8 @@ it('aggregates every primary and every reachable Profile in the global fallback 
         ->and($fallback['maximum_invocations'])->toBe(1)
         ->and($preview->knownCostSubtotals->all())->toBe(['USD' => '0.06'])
         ->and($preview->maximumEstimatedCost)->toBe('0.06')
+        ->and($preview->preflightCostCheckAvailable)->toBeTrue()
+        // Deprecated alias remains equivalent for existing callers.
         ->and($preview->hardCostCeilingAvailable)->toBeTrue();
 
     Http::assertNothingSent();
@@ -89,7 +91,7 @@ it('aggregates known cost while preserving partial and unavailable quotes', func
     ])->and($preview->pricingQuotes[1]['quote']->missingUnits)->toBe(['unknown_units'])
         ->and($preview->knownCostSubtotals->all())->toBe(['USD' => '0.03'])
         ->and($preview->pricingStatus)->toBe('partial')
-        ->and($preview->hardCostCeilingAvailable)->toBeFalse()
+        ->and($preview->preflightCostCheckAvailable)->toBeFalse()
         ->and($preview->maximumEstimatedCost)->toBeNull()
         ->and($preview->currency)->toBeNull()
         ->and($preview->costEstimateComplete)->toBeFalse();
@@ -116,6 +118,8 @@ it('emits a stable agent pricing schema for partial and unavailable quotes witho
         ->and($output['pricing']['schema_version'])->toBe(1)
         ->and($output['pricing']['status'])->toBe('partial')
         ->and($output['pricing']['known_subtotals'])->toBe([['amount' => '0.02', 'currency' => 'USD']])
+        ->and($output['pricing']['preflight_cost_check_available'])->toBeFalse()
+        // Deprecated JSON alias remains equivalent for existing consumers.
         ->and($output['pricing']['hard_ceiling_available'])->toBeFalse()
         ->and($output['pricing']['quotes'][0]['quote'])->toMatchArray([
             'completeness' => 'partial',
@@ -136,7 +140,7 @@ it('emits a stable agent pricing schema for partial and unavailable quotes witho
     $fake->assertNeverQueried()->assertNeverQueued();
 });
 
-it('rejects incomplete quotes as a hard ceiling before dispatch', function (): void {
+it('rejects incomplete quotes from the maximum-cost preflight check', function (): void {
     config()->set('librarium.profiles.incomplete', pricingProfileConfig(
         provider: 'incomplete-provider',
         usage: ['requests' => 1, 'unknown_units' => 2],
@@ -148,7 +152,7 @@ it('rejects incomplete quotes as a hard ceiling before dispatch', function (): v
         ->using('incomplete')
         ->maxCost('1.00')
         ->run())
-        ->toThrow(ValidationException::class, 'complete, current, single-currency');
+        ->toThrow(ValidationException::class, 'maximum-cost preflight check');
 
     Http::assertNothingSent();
     $fake->assertNeverQueried()->assertNeverQueued();
@@ -167,7 +171,7 @@ it('reports package source provenance and current freshness without HTTP', funct
         ->and($entry['quote']->provenance?->reference)->toBe('https://you.com/pricing')
         ->and($entry['quote']->provenance?->retrievedAt)->toBeInstanceOf(DateTimeImmutable::class)
         ->and($entry['freshness'])->toBe('current')
-        ->and($preview->hardCostCeilingAvailable)->toBeTrue();
+        ->and($preview->preflightCostCheckAvailable)->toBeTrue();
 
     Http::assertNothingSent();
 });
@@ -190,7 +194,7 @@ it('keeps catalog synchronization explicit while preview resolution stays offlin
     $fake->assertNeverQueried()->assertNeverQueued();
 });
 
-it('rejects a stale quote as a hard ceiling before dispatch', function (): void {
+it('rejects a stale quote from the maximum-cost preflight check', function (): void {
     config()->set('librarium.profiles.stale', pricingProfileConfig('stale-provider'));
     bindPricingResolver(function (PricingObservation $observation): CostQuote {
         $definition = new PriceDefinition(
@@ -207,7 +211,7 @@ it('rejects a stale quote as a hard ceiling before dispatch', function (): void 
 
     $preview = Librarium::query('Research this.')->using('stale')->preview();
     expect($preview->pricingQuotes->sole()['freshness'])->toBe('stale')
-        ->and($preview->hardCostCeilingAvailable)->toBeFalse();
+        ->and($preview->preflightCostCheckAvailable)->toBeFalse();
 
     expect(fn () => Librarium::query('Research this.')
         ->using('stale')
@@ -219,7 +223,7 @@ it('rejects a stale quote as a hard ceiling before dispatch', function (): void 
     $fake->assertNeverQueried()->assertNeverQueued();
 });
 
-it('rejects mixed-currency quotes as a hard ceiling before dispatch', function (): void {
+it('rejects mixed-currency quotes from the maximum-cost preflight check', function (): void {
     config()->set('librarium.profiles', [
         'usd' => pricingProfileConfig('usd-provider'),
         'cad' => pricingProfileConfig('cad-provider'),
@@ -232,7 +236,7 @@ it('rejects mixed-currency quotes as a hard ceiling before dispatch', function (
 
     $preview = Librarium::query('Research this.')->fanOut(['usd', 'cad'])->preview();
     expect($preview->knownCostSubtotals->all())->toBe(['CAD' => '0.01', 'USD' => '0.01'])
-        ->and($preview->hardCostCeilingAvailable)->toBeFalse();
+        ->and($preview->preflightCostCheckAvailable)->toBeFalse();
 
     expect(fn () => Librarium::query('Research this.')
         ->fanOut(['usd', 'cad'])
@@ -244,7 +248,7 @@ it('rejects mixed-currency quotes as a hard ceiling before dispatch', function (
     $fake->assertNeverQueried()->assertNeverQueued();
 });
 
-it('rejects non-conservative usage as a hard ceiling before dispatch', function (): void {
+it('rejects non-conservative usage from the maximum-cost preflight check', function (): void {
     config()->set('librarium.profiles.unbounded', pricingProfileConfig('unbounded-provider', conservative: false));
     configurePricingRate('unbounded-provider:test-model', ['requests' => '0.01']);
     $fake = Librarium::fake()->preventStrayQueries();
@@ -252,13 +256,13 @@ it('rejects non-conservative usage as a hard ceiling before dispatch', function 
     $preview = Librarium::query('Research this.')->using('unbounded')->preview();
     expect($preview->pricingStatus)->toBe('complete')
         ->and($preview->knownCostSubtotals->all())->toBe(['USD' => '0.01'])
-        ->and($preview->hardCostCeilingAvailable)->toBeFalse();
+        ->and($preview->preflightCostCheckAvailable)->toBeFalse();
 
     expect(fn () => Librarium::query('Research this.')
         ->using('unbounded')
         ->maxCost('1.00')
         ->run())
-        ->toThrow(ValidationException::class, 'conservative usage bounds');
+        ->toThrow(ValidationException::class, 'configured conservative usage estimates');
 
     Http::assertNothingSent();
     $fake->assertNeverQueried()->assertNeverQueued();
