@@ -235,3 +235,12 @@ it('rejects impossible changelog release dates', function (string $date): void {
         RELEASE_PROFILE_SNAPSHOT_SHA256,
     ))->toBe(['CHANGELOG.md does not contain a dated 1.0.0 release heading.']);
 })->with(['2026-02-29', '2026-13-01', '2026-99-99']);
+
+it('requires the Unreleased changelog section to be converted into the dated release', function (): void {
+    expect(ReleaseReadiness::evaluate(
+        releaseReadinessComposerFixture(),
+        "# Changelog\n\n## Unreleased\n\n- Pending.\n\n## [1.0.0] - 2026-09-11\n",
+        releaseReadinessManifestFixture(),
+        RELEASE_PROFILE_SNAPSHOT_SHA256,
+    ))->toBe(['CHANGELOG.md retains an Unreleased heading after the 1.0.0 release.']);
+});

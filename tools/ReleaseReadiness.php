@@ -119,6 +119,8 @@ final readonly class ReleaseReadiness
 
         if (! self::hasDatedReleaseHeading($changelog)) {
             $blockers[] = 'CHANGELOG.md does not contain a dated 1.0.0 release heading.';
+        } elseif (preg_match('/^## \[?Unreleased\]?$/mi', $changelog) === 1) {
+            $blockers[] = 'CHANGELOG.md retains an Unreleased heading after the 1.0.0 release.';
         }
 
         /** @var array<string, mixed> $typescript */
