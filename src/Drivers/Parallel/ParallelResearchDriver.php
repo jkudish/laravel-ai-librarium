@@ -8,13 +8,16 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Sleep;
-use Jkudish\LaravelAiLibrarium\Contracts\Driver;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
+use Jkudish\LaravelAiLibrarium\Contracts\DurableDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
 use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
+use Jkudish\LaravelAiLibrarium\Recovery\DurableSubmission;
+use Jkudish\LaravelAiLibrarium\Recovery\RecoveryRequest;
 use Jkudish\LaravelAiLibrarium\Responses\Citation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ContentFormat;
@@ -27,7 +30,7 @@ use Jkudish\LaravelAiLibrarium\Responses\ResultProvenance;
 use Jkudish\LaravelAiLibrarium\Responses\Source;
 
 /** Runs one durable Parallel Task API deep-research job to completion. */
-final readonly class ParallelResearchDriver implements Driver
+final readonly class ParallelResearchDriver implements DurableDriver
 {
     private const string ENDPOINT = 'https://api.parallel.ai/v1/tasks/runs';
 
@@ -81,7 +84,47 @@ final readonly class ParallelResearchDriver implements Driver
         }
     }
 
-    private function validateProfile(DriverRequest $request): string
+    public function submitDurable(DriverRequest $request): DurableSubmission
+    {
+        $processor = $this->validateProfile($request);
+
+        return new DurableSubmission(
+            reference: $this->submit($request, $processor, ParallelOptions::research($request->profile->options), false),
+        );
+    }
+
+    public function retrieveDurable(RecoveryRequest $request, string $reference): ?ResearchResult
+    {
+        $processor = $this->validateProfile($request);
+        $status = $this->status($request, $reference, $processor, false);
+        if ($status === null) {
+            throw $this->invalidResponse();
+        }
+
+        return match ($status) {
+            'queued', 'running', 'cancelling' => null,
+            'completed' => $this->retrieve($request, $reference, $processor, false)
+                ?? throw $this->invalidResponse(),
+            'failed' => throw new DriverException(
+                'parallel.research_failed',
+                'Parallel could not complete the Research run.',
+                false,
+            ),
+            'cancelled' => throw new DriverException(
+                'parallel.cancelled',
+                'The Parallel Research run was cancelled.',
+                false,
+            ),
+            'action_required' => throw new DriverException(
+                'parallel.action_required',
+                'Parallel requested unsupported human interaction.',
+                false,
+            ),
+            default => throw $this->invalidResponse(),
+        };
+    }
+
+    private function validateProfile(DriverRequest|RecoveryRequest $request): string
     {
         $profile = $request->profile;
         if ($profile->id !== 'parallel-research'
@@ -102,7 +145,8 @@ final readonly class ParallelResearchDriver implements Driver
         if (blank($profile->credential)) {
             throw new DriverException('parallel.authentication', 'The Parallel provider is not configured.');
         }
-        if (trim($request->prompt) === '' || mb_strlen($request->prompt) > 15_000) {
+        if ($request instanceof DriverRequest
+            && (trim($request->prompt) === '' || mb_strlen($request->prompt) > 15_000)) {
             throw new DriverException('parallel.invalid_request', 'The Parallel Research input is invalid.', false);
         }
         $this->transport->remainingSeconds($request);
@@ -113,8 +157,12 @@ final readonly class ParallelResearchDriver implements Driver
     /**
      * @param  array<string, mixed>  $options
      */
-    private function submit(DriverRequest $request, string $processor, array $options): string
-    {
+    private function submit(
+        DriverRequest $request,
+        string $processor,
+        array $options,
+        bool $enforcePostResponseDeadline = true,
+    ): string {
         $sourcePolicy = array_filter([
             'include_domains' => $options['include_domains'] ?? null,
             'exclude_domains' => $options['exclude_domains'] ?? null,
@@ -128,7 +176,7 @@ final readonly class ParallelResearchDriver implements Driver
             ]],
             'source_policy' => $sourcePolicy === [] ? null : $sourcePolicy,
             'advanced_settings' => isset($options['location']) ? ['location' => $options['location']] : null,
-        ], static fn (mixed $value): bool => $value !== null), true);
+        ], static fn (mixed $value): bool => $value !== null), true, $enforcePostResponseDeadline);
 
         if ($response->redirect()) {
             throw new DriverException(
@@ -162,18 +210,30 @@ final readonly class ParallelResearchDriver implements Driver
         return $runId;
     }
 
-    private function status(DriverRequest $request, string $runId, string $processor): ?string
-    {
+    private function status(
+        DriverRequest|RecoveryRequest $request,
+        string $runId,
+        string $processor,
+        bool $transientAsPending = true,
+    ): ?string {
         try {
             $response = $this->transport->get($request, self::ENDPOINT.'/'.rawurlencode($runId));
         } catch (DriverException $exception) {
             if ($exception->errorCode === 'parallel.connection') {
+                if (! $transientAsPending) {
+                    throw $exception;
+                }
+
                 return null;
             }
 
             throw $exception;
         }
         if ($this->transient($response)) {
+            if (! $transientAsPending) {
+                throw $this->transport->failure($response, true);
+            }
+
             return null;
         }
         if ($response->failed() || $response->redirect()) {
@@ -192,20 +252,32 @@ final readonly class ParallelResearchDriver implements Driver
         return $status;
     }
 
-    private function retrieve(DriverRequest $request, string $runId, string $processor): ?ResearchResult
-    {
+    private function retrieve(
+        DriverRequest|RecoveryRequest $request,
+        string $runId,
+        string $processor,
+        bool $transientAsPending = true,
+    ): ?ResearchResult {
         $timeout = max(1, min(25, (int) floor($this->transport->remainingSeconds($request))));
         $url = self::ENDPOINT.'/'.rawurlencode($runId).'/result?timeout='.$timeout;
         try {
-            $response = $this->transport->get($request, $url);
+            $response = $this->transport->get($request, $url, Operation::Retrieve);
         } catch (DriverException $exception) {
             if ($exception->errorCode === 'parallel.connection') {
+                if (! $transientAsPending) {
+                    throw $exception;
+                }
+
                 return null;
             }
 
             throw $exception;
         }
         if ($this->transient($response)) {
+            if (! $transientAsPending) {
+                throw $this->transport->failure($response, true);
+            }
+
             return null;
         }
         if ($response->failed() || $response->redirect()) {
@@ -216,8 +288,12 @@ final readonly class ParallelResearchDriver implements Driver
     }
 
     /** @param array<array-key, mixed> $json */
-    private function result(DriverRequest $request, array $json, string $runId, string $processor): ResearchResult
-    {
+    private function result(
+        DriverRequest|RecoveryRequest $request,
+        array $json,
+        string $runId,
+        string $processor,
+    ): ResearchResult {
         $run = $json['run'] ?? null;
         $output = $json['output'] ?? null;
         if (! is_array($run) || array_is_list($run) || ! is_array($output) || array_is_list($output)

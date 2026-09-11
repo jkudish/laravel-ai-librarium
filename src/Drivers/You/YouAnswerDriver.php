@@ -13,6 +13,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
@@ -212,7 +213,7 @@ final readonly class YouAnswerDriver implements Driver
         }
 
         try {
-            return Http::withHeaders(['X-API-Key' => $credential])
+            $response = Http::withHeaders(['X-API-Key' => $credential])
                 ->acceptJson()
                 ->connectTimeout(min(self::CONNECT_TIMEOUT_SECONDS, $remaining))
                 ->timeout($remaining)
@@ -221,6 +222,8 @@ final readonly class YouAnswerDriver implements Driver
                     ...$options,
                 ]);
         } catch (ConnectionException) {
+            $request->captureNoResponse(Operation::Inline);
+
             if (CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
                 throw new DriverException(
                     'you_answer.deadline_exceeded',
@@ -234,6 +237,10 @@ final readonly class YouAnswerDriver implements Driver
                 'You.com Answer could not be reached.',
             );
         }
+
+        $request->captureResponse($response, Operation::Inline);
+
+        return $response;
     }
 
     private function remainingSeconds(DriverRequest $request): float

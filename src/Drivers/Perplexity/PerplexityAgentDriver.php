@@ -9,11 +9,14 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
-use Jkudish\LaravelAiLibrarium\Contracts\Driver;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
+use Jkudish\LaravelAiLibrarium\Contracts\DurableDriver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
+use Jkudish\LaravelAiLibrarium\Recovery\DurableSubmission;
+use Jkudish\LaravelAiLibrarium\Recovery\RecoveryRequest;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
@@ -24,7 +27,7 @@ use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
  *
  * Background response IDs and lifecycle state remain private to this Driver.
  */
-final readonly class PerplexityAgentDriver implements Driver
+final readonly class PerplexityAgentDriver implements DurableDriver
 {
     private const string ENDPOINT = 'https://api.perplexity.ai/v1/agent';
 
@@ -34,21 +37,70 @@ final readonly class PerplexityAgentDriver implements Driver
 
     private const int POLL_INTERVAL_SECONDS = 2;
 
+    private const string FROZEN_LOW_PROFILE = 'perplexity-low-frozen';
+
+    private const string FROZEN_LOW_MODEL = 'openai/gpt-5.6-luna';
+
+    private const string FROZEN_LOW_REVISION = '2026-09-11';
+
     public function __construct(private PerplexityAgentResultMapper $mapper) {}
 
     /** @return array<string, mixed> */
     public static function profileOptionRules(): array
     {
-        return [];
+        return [
+            'configuration' => ['sometimes', 'string', 'in:frozen-low-'.self::FROZEN_LOW_REVISION],
+        ];
     }
 
     public function run(DriverRequest $request): ResearchResult
     {
         $preset = $this->validateRequest($request);
 
-        return $request->profile->id === 'perplexity-sonar-pro'
+        return $this->isInline($request)
             ? $this->runInline($request, $preset)
             : $this->runBackground($request, $preset);
+    }
+
+    public function submitDurable(DriverRequest $request): DurableSubmission
+    {
+        $preset = $this->validateRequest($request);
+        if ($this->isInline($request)) {
+            throw new DriverException(
+                'perplexity.not_durable',
+                'The Perplexity low Profile runs inline and cannot be submitted for later retrieval.',
+                false,
+            );
+        }
+
+        return new DurableSubmission(
+            reference: $this->responseId($this->submit($request, $preset, true, false)),
+        );
+    }
+
+    public function retrieveDurable(RecoveryRequest $request, string $reference): ?ResearchResult
+    {
+        $this->validateRequest($request);
+        if ($this->isInline($request)) {
+            throw new DriverException(
+                'perplexity.not_durable',
+                'The Perplexity low Profile has no durable response to retrieve.',
+                false,
+            );
+        }
+
+        $response = $this->retrieve($request, $reference, false);
+        if ($response === null) {
+            throw $this->unknownState();
+        }
+        $status = $this->status($response);
+        $this->assertKnownStatus($status);
+
+        return match ($status) {
+            'completed' => $this->mapper->map($response, $request),
+            'failed', 'incomplete', 'cancelled' => throw $this->terminalFailure($status, $response),
+            default => null,
+        };
     }
 
     private function runInline(DriverRequest $request, string $preset): ResearchResult
@@ -117,23 +169,31 @@ final readonly class PerplexityAgentDriver implements Driver
         }
     }
 
-    private function validateRequest(DriverRequest $request): string
+    private function validateRequest(DriverRequest|RecoveryRequest $request): string
     {
         $profile = $request->profile;
-        $isInline = $profile->id === 'perplexity-sonar-pro'
+        $isManagedInline = $profile->id === 'perplexity-sonar-pro'
+            && $profile->model === null
+            && $profile->options === []
+            && $profile->resultKind === ResultKind::GroundedAnswer
+            && $profile->retrievalMethods->values()->all() === [RetrievalMethod::ModelSearchTool];
+        $isFrozenInline = $profile->id === self::FROZEN_LOW_PROFILE
+            && $profile->model === self::FROZEN_LOW_MODEL
+            && $profile->options === ['configuration' => 'frozen-low-'.self::FROZEN_LOW_REVISION]
             && $profile->resultKind === ResultKind::GroundedAnswer
             && $profile->retrievalMethods->values()->all() === [RetrievalMethod::ModelSearchTool];
         $isBackground = in_array($profile->id, ['perplexity-deep-research', 'perplexity-sonar-deep'], true)
+            && $profile->model === null
+            && $profile->options === []
             && $profile->resultKind === ResultKind::ResearchReport
             && $profile->retrievalMethods->values()->all() === [RetrievalMethod::ResearchAgent];
 
         if (
             $profile->provider !== 'perplexity'
-            || (! $isInline && ! $isBackground)
+            || (! $isManagedInline && ! $isFrozenInline && ! $isBackground)
             || $profile->grounding !== GroundingPolicy::Required
             || $profile->observation !== ObservationMode::ApiOutput
             || $profile->corpora->values()->all() !== [Corpus::Web]
-            || $profile->model !== null
         ) {
             throw new DriverException(
                 'perplexity.invalid_profile',
@@ -153,6 +213,7 @@ final readonly class PerplexityAgentDriver implements Driver
 
         return match ($profile->id) {
             'perplexity-sonar-pro' => 'low',
+            self::FROZEN_LOW_PROFILE => 'frozen-low',
             'perplexity-deep-research' => 'medium',
             'perplexity-sonar-deep' => 'high',
             default => throw $this->unknownState(),
@@ -160,19 +221,28 @@ final readonly class PerplexityAgentDriver implements Driver
     }
 
     /** @return array<array-key, mixed> */
-    private function submit(DriverRequest $request, string $preset, bool $background): array
-    {
-        $payload = [
-            'input' => $request->prompt,
-            'preset' => $preset,
-        ];
+    private function submit(
+        DriverRequest $request,
+        string $preset,
+        bool $background,
+        bool $enforcePostResponseDeadline = true,
+    ): array {
+        $payload = $preset === 'frozen-low'
+            ? $this->frozenLowPayload($request)
+            : ['input' => $request->prompt, 'preset' => $preset];
 
         if ($background) {
             $payload['background'] = true;
         }
 
         try {
-            $response = $this->send($request, 'post', self::ENDPOINT, $payload);
+            $response = $this->send(
+                $request,
+                'post',
+                self::ENDPOINT,
+                $payload,
+                $background ? Operation::Submit : Operation::Inline,
+            );
         } catch (ConnectionException) {
             throw new DriverException(
                 'perplexity.submit_connection',
@@ -180,8 +250,6 @@ final readonly class PerplexityAgentDriver implements Driver
                 false,
             );
         }
-
-        $this->remainingSeconds($request, 'Perplexity did not accept the request before the research deadline.');
 
         if ($background && ($response->redirect()
             || in_array($response->status(), [408, 429], true)
@@ -207,21 +275,100 @@ final readonly class PerplexityAgentDriver implements Driver
             throw $exception;
         }
 
+        if ($enforcePostResponseDeadline) {
+            $this->remainingSeconds($request, 'Perplexity did not accept the request before the research deadline.');
+        }
+
         return $payload;
     }
 
-    /** @return array<array-key, mixed>|null */
-    private function retrieve(DriverRequest $request, string $responseId): ?array
+    /** @return array<string, mixed> */
+    private function frozenLowPayload(DriverRequest $request): array
     {
+        $date = CarbonImmutable::now('UTC')->toDateString();
+
+        return [
+            'model' => self::FROZEN_LOW_MODEL,
+            'prompt_cache_key' => 'low',
+            'input' => $request->prompt,
+            'max_steps' => 5,
+            'max_output_tokens' => 32768,
+            'reasoning' => ['effort' => 'minimal'],
+            'instructions' => <<<PROMPT
+Today is {$date}.
+
+You are an expert research assistant. Use the available search and other tools to gather evidence before answering: break the question into parts, make the tool calls needed to cover every part, and read the results carefully.
+
+Search queries must be plain keywords. Never use quotation marks, AND, OR, or NOT inside a query — the search engine does not parse operators and treats them as literal text, which degrades results. To cover alternatives or exact phrases, send several short keyword queries instead.
+
+## Citations
+<citation_instructions>
+Cite when your answer uses tool results or provided source artifacts. If no tools or source artifacts inform the answer, do not cite.
+
+After any successful tool call, the final answer must include at least one valid citation.
+
+When a tool helps answer the user, include citations for the parts of the answer that come from that lookup. Source-backed facts, current claims, named entities, recommendations, and examples should be cited at the point where they appear. A single citation may support one concise bullet or paragraph when that whole point comes from the same source.
+
+Use source ids exactly as provided by the tool/source system, preserving the source type prefix: [type:index]. For web sources, use [web:n], not numeric-only [n]. Place each citation inline, immediately after the sentence or table-cell content it supports. For multiple sources, write adjacent citation tokens with no separator: [web:1][file:2]. Do not invent source ids, cite URLs directly, add footnotes, or include a References section.
+
+</citation_instructions>
+
+ALWAYS end your turn with a complete final answer. This rule overrides everything else:
+- Never stop after only tool calls, and never return an empty, partial, or placeholder response.
+- Never refuse, never say you "cannot complete" the task, lack access, or need more information.
+- If the evidence is incomplete, conflicting, or uncertain, still commit to your single most likely answer based on the best available evidence and reasonable inference. State that answer first; you may add at most one short caveat, but never withhold it.
+
+Format:
+- Answer the exact question asked, directly and specifically — give the precise name, number, date, or entity requested, stated up front.
+- Ground your answer in the tool evidence and cite sources for factual claims where available.
+
+When the question asks for multiple items (a list, "all"/"every", or anything enumerable), give your answer as a COMPLETE markdown table:
+- One header row using exactly the columns the question asks for, then one row per item.
+- Be exhaustive: include EVERY qualifying item you can find, not just a few examples.
+- Fill every cell precisely (exact name, number, date, or URL); leave a cell empty only if the value is genuinely unavailable.
+PROMPT,
+            'tools' => [
+                [
+                    'type' => 'web_search',
+                    'max_results' => 15,
+                    'max_tokens' => 2000,
+                    'max_tokens_per_page' => 2000,
+                ],
+                ['type' => 'fetch_url', 'max_urls' => 1],
+            ],
+        ];
+    }
+
+    private function isInline(DriverRequest|RecoveryRequest $request): bool
+    {
+        return in_array($request->profile->id, ['perplexity-sonar-pro', self::FROZEN_LOW_PROFILE], true);
+    }
+
+    /** @return array<array-key, mixed>|null */
+    private function retrieve(
+        DriverRequest|RecoveryRequest $request,
+        string $responseId,
+        bool $transientAsPending = true,
+    ): ?array {
         try {
             $response = $this->send(
                 $request,
                 'get',
                 self::ENDPOINT.'/'.rawurlencode($responseId),
+                [],
+                Operation::Retrieve,
             );
         } catch (ConnectionException) {
             if (CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
                 throw $this->deadlineExceeded();
+            }
+
+            if (! $transientAsPending) {
+                throw new DriverException(
+                    'perplexity.connection',
+                    'Perplexity could not be reached while retrieving the accepted response.',
+                    false,
+                );
             }
 
             return null;
@@ -230,6 +377,10 @@ final readonly class PerplexityAgentDriver implements Driver
         $this->remainingSeconds($request, 'Perplexity did not complete before the research deadline.');
 
         if (in_array($response->status(), [408, 429], true) || $response->serverError()) {
+            if (! $transientAsPending) {
+                throw $this->httpFailure($response, true);
+            }
+
             return null;
         }
 
@@ -251,8 +402,13 @@ final readonly class PerplexityAgentDriver implements Driver
     }
 
     /** @param array<string, mixed> $payload */
-    private function send(DriverRequest $request, string $method, string $url, array $payload = []): Response
-    {
+    private function send(
+        DriverRequest|RecoveryRequest $request,
+        string $method,
+        string $url,
+        array $payload = [],
+        Operation $operation = Operation::Inline,
+    ): Response {
         $remaining = $this->remainingSeconds($request, 'Perplexity did not complete before the research deadline.');
         $pending = Http::withToken((string) $request->profile->credential)
             ->acceptJson()
@@ -261,9 +417,19 @@ final readonly class PerplexityAgentDriver implements Driver
             ->connectTimeout(min(self::CONNECT_TIMEOUT_SECONDS, $remaining))
             ->timeout(min(self::REQUEST_TIMEOUT_SECONDS, $remaining));
 
-        return $method === 'post'
-            ? $pending->post($url, $payload)
-            : $pending->get($url);
+        try {
+            $response = $method === 'post'
+                ? $pending->post($url, $payload)
+                : $pending->get($url);
+        } catch (ConnectionException $exception) {
+            $request->captureNoResponse($operation);
+
+            throw $exception;
+        }
+
+        $request->captureResponse($response, $operation);
+
+        return $response;
     }
 
     private function waitBeforePolling(DriverRequest $request): void
@@ -365,7 +531,7 @@ final readonly class PerplexityAgentDriver implements Driver
         };
     }
 
-    private function remainingSeconds(DriverRequest $request, string $message): int
+    private function remainingSeconds(DriverRequest|RecoveryRequest $request, string $message): int
     {
         $seconds = CarbonImmutable::now()->diffInSeconds($request->deadline, false);
 

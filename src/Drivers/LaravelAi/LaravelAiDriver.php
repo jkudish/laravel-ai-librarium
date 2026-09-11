@@ -7,7 +7,9 @@ namespace Jkudish\LaravelAiLibrarium\Drivers\LaravelAi;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
+use Illuminate\Http\Client\Response;
 use Illuminate\Validation\ValidationException;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
@@ -17,9 +19,14 @@ use Laravel\Ai\Exceptions\AiException;
 use Laravel\Ai\Exceptions\InsufficientCreditsException;
 use Laravel\Ai\Exceptions\ProviderOverloadedException;
 use Laravel\Ai\Exceptions\RateLimitedException;
+use Laravel\Ai\Responses\AgentResponse;
+use Throwable;
 
 final readonly class LaravelAiDriver implements Driver
 {
+    /** @var list<string> */
+    private const array OPENROUTER_SEARCH_ENGINES = ['exa', 'firecrawl', 'parallel', 'perplexity'];
+
     public function __construct(private ResearchResultMapper $mapper) {}
 
     /** @return array<string, mixed> */
@@ -27,6 +34,7 @@ final readonly class LaravelAiDriver implements Driver
     {
         return [
             'web_search' => ['sometimes', 'boolean'],
+            'search_engine' => ['sometimes', 'string', 'in:'.implode(',', self::OPENROUTER_SEARCH_ENGINES)],
         ];
     }
 
@@ -42,10 +50,35 @@ final readonly class LaravelAiDriver implements Driver
         }
 
         $usesWebSearch = data_get($request->profile->options, 'web_search', true);
+        $searchEngine = data_get($request->profile->options, 'search_engine');
         if (! is_bool($usesWebSearch)) {
             throw new DriverException(
                 errorCode: 'laravel_ai.invalid_options',
                 message: 'The Laravel AI Driver received invalid Profile options.',
+                fallbackAllowed: false,
+            );
+        }
+
+        if ($searchEngine !== null && ! is_string($searchEngine)) {
+            throw new DriverException(
+                errorCode: 'laravel_ai.invalid_options',
+                message: 'The Laravel AI Driver received invalid Profile options.',
+                fallbackAllowed: false,
+            );
+        }
+
+        if ($request->profile->provider === 'openrouter') {
+            if ($usesWebSearch && ! in_array($searchEngine, self::OPENROUTER_SEARCH_ENGINES, true)) {
+                throw new DriverException(
+                    errorCode: 'laravel_ai.search_engine_required',
+                    message: 'OpenRouter web search requires an exact supported search engine.',
+                    fallbackAllowed: false,
+                );
+            }
+        } elseif ($searchEngine !== null) {
+            throw new DriverException(
+                errorCode: 'laravel_ai.search_engine_unsupported',
+                message: 'The search_engine option is supported only by OpenRouter Profiles.',
                 fallbackAllowed: false,
             );
         }
@@ -59,7 +92,11 @@ final readonly class LaravelAiDriver implements Driver
         }
 
         $timeout = $this->remainingSeconds($request);
-        $agent = new ResearchAgent($usesWebSearch);
+        $agent = new ResearchAgent(
+            usesWebSearch: $usesWebSearch,
+            searchEngine: $searchEngine,
+            exactOpenRouterRouting: $request->profile->provider === 'openrouter',
+        );
 
         try {
             $response = $agent->prompt(
@@ -68,26 +105,39 @@ final readonly class LaravelAiDriver implements Driver
                 model: $model,
                 timeout: $timeout,
             );
-        } catch (RateLimitedException) {
+        } catch (RateLimitedException $exception) {
+            $this->captureException($request, $exception);
+
             throw new DriverException('laravel_ai.rate_limited', 'The AI provider rate limited the research request.');
-        } catch (ProviderOverloadedException) {
+        } catch (ProviderOverloadedException $exception) {
+            $this->captureException($request, $exception);
+
             throw new DriverException('laravel_ai.provider_unavailable', 'The AI provider is temporarily unavailable.');
-        } catch (InsufficientCreditsException) {
+        } catch (InsufficientCreditsException $exception) {
+            $this->captureException($request, $exception);
+
             throw new DriverException('laravel_ai.insufficient_credits', 'The AI provider could not run the request because its quota is exhausted.');
         } catch (ConnectionException) {
+            $request->captureNoResponse(Operation::Inline);
+
             if (CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
                 throw new DriverException('librarium.timeout', 'The shared research deadline was reached.', false);
             }
 
             throw new DriverException('laravel_ai.network', 'The AI provider could not be reached.');
         } catch (RequestException $exception) {
+            $request->captureResponse($exception->response, Operation::Inline);
+
             throw $this->requestFailure($exception);
         } catch (ValidationException) {
             throw new DriverException('laravel_ai.validation', 'The AI provider request failed validation.', false);
-        } catch (AiException) {
+        } catch (AiException $exception) {
+            $this->captureException($request, $exception);
+
             throw new DriverException('laravel_ai.provider', 'The AI provider could not complete the research request.');
         }
 
+        $this->captureResponse($request, $response);
         $result = $this->mapper->map($response, $request, $usesWebSearch);
 
         if ($request->profile->grounding === GroundingPolicy::Required && $result->citations->isEmpty()) {
@@ -98,6 +148,47 @@ final readonly class LaravelAiDriver implements Driver
         }
 
         return $result;
+    }
+
+    private function captureResponse(DriverRequest $request, AgentResponse $response): void
+    {
+        $captured = 0;
+        $missing = 0;
+
+        if ($response->steps->isNotEmpty()) {
+            foreach ($response->steps as $step) {
+                if ($step->raw instanceof Response) {
+                    $request->captureResponse($step->raw, Operation::Inline);
+                    $captured++;
+                } else {
+                    $missing++;
+                }
+            }
+        } elseif ($response->raw instanceof Response) {
+            $request->captureResponse($response->raw, Operation::Inline);
+            $captured++;
+        }
+
+        if ($captured > 0 && $missing > 0) {
+            $request->markCapturePartial();
+        }
+    }
+
+    private function captureException(DriverRequest $request, Throwable $exception): void
+    {
+        for ($cause = $exception; $cause !== null; $cause = $cause->getPrevious()) {
+            if ($cause instanceof RequestException) {
+                $request->captureResponse($cause->response, Operation::Inline);
+
+                return;
+            }
+
+            if ($cause instanceof ConnectionException) {
+                $request->captureNoResponse(Operation::Inline);
+
+                return;
+            }
+        }
     }
 
     private function remainingSeconds(DriverRequest $request): int

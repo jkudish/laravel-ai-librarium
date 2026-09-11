@@ -1,7 +1,7 @@
 # Live provider canary approval gates
 
 This is the inventory and operating policy for materially unique live checks
-for 44 core Profiles plus the optional Firecrawl Search adapter Profile. The
+for 45 core Profiles plus the optional Firecrawl Search adapter Profile. The
 ordinary test suite remains network-free; every live execution still requires
 an explicit approval bound to its exact candidate, scope, and spend ceiling.
 
@@ -104,13 +104,14 @@ provider/model and truthful search-on terminal projection differ materially.
 | C43 | `valyu-search` | Valyu Search across web and specialized corpora | `VALYU_API_KEY` | `ProviderParityProfilesLiveTest` — Valyu Search; passed 2026-09-11 | Source-dependent charges prevent a hard preflight quote; external cap required |
 | C44 | `valyu-research` | Valyu standard Deep Research submit/poll/retrieve | `VALYU_API_KEY` | `ProviderParityProfilesLiveTest` — Valyu Research; passed 2026-09-11 | Standard base/selected-option quote plus external cap |
 | C45 | `firecrawl-search` | Optional adapter raw `POST /v2/search` | `FIRECRAWL_API_KEY` | Adapter `FirecrawlSearchLiveTest`; passed 2026-09-11 | Provider credit use has no truthful preflight quantity; search-specific acknowledgement and external cap required |
+| C46 | `perplexity-low-frozen` | Perplexity Agent API frozen low configuration from 2026-09-11, inline result | `PERPLEXITY_API_KEY` | `PerplexityAgentDriverTest`; not run live | Output and tool token limits constrain work, not total USD spend; explicit external cap required |
 
 ## Narrow invocation
 
-For C01–C06, C14–C29, and C30–C44, invoke only the named dataset after approval
-rather than a bulk Composer script. Pass only the selected Profile credential
-to the child environment (`credential_name` must be the canonical name from the
-table):
+For C01–C06, C14–C29, C30–C44, and C46, invoke only the named dataset after
+approval rather than a bulk Composer script. Pass only the selected Profile
+credential to the child environment (`credential_name` must be the canonical
+name from the table):
 
 ```bash
 credential_name='<CREDENTIAL_NAME>'
@@ -130,15 +131,15 @@ unset credential_value
 
 C12 uses its single-test `composer test:live:openai-research` command. C07–C11
 and C13 were proved with approved ephemeral harnesses; a rerun needs a newly
-reviewed narrow harness rather than an ad hoc provider request. C30–C44 also
-require `LIBRARIUM_LIVE_PROFILE`, `LIBRARIUM_LIVE_MAX_USD`, and, when preview
-pricing cannot enforce a hard ceiling, the exact `LIBRARIUM_LIVE_UNPRICED_ACK`
-printed by the harness after an external provider/account cap is applied. C45
-uses the adapter's search-specific harness and acknowledgement under the same
-child-environment isolation. `JINA_AI_API_KEY` may supply `credential_value`,
-but the child name remains `JINA_API_KEY`. In every case, the operator must first
-satisfy and record the approval contract above; the command itself is not
-authorization.
+reviewed narrow harness rather than an ad hoc provider request. C30–C44 and C46
+also require `LIBRARIUM_LIVE_PROFILE`, `LIBRARIUM_LIVE_MAX_USD`, and, when
+preview pricing cannot enforce a hard ceiling, the exact
+`LIBRARIUM_LIVE_UNPRICED_ACK` printed by the harness after an external
+provider/account cap is applied. C45 uses the adapter's search-specific harness
+and acknowledgement under the same child-environment isolation.
+`JINA_AI_API_KEY` may supply `credential_value`, but the child name remains
+`JINA_API_KEY`. In every case, the operator must first satisfy and record the
+approval contract above; the command itself is not authorization.
 
 For all five new durable canaries (C35–C37, C42, and C44), an ambiguous
 submission failure is terminal for that attempt: never retry it automatically.
@@ -151,8 +152,8 @@ allowed only after a validated provider handle and within the shared deadline.
   implementation heads. PlanMode tasks #2834, #2836, and #2901 retain the
   frozen SHAs and redacted receipts. That evidence does not authorize a rerun or
   claim that a later release-candidate SHA was exercised.
-- C14–C29 remain unverified live. Their committed opt-in harness is runnable one
-  dataset at a time after the approval contract above is satisfied.
+- C14–C29 and C46 remain unverified live. Their committed opt-in harness is
+  runnable one dataset at a time after the approval contract above is satisfied.
 - C30–C37 and C39–C45 passed on 2026-09-11 against core
   `dfce4d2b3f06147ff0e1f94bafd54eb44141d179`, pricing
   `7caa14b59ef56724718c63e2f9b170b296ba8e9e`, and Firecrawl

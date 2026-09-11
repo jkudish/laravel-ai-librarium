@@ -10,12 +10,15 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
-use Jkudish\LaravelAiLibrarium\Contracts\Driver;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
+use Jkudish\LaravelAiLibrarium\Contracts\DurableDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
+use Jkudish\LaravelAiLibrarium\Recovery\DurableSubmission;
+use Jkudish\LaravelAiLibrarium\Recovery\RecoveryRequest;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
@@ -24,7 +27,7 @@ use stdClass;
 use Throwable;
 
 /** Runs one durable Exa Agent task for the exact exa/research Profile. */
-final readonly class ExaResearchDriver implements Driver
+final readonly class ExaResearchDriver implements DurableDriver
 {
     private const string ENDPOINT = 'https://api.exa.ai/agent/runs';
 
@@ -90,7 +93,7 @@ final readonly class ExaResearchDriver implements Driver
 
         // A fresh retrieval is authoritative and makes completion delivery safe
         // when a create or polling response was observed more than once.
-        $terminal = $this->retrieveRun($request, $credential, $runId);
+        $terminal = $this->retrieveRun($request, $credential, $runId, Operation::Retrieve);
         if ($this->status($terminal) !== 'completed') {
             throw $this->invalidResponse();
         }
@@ -102,7 +105,62 @@ final readonly class ExaResearchDriver implements Driver
         );
     }
 
-    private function preflight(DriverRequest $request): string
+    public function submitDurable(DriverRequest $request): DurableSubmission
+    {
+        $credential = $this->preflight($request);
+
+        return new DurableSubmission(
+            reference: $this->runId($this->submit($request, $credential, false)),
+        );
+    }
+
+    public function retrieveDurable(RecoveryRequest $request, string $reference): ?ResearchResult
+    {
+        $credential = $this->preflight($request);
+
+        try {
+            $response = $this->send(
+                $request,
+                $credential,
+                'get',
+                self::ENDPOINT.'/'.rawurlencode($reference),
+                [],
+                Operation::Retrieve,
+            );
+        } catch (ConnectionException) {
+            throw new DriverException(
+                'exa_research.connection',
+                'Exa Research could not be reached while retrieving the accepted run.',
+                false,
+            );
+        }
+
+        if ($response->status() !== 200) {
+            throw $this->httpFailure($response);
+        }
+
+        $run = $this->runPayload($response);
+        if ($this->runId($run) !== $reference) {
+            throw $this->invalidResponse();
+        }
+
+        return match ($this->status($run)) {
+            'queued', 'running' => null,
+            'completed' => TerminalRedaction::guard(
+                $this->mapper->map($request, $run),
+                [$credential, $reference],
+                $this->invalidResponse(),
+            ),
+            'failed', 'cancelled' => throw new DriverException(
+                'exa_research.failed',
+                'Exa Research ended without a completed result.',
+                false,
+            ),
+            default => throw $this->invalidResponse(),
+        };
+    }
+
+    private function preflight(DriverRequest|RecoveryRequest $request): string
     {
         $profile = $request->profile;
         if ($profile->id !== 'exa-research'
@@ -121,7 +179,8 @@ final readonly class ExaResearchDriver implements Driver
             );
         }
 
-        if (! $this->validOptions($profile->options) || trim($request->prompt) === '') {
+        if (! $this->validOptions($profile->options)
+            || ($request instanceof DriverRequest && trim($request->prompt) === '')) {
             throw new DriverException(
                 'exa_research.invalid_request',
                 'The Exa Research query or options are invalid.',
@@ -196,7 +255,7 @@ final readonly class ExaResearchDriver implements Driver
     }
 
     /** @return array<array-key, mixed> */
-    private function submit(DriverRequest $request, string $credential): array
+    private function submit(DriverRequest $request, string $credential, bool $enforcePostResponseDeadline = true): array
     {
         $options = $request->profile->options;
         $payload = ['query' => $request->prompt];
@@ -214,7 +273,7 @@ final readonly class ExaResearchDriver implements Driver
         }
 
         try {
-            $response = $this->send($request, $credential, 'post', self::ENDPOINT, $payload);
+            $response = $this->send($request, $credential, 'post', self::ENDPOINT, $payload, Operation::Submit);
         } catch (ConnectionException) {
             throw new DriverException(
                 'exa_research.submit_connection',
@@ -235,14 +294,20 @@ final readonly class ExaResearchDriver implements Driver
 
         // Validate the paid run handle before enforcing the post-response
         // deadline. A successful but malformed receipt is still ambiguous.
-        $this->remainingSeconds($request);
+        if ($enforcePostResponseDeadline) {
+            $this->remainingSeconds($request);
+        }
 
         return $run;
     }
 
     /** @return array<array-key, mixed> */
-    private function retrieveRun(DriverRequest $request, string $credential, string $runId): array
-    {
+    private function retrieveRun(
+        DriverRequest $request,
+        string $credential,
+        string $runId,
+        Operation $operation = Operation::Poll,
+    ): array {
         while (true) {
             try {
                 $response = $this->send(
@@ -250,6 +315,8 @@ final readonly class ExaResearchDriver implements Driver
                     $credential,
                     'get',
                     self::ENDPOINT.'/'.rawurlencode($runId),
+                    [],
+                    $operation,
                 );
             } catch (ConnectionException) {
                 if (CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
@@ -282,8 +349,14 @@ final readonly class ExaResearchDriver implements Driver
     }
 
     /** @param array<string, mixed> $payload */
-    private function send(DriverRequest $request, string $credential, string $method, string $url, array $payload = []): Response
-    {
+    private function send(
+        DriverRequest|RecoveryRequest $request,
+        string $credential,
+        string $method,
+        string $url,
+        array $payload = [],
+        Operation $operation = Operation::Inline,
+    ): Response {
         $remaining = $this->remainingSeconds($request);
         $pending = Http::withHeaders(['x-api-key' => $credential])
             ->acceptJson()
@@ -292,9 +365,17 @@ final readonly class ExaResearchDriver implements Driver
             ->connectTimeout(min(self::CONNECT_TIMEOUT_SECONDS, $remaining))
             ->timeout(min(self::REQUEST_TIMEOUT_SECONDS, $remaining));
 
-        $response = $method === 'post'
-            ? $pending->post($url, $payload)
-            : $pending->get($url);
+        try {
+            $response = $method === 'post'
+                ? $pending->post($url, $payload)
+                : $pending->get($url);
+        } catch (ConnectionException $exception) {
+            $request->captureNoResponse($operation);
+
+            throw $exception;
+        }
+
+        $request->captureResponse($response, $operation);
 
         return $response;
     }
@@ -371,7 +452,7 @@ final readonly class ExaResearchDriver implements Driver
         return $status;
     }
 
-    private function remainingSeconds(DriverRequest $request): float
+    private function remainingSeconds(DriverRequest|RecoveryRequest $request): float
     {
         $seconds = CarbonImmutable::now()->diffInMilliseconds($request->deadline, false) / 1000;
         if ($seconds < 0.001) {

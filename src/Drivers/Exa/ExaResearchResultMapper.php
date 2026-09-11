@@ -9,6 +9,7 @@ use Illuminate\Support\Collection;
 use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
+use Jkudish\LaravelAiLibrarium\Recovery\RecoveryRequest;
 use Jkudish\LaravelAiLibrarium\Responses\Citation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ContentFormat;
@@ -24,7 +25,7 @@ use Throwable;
 final readonly class ExaResearchResultMapper
 {
     /** @param array<array-key, mixed> $run */
-    public function map(DriverRequest $request, array $run): ResearchResult
+    public function map(DriverRequest|RecoveryRequest $request, array $run): ResearchResult
     {
         $output = data_get($run, 'output');
         if (! is_array($output) || array_is_list($output)) {

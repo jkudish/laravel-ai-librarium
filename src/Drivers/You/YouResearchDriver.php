@@ -9,6 +9,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
@@ -52,7 +53,7 @@ final readonly class YouResearchDriver implements Driver
             $status = data_get($task, 'status');
 
             if ($status === 'completed') {
-                $terminal = $this->task($request, $credential, $taskId);
+                $terminal = $this->task($request, $credential, $taskId, Operation::Retrieve);
                 if (data_get($terminal, 'status') !== 'completed') {
                     throw $this->invalidResponse();
                 }
@@ -127,7 +128,7 @@ final readonly class YouResearchDriver implements Driver
             'input' => $request->prompt,
             'research_effort' => 'standard',
             'background' => true,
-        ]);
+        ], Operation::Submit);
 
         if (! in_array($response->status(), [200, 201, 202], true)) {
             throw $this->httpFailure($response);
@@ -145,9 +146,20 @@ final readonly class YouResearchDriver implements Driver
     }
 
     /** @return array<array-key, mixed> */
-    private function task(DriverRequest $request, string $credential, string $taskId): array
-    {
-        $response = $this->send($request, $credential, 'get', self::ENDPOINT.'/'.rawurlencode($taskId));
+    private function task(
+        DriverRequest $request,
+        string $credential,
+        string $taskId,
+        Operation $operation = Operation::Poll,
+    ): array {
+        $response = $this->send(
+            $request,
+            $credential,
+            'get',
+            self::ENDPOINT.'/'.rawurlencode($taskId),
+            [],
+            $operation,
+        );
         if ($response->failed()) {
             throw $this->httpFailure($response);
         }
@@ -163,8 +175,14 @@ final readonly class YouResearchDriver implements Driver
     }
 
     /** @param array<string, mixed> $payload */
-    private function send(DriverRequest $request, string $credential, string $method, string $url, array $payload = []): Response
-    {
+    private function send(
+        DriverRequest $request,
+        string $credential,
+        string $method,
+        string $url,
+        array $payload = [],
+        Operation $operation = Operation::Inline,
+    ): Response {
         $remaining = $this->remainingSeconds($request);
 
         try {
@@ -177,6 +195,8 @@ final readonly class YouResearchDriver implements Driver
                 ? $pending->post($url, $payload)
                 : $pending->get($url);
         } catch (ConnectionException) {
+            $request->captureNoResponse($operation);
+
             if (CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
                 throw $this->deadlineExceeded();
             }
@@ -188,6 +208,7 @@ final readonly class YouResearchDriver implements Driver
             );
         }
 
+        $request->captureResponse($response, $operation);
         $this->remainingSeconds($request);
 
         return $response;

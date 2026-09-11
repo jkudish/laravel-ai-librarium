@@ -8,8 +8,10 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
+use Jkudish\LaravelAiLibrarium\Recovery\RecoveryRequest;
 
 /** @internal */
 final readonly class ParallelTransport
@@ -19,19 +21,41 @@ final readonly class ParallelTransport
     private const float REQUEST_TIMEOUT_SECONDS = 25.0;
 
     /** @param array<string, mixed> $payload */
-    public function post(DriverRequest $request, string $url, array $payload, bool $submission = false): Response
-    {
-        return $this->send($request, 'post', $url, $payload, $submission, $submission);
+    public function post(
+        DriverRequest $request,
+        string $url,
+        array $payload,
+        bool $submission = false,
+        bool $enforcePostResponseDeadline = true,
+    ): Response {
+        return $this->send(
+            $request,
+            'post',
+            $url,
+            $payload,
+            $submission,
+            $submission,
+            $submission ? Operation::Submit : Operation::Inline,
+            $enforcePostResponseDeadline,
+        );
     }
 
-    public function get(DriverRequest $request, string $url): Response
+    public function get(DriverRequest|RecoveryRequest $request, string $url, Operation $operation = Operation::Poll): Response
     {
-        return $this->send($request, 'get', $url, [], false, true);
+        return $this->send($request, 'get', $url, [], false, true, $operation, true);
     }
 
     /** @param array<string, mixed> $payload */
-    private function send(DriverRequest $request, string $method, string $url, array $payload, bool $submission, bool $durable): Response
-    {
+    private function send(
+        DriverRequest|RecoveryRequest $request,
+        string $method,
+        string $url,
+        array $payload,
+        bool $submission,
+        bool $durable,
+        Operation $operation,
+        bool $enforcePostResponseDeadline,
+    ): Response {
         $remaining = $this->remainingSeconds($request);
 
         try {
@@ -46,6 +70,8 @@ final readonly class ParallelTransport
                 ? $pending->post($url, $payload)
                 : $pending->get($url);
         } catch (ConnectionException) {
+            $request->captureNoResponse($operation);
+
             if ($submission) {
                 throw new DriverException(
                     'parallel.ambiguous_submission',
@@ -61,7 +87,9 @@ final readonly class ParallelTransport
             throw new DriverException('parallel.connection', 'Parallel could not be reached.', ! $durable);
         }
 
-        if (CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
+        $request->captureResponse($response, $operation);
+
+        if ($enforcePostResponseDeadline && CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
             if ($submission) {
                 throw new DriverException(
                     'parallel.ambiguous_submission',
@@ -90,7 +118,7 @@ final readonly class ParallelTransport
         };
     }
 
-    public function remainingSeconds(DriverRequest $request): float
+    public function remainingSeconds(DriverRequest|RecoveryRequest $request): float
     {
         $seconds = CarbonImmutable::now()->diffInMilliseconds($request->deadline, false) / 1000;
         if ($seconds < 0.001) {

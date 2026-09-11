@@ -12,12 +12,15 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Sleep;
 use Illuminate\Validation\Validator as LaravelValidator;
-use Jkudish\LaravelAiLibrarium\Contracts\Driver;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
+use Jkudish\LaravelAiLibrarium\Contracts\DurableDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
+use Jkudish\LaravelAiLibrarium\Recovery\DurableSubmission;
+use Jkudish\LaravelAiLibrarium\Recovery\RecoveryRequest;
 use Jkudish\LaravelAiLibrarium\Responses\Citation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ContentFormat;
@@ -31,7 +34,7 @@ use Jkudish\LaravelAiLibrarium\Responses\Source;
 use Throwable;
 
 /** Runs one durable Valyu DeepResearch task to a terminal report. */
-final readonly class ValyuResearchDriver implements Driver
+final readonly class ValyuResearchDriver implements DurableDriver
 {
     private const string ENDPOINT = 'https://api.valyu.ai/v1/deepresearch/tasks';
 
@@ -99,7 +102,7 @@ final readonly class ValyuResearchDriver implements Driver
 
                 if ($status === 'completed') {
                     $cleanup = false;
-                    $terminal = $this->status($request, $taskId);
+                    $terminal = $this->status($request, $taskId, Operation::Retrieve);
                     if (data_get($terminal, 'status') !== 'completed') {
                         throw $this->invalidResponse();
                     }
@@ -131,7 +134,41 @@ final readonly class ValyuResearchDriver implements Driver
         }
     }
 
-    private function validateRequest(DriverRequest $request): void
+    public function submitDurable(DriverRequest $request): DurableSubmission
+    {
+        $this->validateRequest($request);
+
+        return new DurableSubmission(reference: $this->submit($request, false));
+    }
+
+    public function retrieveDurable(RecoveryRequest $request, string $reference): ?ResearchResult
+    {
+        $this->validateRequest($request);
+        $task = $this->status($request, $reference, Operation::Retrieve, false);
+
+        return match (data_get($task, 'status')) {
+            'queued', 'running' => null,
+            'completed' => $this->map($request, $task),
+            'failed' => throw new DriverException(
+                'valyu_research.failed',
+                'Valyu could not complete the research report.',
+                false,
+            ),
+            'cancelled' => throw new DriverException(
+                'valyu_research.cancelled',
+                'The Valyu research report was cancelled.',
+                false,
+            ),
+            'awaiting_input', 'paused' => throw new DriverException(
+                'valyu_research.interaction_required',
+                'Valyu requested unsupported human interaction.',
+                false,
+            ),
+            default => throw $this->invalidResponse(),
+        };
+    }
+
+    private function validateRequest(DriverRequest|RecoveryRequest $request): void
     {
         $profile = $request->profile;
         $searchType = data_get($profile->options, 'search.search_type');
@@ -154,13 +191,16 @@ final readonly class ValyuResearchDriver implements Driver
         }
 
         $options = $profile->options;
+        $rules = [
+            'options' => ['array:mode,research_strategy,report_format,search,urls,output_formats'],
+            ...$this->prefixedRules(),
+        ];
+        if ($request instanceof DriverRequest) {
+            $rules['query'] = ['required', 'string', 'max:25000'];
+        }
         $validator = Validator::make(
-            ['query' => $request->prompt, 'options' => $options],
-            [
-                'query' => ['required', 'string', 'max:25000'],
-                'options' => ['array:mode,research_strategy,report_format,search,urls,output_formats'],
-                ...$this->prefixedRules(),
-            ],
+            ['query' => $request instanceof DriverRequest ? $request->prompt : null, 'options' => $options],
+            $rules,
         );
         $validator->after(function (LaravelValidator $validator) use ($options): void {
             $strategy = $options['research_strategy'] ?? null;
@@ -187,7 +227,7 @@ final readonly class ValyuResearchDriver implements Driver
         if ($validator->fails()) {
             throw new DriverException('valyu_research.invalid_request', 'The Valyu Research query or options are invalid.', false);
         }
-        if (trim($request->prompt) === '') {
+        if ($request instanceof DriverRequest && trim($request->prompt) === '') {
             throw new DriverException('valyu_research.invalid_request', 'The Valyu Research query or options are invalid.', false);
         }
         if (blank($profile->credential)) {
@@ -208,10 +248,16 @@ final readonly class ValyuResearchDriver implements Driver
         return $rules;
     }
 
-    private function submit(DriverRequest $request): string
+    private function submit(DriverRequest $request, bool $enforcePostResponseDeadline = true): string
     {
         try {
-            $response = $this->send($request, 'post', self::ENDPOINT, $this->payload($request));
+            $response = $this->send(
+                $request,
+                'post',
+                self::ENDPOINT,
+                $this->payload($request),
+                Operation::Submit,
+            );
         } catch (ConnectionException) {
             throw new DriverException(
                 'valyu_research.submit_connection',
@@ -240,7 +286,7 @@ final readonly class ValyuResearchDriver implements Driver
             throw $this->ambiguousSubmission();
         }
 
-        if (CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
+        if ($enforcePostResponseDeadline && CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
             $this->cancelBestEffort($request, $taskId);
 
             throw new DriverException(
@@ -254,14 +300,32 @@ final readonly class ValyuResearchDriver implements Driver
     }
 
     /** @return array<array-key, mixed> */
-    private function status(DriverRequest $request, string $taskId): array
-    {
+    private function status(
+        DriverRequest|RecoveryRequest $request,
+        string $taskId,
+        Operation $operation = Operation::Poll,
+        bool $retryTransient = true,
+    ): array {
         while (true) {
             try {
-                $response = $this->send($request, 'get', self::ENDPOINT.'/'.rawurlencode($taskId).'/status');
+                $response = $this->send(
+                    $request,
+                    'get',
+                    self::ENDPOINT.'/'.rawurlencode($taskId).'/status',
+                    [],
+                    $operation,
+                );
             } catch (ConnectionException) {
                 if (CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
                     throw $this->deadlineExceeded();
+                }
+
+                if (! $retryTransient) {
+                    throw new DriverException(
+                        'valyu_research.connection',
+                        'Valyu could not be reached while retrieving the accepted research task.',
+                        false,
+                    );
                 }
 
                 $this->waitBeforePolling($request);
@@ -271,6 +335,10 @@ final readonly class ValyuResearchDriver implements Driver
 
             $this->remainingSeconds($request, 'Valyu did not complete before the research deadline.');
             if (in_array($response->status(), [408, 429], true) || $response->serverError()) {
+                if (! $retryTransient) {
+                    throw $this->httpFailure($response);
+                }
+
                 $this->waitBeforePolling($request);
 
                 continue;
@@ -311,7 +379,7 @@ final readonly class ValyuResearchDriver implements Driver
     }
 
     /** @param array<array-key, mixed> $task */
-    private function map(DriverRequest $request, array $task): ResearchResult
+    private function map(DriverRequest|RecoveryRequest $request, array $task): ResearchResult
     {
         $content = ValyuSupport::string(data_get($task, 'output'));
         $sources = data_get($task, 'sources', []);
@@ -439,8 +507,13 @@ final readonly class ValyuResearchDriver implements Driver
     }
 
     /** @param array<string, mixed> $payload */
-    private function send(DriverRequest $request, string $method, string $url, array $payload = []): Response
-    {
+    private function send(
+        DriverRequest|RecoveryRequest $request,
+        string $method,
+        string $url,
+        array $payload = [],
+        Operation $operation = Operation::Inline,
+    ): Response {
         $remaining = $this->remainingSeconds($request, 'Valyu did not complete before the research deadline.');
         $pending = Http::withHeaders(['X-API-Key' => (string) $request->profile->credential])
             ->acceptJson()
@@ -449,10 +522,20 @@ final readonly class ValyuResearchDriver implements Driver
             ->connectTimeout(min(self::CONNECT_TIMEOUT_SECONDS, $remaining))
             ->timeout(min(self::REQUEST_TIMEOUT_SECONDS, $remaining));
 
-        return $method === 'post' ? $pending->post($url, $payload) : $pending->get($url);
+        try {
+            $response = $method === 'post' ? $pending->post($url, $payload) : $pending->get($url);
+        } catch (ConnectionException $exception) {
+            $request->captureNoResponse($operation);
+
+            throw $exception;
+        }
+
+        $request->captureResponse($response, $operation);
+
+        return $response;
     }
 
-    private function waitBeforePolling(DriverRequest $request): void
+    private function waitBeforePolling(DriverRequest|RecoveryRequest $request): void
     {
         $remaining = $this->remainingSeconds($request, 'Valyu did not complete before the research deadline.');
         Sleep::for(min(self::POLL_INTERVAL_SECONDS, $remaining))->seconds();
@@ -464,19 +547,22 @@ final readonly class ValyuResearchDriver implements Driver
     private function cancelBestEffort(DriverRequest $request, string $taskId): void
     {
         try {
-            Http::withHeaders(['X-API-Key' => (string) $request->profile->credential])
+            $response = Http::withHeaders(['X-API-Key' => (string) $request->profile->credential])
                 ->acceptJson()
                 ->asJson()
                 ->withOptions(['allow_redirects' => false])
                 ->connectTimeout(self::CONNECT_TIMEOUT_SECONDS)
                 ->timeout(self::CANCELLATION_TIMEOUT_SECONDS)
                 ->post(self::ENDPOINT.'/'.rawurlencode($taskId).'/cancel');
+            $request->captureResponse($response, Operation::Cancel);
+        } catch (ConnectionException) {
+            $request->captureNoResponse(Operation::Cancel);
         } catch (Throwable) {
             // The original terminal error remains authoritative.
         }
     }
 
-    private function remainingSeconds(DriverRequest $request, string $message): float
+    private function remainingSeconds(DriverRequest|RecoveryRequest $request, string $message): float
     {
         $seconds = CarbonImmutable::now()->diffInMilliseconds($request->deadline, false) / 1000;
         if ($seconds < 0.001) {

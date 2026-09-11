@@ -10,6 +10,7 @@ use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
 use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\ResearchResultMapper;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
+use Jkudish\LaravelAiLibrarium\Recovery\RecoveryRequest;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 use Laravel\Ai\Responses\AgentResponse;
 use Laravel\Ai\Responses\Data\Citation;
@@ -23,7 +24,7 @@ final readonly class GeminiDeepResultMapper
     public function __construct(private ResearchResultMapper $results) {}
 
     /** @param array<array-key, mixed> $interaction */
-    public function map(array $interaction, DriverRequest $request): ResearchResult
+    public function map(array $interaction, DriverRequest|RecoveryRequest $request): ResearchResult
     {
         return $this->results->map(
             response: $this->toAgentResponse($interaction, $request),
@@ -33,7 +34,7 @@ final readonly class GeminiDeepResultMapper
     }
 
     /** @param array<array-key, mixed> $interaction */
-    public function toAgentResponse(array $interaction, DriverRequest $request): AgentResponse
+    public function toAgentResponse(array $interaction, DriverRequest|RecoveryRequest $request): AgentResponse
     {
         $text = $this->str(data_get($interaction, 'output_text')) ?? implode("\n", $this->textParts($interaction));
         $citations = $this->citations($interaction);

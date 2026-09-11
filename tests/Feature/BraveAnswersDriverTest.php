@@ -6,8 +6,10 @@ use Carbon\CarbonImmutable;
 use GuzzleHttp\Psr7\PumpStream;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
 use Jkudish\LaravelAiLibrarium\Drivers\Brave\BraveAnswersDriver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
@@ -194,6 +196,41 @@ it('rejects malformed, oversized, and interrupted streams safely', function (mix
     }, 'brave.invalid_response'],
 ]);
 
+it('captures bytes received before an interrupted stream and marks them partial', function (): void {
+    $reads = 0;
+    $firstChunk = str_pad(
+        'data: '.json_encode(['choices' => [['delta' => ['content' => 'partial answer']]]], JSON_THROW_ON_ERROR)."\n\n",
+        9000,
+        'x',
+    );
+    Http::fake(fn () => Http::response(new PumpStream(function () use (&$reads, $firstChunk): string {
+        if ($reads++ === 0) {
+            return $firstChunk;
+        }
+
+        throw new RuntimeException('provider-secret stream failure');
+    })));
+    $capturedBody = null;
+    $partial = false;
+
+    $request = braveRequest(
+        responseCallback: function (Response $response, Operation $operation, ?string $body) use (&$capturedBody): void {
+            expect($response->status())->toBe(200)
+                ->and($operation)->toBe(Operation::Inline);
+            $capturedBody = $body;
+        },
+        partialCaptureCallback: function () use (&$partial): void {
+            $partial = true;
+        },
+    );
+
+    expect(fn () => braveDriver()->run($request))
+        ->toThrow(DriverException::class, 'Brave Answers returned an invalid response.');
+    expect($capturedBody)->toStartWith('data: ')
+        ->and(strlen((string) $capturedBody))->toBe(8192)
+        ->and($partial)->toBeTrue();
+});
+
 it('rejects missing credentials, incompatible profiles, and elapsed deadlines before dispatch', function (DriverRequest $request, string $code): void {
     Http::fake();
 
@@ -299,6 +336,8 @@ function braveRequest(
     ?Profile $profile = null,
     ?CarbonImmutable $deadline = null,
     string $prompt = 'What changed?',
+    ?Closure $responseCallback = null,
+    ?Closure $partialCaptureCallback = null,
 ): DriverRequest {
     $profile ??= braveProfile();
 
@@ -309,6 +348,8 @@ function braveRequest(
         prompt: $prompt,
         deadline: $deadline ?? CarbonImmutable::now()->addSeconds(30),
         progressCallback: static fn (): null => null,
+        responseCallback: $responseCallback,
+        partialCaptureCallback: $partialCaptureCallback,
     );
 }
 

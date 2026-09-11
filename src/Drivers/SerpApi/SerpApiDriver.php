@@ -9,6 +9,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
 use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
@@ -97,7 +98,7 @@ final readonly class SerpApiDriver implements Driver
         $remaining = $this->remainingSeconds($request);
 
         try {
-            return Http::acceptJson()
+            $response = Http::acceptJson()
                 ->withOptions(['allow_redirects' => false])
                 ->connectTimeout(min(self::CONNECT_TIMEOUT_SECONDS, $remaining))
                 ->timeout(min(self::REQUEST_TIMEOUT_SECONDS, $remaining))
@@ -107,12 +108,18 @@ final readonly class SerpApiDriver implements Driver
                     'api_key' => $credential,
                 ]);
         } catch (ConnectionException) {
+            $request->captureNoResponse(Operation::Inline);
+
             if (CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
                 throw $this->deadlineExceeded();
             }
 
             throw new DriverException('serpapi.connection', 'SerpAPI could not be reached.');
         }
+
+        $request->captureResponse($response, Operation::Inline);
+
+        return $response;
     }
 
     private function remainingSeconds(DriverRequest $request): float

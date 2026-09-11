@@ -41,6 +41,12 @@ return [
     'webhook_signal_ttl' => 10800,
     'profile_options_max_bytes' => 16384,
 
+    'redaction' => [
+        'paths' => [],
+        'patterns' => [],
+        'replacement' => '[REDACTED]',
+    ],
+
     'pricing' => [
         'max_age_days' => 30,
     ],
@@ -218,7 +224,7 @@ return [
             'retrieval_methods' => ['model_search_tool'],
             'prompt' => '{{ query }}',
             'enabled' => true,
-            'options' => [],
+            'options' => ['search_engine' => 'exa'],
             'credential' => config('ai.providers.openrouter.key'),
             'pricing' => [
                 'provider' => 'openrouter',
@@ -238,7 +244,7 @@ return [
             'retrieval_methods' => ['model_search_tool'],
             'prompt' => '{{ query }}',
             'enabled' => true,
-            'options' => ['web_search' => true],
+            'options' => ['web_search' => true, 'search_engine' => 'exa'],
             'credential' => config('ai.providers.openrouter.key'),
             'pricing' => [
                 'provider' => 'openrouter',
@@ -444,6 +450,26 @@ return [
                 'provider' => 'perplexity',
                 'model' => 'agent-low',
                 'usage' => ['input_tokens' => 100_000, 'output_tokens' => 100_000, 'web_searches' => 100, 'fetch_url_requests' => 100, 'sandbox_sessions' => 10],
+                'conservative' => false,
+            ],
+        ],
+        'perplexity-low-frozen' => [
+            'driver' => PerplexityAgentDriver::class,
+            'provider' => 'perplexity',
+            'model' => 'openai/gpt-5.6-luna',
+            'result_kind' => 'grounded_answer',
+            'grounding' => 'required',
+            'observation' => 'api_output',
+            'corpora' => ['web'],
+            'retrieval_methods' => ['model_search_tool'],
+            'prompt' => '{{ query }}',
+            'enabled' => true,
+            'options' => ['configuration' => 'frozen-low-2026-09-11'],
+            'credential' => config('services.perplexity.key'),
+            'pricing' => [
+                'provider' => 'perplexity',
+                'model' => 'openai/gpt-5.6-luna',
+                'usage' => ['input_tokens' => 100_000, 'output_tokens' => 100_000, 'web_searches' => 100, 'fetch_url_requests' => 100],
                 'conservative' => false,
             ],
         ],

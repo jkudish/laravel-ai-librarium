@@ -11,6 +11,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Validator as LaravelValidator;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
@@ -284,7 +285,7 @@ final readonly class ValyuSearchDriver implements Driver
         }
 
         try {
-            return Http::withHeaders(['X-API-Key' => (string) $request->profile->credential])
+            $response = Http::withHeaders(['X-API-Key' => (string) $request->profile->credential])
                 ->acceptJson()
                 ->asJson()
                 ->withOptions(['allow_redirects' => false])
@@ -292,12 +293,18 @@ final readonly class ValyuSearchDriver implements Driver
                 ->timeout(min(self::REQUEST_TIMEOUT_SECONDS, $remaining))
                 ->post(self::ENDPOINT, $payload);
         } catch (ConnectionException) {
+            $request->captureNoResponse(Operation::Inline);
+
             if (CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
                 throw new DriverException('valyu_search.deadline_exceeded', 'Valyu Search did not respond before the research deadline.');
             }
 
             throw new DriverException('valyu_search.connection', 'Valyu Search could not be reached.');
         }
+
+        $request->captureResponse($response, Operation::Inline);
+
+        return $response;
     }
 
     private function remainingSeconds(DriverRequest $request, string $message): float

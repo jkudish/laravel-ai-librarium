@@ -10,6 +10,7 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
@@ -79,12 +80,14 @@ final readonly class KagiFastGptDriver implements Driver
         $remaining = $this->remainingSeconds($request);
 
         try {
-            return Http::withHeaders(['Authorization' => "Bot {$credential}"])
+            $response = Http::withHeaders(['Authorization' => "Bot {$credential}"])
                 ->acceptJson()
                 ->connectTimeout(min(self::CONNECT_TIMEOUT_SECONDS, $remaining))
                 ->timeout($remaining)
                 ->post(self::ENDPOINT, ['query' => $request->prompt]);
         } catch (ConnectionException) {
+            $request->captureNoResponse(Operation::Inline);
+
             if (CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
                 throw new DriverException(
                     'kagi.deadline_exceeded',
@@ -97,6 +100,10 @@ final readonly class KagiFastGptDriver implements Driver
                 'Kagi FastGPT could not be reached.',
             );
         }
+
+        $request->captureResponse($response, Operation::Inline);
+
+        return $response;
     }
 
     private function remainingSeconds(DriverRequest $request): float

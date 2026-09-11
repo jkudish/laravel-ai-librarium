@@ -10,6 +10,7 @@ use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
 use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
+use Jkudish\LaravelAiLibrarium\Recovery\RecoveryRequest;
 use Jkudish\LaravelAiLibrarium\Responses\Citation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ContentFormat;
@@ -46,7 +47,7 @@ final readonly class PerplexityAgentResultMapper
     ];
 
     /** @param array<array-key, mixed> $response */
-    public function map(array $response, DriverRequest $request): ResearchResult
+    public function map(array $response, DriverRequest|RecoveryRequest $request): ResearchResult
     {
         if (data_get($response, 'status') !== 'completed') {
             throw $this->invalidResponse();

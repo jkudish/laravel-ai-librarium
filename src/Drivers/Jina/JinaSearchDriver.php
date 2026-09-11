@@ -9,6 +9,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
 use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
@@ -98,7 +99,7 @@ final readonly class JinaSearchDriver implements Driver
         $remaining = $this->remainingSeconds($request);
 
         try {
-            return Http::withToken($credential)
+            $response = Http::withToken($credential)
                 ->acceptJson()
                 ->asJson()
                 ->withOptions(['allow_redirects' => false])
@@ -109,12 +110,18 @@ final readonly class JinaSearchDriver implements Driver
                     'num' => 10,
                 ]);
         } catch (ConnectionException) {
+            $request->captureNoResponse(Operation::Inline);
+
             if (CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
                 throw $this->deadlineExceeded();
             }
 
             throw new DriverException('jina.connection', 'Jina Search could not be reached.');
         }
+
+        $request->captureResponse($response, Operation::Inline);
+
+        return $response;
     }
 
     private function remainingSeconds(DriverRequest $request): float

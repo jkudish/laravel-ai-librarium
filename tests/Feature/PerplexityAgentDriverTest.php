@@ -78,6 +78,38 @@ it('runs the low preset inline with one exact POST and strictly normalizes repor
         ->not->toContain('uncited.example.com');
 });
 
+it('runs the frozen low configuration separately without sending a managed preset', function (): void {
+    Http::fake(['https://api.perplexity.ai/v1/agent' => Http::response(perplexityCompletedResponse())]);
+
+    $result = perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-low-frozen'));
+
+    expect($result->profile)->toBe('perplexity-low-frozen')
+        ->and($result->model)->toBe('openai/gpt-5.6-luna');
+    Http::assertSent(function (Request $request): bool {
+        $payload = $request->data();
+
+        return $request->method() === 'POST'
+            && ! array_key_exists('preset', $payload)
+            && data_get($payload, 'model') === 'openai/gpt-5.6-luna'
+            && data_get($payload, 'prompt_cache_key') === 'low'
+            && data_get($payload, 'max_steps') === 5
+            && data_get($payload, 'max_output_tokens') === 32768
+            && data_get($payload, 'reasoning') === ['effort' => 'minimal']
+            && str_starts_with((string) data_get($payload, 'instructions'), 'Today is 2026-08-20.')
+            && data_get($payload, 'tools') === [
+                [
+                    'type' => 'web_search',
+                    'max_results' => 15,
+                    'max_tokens' => 2000,
+                    'max_tokens_per_page' => 2000,
+                ],
+                ['type' => 'fetch_url', 'max_urls' => 1],
+            ];
+    });
+    Http::assertSentCount(1);
+    Sleep::assertNeverSlept();
+});
+
 it('submits each durable preset once and uses only canonical GET retrieval until completion', function (string $profile, string $preset): void {
     Http::fakeSequence()
         ->push(['id' => 'resp_private_1', 'status' => 'queued'])
@@ -188,6 +220,7 @@ it('does not retry an ambiguous submission for any Agent profile', function (str
     Http::assertNothingSent();
 })->with([
     'inline low' => ['perplexity-sonar-pro'],
+    'inline frozen low' => ['perplexity-low-frozen'],
     'background medium' => ['perplexity-deep-research'],
     'background high' => ['perplexity-sonar-deep'],
 ]);
@@ -542,6 +575,23 @@ it('rejects missing credentials, expired deadlines, and incompatible profile sem
     'wrong retrieval' => [['retrievalMethods' => [RetrievalMethod::ResearchAgent]], 'perplexity.invalid_profile'],
 ]);
 
+it('rejects drift in the frozen low model or configuration before HTTP', function (?string $model, array $options): void {
+    Http::fake();
+
+    expect(fn () => perplexityAgentDriver()->run(perplexityAgentRequest(
+        'perplexity-low-frozen',
+        model: $model,
+        options: $options,
+    )))->toThrow(DriverException::class, 'incompatible provider, target, or provenance semantics');
+
+    Http::assertNothingSent();
+})->with([
+    'different model' => ['openai/gpt-5.6-terra', ['configuration' => 'frozen-low-2026-09-11']],
+    'missing model' => [null, ['configuration' => 'frozen-low-2026-09-11']],
+    'different revision' => ['openai/gpt-5.6-luna', ['configuration' => 'frozen-low-2026-09-10']],
+    'managed fields omitted' => ['openai/gpt-5.6-luna', []],
+]);
+
 function perplexityAgentDriver(): PerplexityAgentDriver
 {
     return app(PerplexityAgentDriver::class);
@@ -560,13 +610,15 @@ function perplexityAgentRequest(
     ObservationMode $observation = ObservationMode::ApiOutput,
     array $corpora = [Corpus::Web],
     ?array $retrievalMethods = null,
+    ?array $options = null,
 ): DriverRequest {
     $deep = in_array($profileId, ['perplexity-deep-research', 'perplexity-sonar-deep'], true);
+    $frozen = $profileId === 'perplexity-low-frozen';
     $profile = new Profile(
         id: $profileId,
         driver: PerplexityAgentDriver::class,
         provider: $provider,
-        model: $model,
+        model: $frozen && func_num_args() < 6 ? 'openai/gpt-5.6-luna' : $model,
         resultKind: $resultKind ?? ($deep ? ResultKind::ResearchReport : ResultKind::GroundedAnswer),
         grounding: $grounding,
         observation: $observation,
@@ -574,7 +626,7 @@ function perplexityAgentRequest(
         retrievalMethods: collect($retrievalMethods ?? [$deep ? RetrievalMethod::ResearchAgent : RetrievalMethod::ModelSearchTool]),
         prompt: '{{ query }}',
         enabled: true,
-        options: [],
+        options: $options ?? ($frozen ? ['configuration' => 'frozen-low-2026-09-11'] : []),
         credential: $credential,
     );
 

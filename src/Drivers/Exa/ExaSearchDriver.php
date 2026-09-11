@@ -9,6 +9,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
@@ -134,7 +135,7 @@ final readonly class ExaSearchDriver implements Driver
         $remaining = $this->remainingSeconds($request);
 
         try {
-            return Http::withHeaders(['x-api-key' => (string) $request->profile->credential])
+            $response = Http::withHeaders(['x-api-key' => (string) $request->profile->credential])
                 ->acceptJson()
                 ->asJson()
                 ->connectTimeout(min(self::CONNECT_TIMEOUT_SECONDS, $remaining))
@@ -148,12 +149,18 @@ final readonly class ExaSearchDriver implements Driver
                     ],
                 ]);
         } catch (ConnectionException) {
+            $request->captureNoResponse(Operation::Inline);
+
             if (CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
                 throw new DriverException('exa.deadline_exceeded', 'Exa did not respond before the research deadline.');
             }
 
             throw new DriverException('exa.connection', 'Exa could not be reached.');
         }
+
+        $request->captureResponse($response, Operation::Inline);
+
+        return $response;
     }
 
     private function httpFailure(Response $response): DriverException

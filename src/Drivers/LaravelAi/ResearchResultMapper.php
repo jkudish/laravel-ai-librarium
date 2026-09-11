@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Jkudish\LaravelAiLibrarium\Drivers\LaravelAi;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Collection;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
+use Jkudish\LaravelAiLibrarium\Recovery\RecoveryRequest;
 use Jkudish\LaravelAiLibrarium\Responses\Citation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ContentFormat;
@@ -27,7 +29,7 @@ final readonly class ResearchResultMapper
 {
     public function map(
         AgentResponse $response,
-        DriverRequest $request,
+        DriverRequest|RecoveryRequest $request,
         bool $usesWebSearch = true,
         ?CarbonImmutable $completedAt = null,
     ): ResearchResult {
@@ -126,19 +128,64 @@ final readonly class ResearchResultMapper
     private function usage(AgentResponse $response): Usage
     {
         return new Usage(
-            promptTokens: $this->integer($response, 'usage.promptTokens'),
-            completionTokens: $this->integer($response, 'usage.completionTokens'),
-            cacheWriteInputTokens: $this->integer($response, 'usage.cacheWriteInputTokens'),
-            cacheReadInputTokens: $this->integer($response, 'usage.cacheReadInputTokens'),
-            reasoningTokens: $this->integer($response, 'usage.reasoningTokens'),
+            promptTokens: $this->integer($response, 'promptTokens'),
+            completionTokens: $this->integer($response, 'completionTokens'),
+            cacheWriteInputTokens: $this->integer($response, 'cacheWriteInputTokens'),
+            cacheReadInputTokens: $this->integer($response, 'cacheReadInputTokens'),
+            reasoningTokens: $this->integer($response, 'reasoningTokens'),
         );
     }
 
-    private function integer(AgentResponse $response, string $key): int
+    private function integer(AgentResponse $response, string $metric): ?int
     {
-        $value = data_get($response, $key);
+        $value = data_get($response, 'usage.'.$metric);
 
-        return is_int($value) ? $value : 0;
+        if (! is_int($value)) {
+            return null;
+        }
+
+        return $value !== 0 || $this->reported($response, $metric) ? $value : null;
+    }
+
+    private function reported(AgentResponse $response, string $metric): bool
+    {
+        $paths = match ($metric) {
+            'promptTokens' => ['usage.input_tokens', 'usage.prompt_tokens', 'usageMetadata.promptTokenCount'],
+            'completionTokens' => ['usage.output_tokens', 'usage.completion_tokens', 'usageMetadata.candidatesTokenCount'],
+            'cacheWriteInputTokens' => ['usage.input_tokens_details.cache_write_tokens', 'usage.prompt_tokens_details.cache_write_tokens', 'usage.cache_creation_input_tokens'],
+            'cacheReadInputTokens' => ['usage.input_tokens_details.cached_tokens', 'usage.prompt_tokens_details.cached_tokens', 'usage.cache_read_input_tokens', 'usageMetadata.cachedContentTokenCount'],
+            'reasoningTokens' => ['usage.output_tokens_details.reasoning_tokens', 'usage.completion_tokens_details.reasoning_tokens', 'usageMetadata.thoughtsTokenCount'],
+            default => [],
+        };
+
+        foreach ($this->rawResponses($response) as $raw) {
+            $json = $raw->json();
+            if (! is_array($json)) {
+                continue;
+            }
+
+            foreach ($paths as $path) {
+                if (data_get($json, $path) !== null) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /** @return list<Response> */
+    private function rawResponses(AgentResponse $response): array
+    {
+        if ($response->steps->isNotEmpty()) {
+            return array_values($response->steps
+                ->map(static fn (Step $step): mixed => $step->raw)
+                ->filter(static fn (mixed $raw): bool => $raw instanceof Response)
+                ->values()
+                ->all());
+        }
+
+        return $response->raw instanceof Response ? [$response->raw] : [];
     }
 
     private function providerMeta(AgentResponse $response): ?stdClass
