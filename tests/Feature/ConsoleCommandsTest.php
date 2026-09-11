@@ -9,10 +9,12 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Jkudish\LaravelAiLibrarium\Console\Commands\LibrariumCommand;
 use Jkudish\LaravelAiLibrarium\Contracts\Librarium as LibrariumContract;
+use Jkudish\LaravelAiLibrarium\DurableOutcome;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\PendingResearch;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
+use Jkudish\LaravelAiLibrarium\ResearchHandle;
 use Jkudish\LaravelAiLibrarium\ResearchPlan;
 use Jkudish\LaravelAiLibrarium\ResearchState;
 use Jkudish\LaravelAiLibrarium\ResearchStatus;
@@ -354,6 +356,11 @@ it('reports unexpected failures internally without exposing them to the operator
         public function __construct(private readonly string $message) {}
 
         public function query(string $input): PendingResearch
+        {
+            throw new RuntimeException($this->message);
+        }
+
+        public function retrieve(ResearchHandle $handle, bool $capture = true): DurableOutcome
         {
             throw new RuntimeException($this->message);
         }
