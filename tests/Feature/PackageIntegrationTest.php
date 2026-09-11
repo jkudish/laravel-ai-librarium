@@ -45,6 +45,15 @@ it('registers the manager behind the package contract', function (): void {
         ->toBe(app(LibrariumManager::class));
 });
 
+it('marks published OpenRouter Profiles without an explicit search engine unavailable', function (): void {
+    config()->set('librarium.profiles.openrouter-grounded.options', []);
+
+    $profile = app(ProfileCatalog::class)->find('openrouter-grounded');
+
+    expect($profile)->not->toBeNull()
+        ->and($profile?->reasons)->toContain('OpenRouter web search requires an explicit search_engine option.');
+});
+
 it('merges the package configuration', function (): void {
     expect(config('librarium.default_group'))->toBe('quick')
         ->and(config('librarium.timeout'))->toBe(6900)

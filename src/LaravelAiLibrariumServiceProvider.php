@@ -7,6 +7,8 @@ namespace Jkudish\LaravelAiLibrarium;
 use Illuminate\Cache\CacheManager;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Support\ServiceProvider;
+use Jkudish\LaravelAiLibrarium\Collection\SensitiveCollection;
+use Jkudish\LaravelAiLibrarium\Collection\SensitiveProviderResponse;
 use Jkudish\LaravelAiLibrarium\Console\Commands\ProfilesCommand;
 use Jkudish\LaravelAiLibrarium\Console\Commands\QueryCommand;
 use Jkudish\LaravelAiLibrarium\Console\Commands\StatusCommand;
@@ -48,11 +50,24 @@ use Jkudish\LaravelAiPricing\Sources\OpenRouterPricingSource;
 use Jkudish\LaravelAiPricing\Sources\PackagePricingSource;
 use Jkudish\LaravelAiPricing\Sources\PortkeyPricingSource;
 use LogicException;
+use Symfony\Component\VarDumper\Caster\Caster;
+use Symfony\Component\VarDumper\Cloner\AbstractCloner;
 
 final class LaravelAiLibrariumServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        $sensitiveCaster = static function (SensitiveCollection|SensitiveProviderResponse $value): array {
+            $properties = [];
+            foreach ($value->__debugInfo() as $key => $item) {
+                $properties[Caster::PREFIX_VIRTUAL.$key] = $item;
+            }
+
+            return $properties;
+        };
+        AbstractCloner::$defaultCasters[SensitiveCollection::class] ??= $sensitiveCaster;
+        AbstractCloner::$defaultCasters[SensitiveProviderResponse::class] ??= $sensitiveCaster;
+
         // Discovery order is not guaranteed, but Librarium's compiler requires
         // pricing configuration while its contextual resolver is constructed.
         $this->app->register(PricingServiceProvider::class);

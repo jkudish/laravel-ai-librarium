@@ -28,6 +28,8 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 use Jkudish\LaravelAiLibrarium\Responses\ResultProvenance;
 use Jkudish\LaravelAiLibrarium\Tests\Support\FakeRuntimeDriver;
+use Symfony\Component\VarDumper\Cloner\VarCloner;
+use Symfony\Component\VarDumper\Dumper\CliDumper;
 
 beforeEach(function (): void {
     FakeRuntimeDriver::reset();
@@ -107,6 +109,19 @@ it('makes exact evidence an explicit non-serializable result', function (): void
 
     expect(fn (): string => serialize($collected))
         ->toThrow(LogicException::class, 'Sensitive collection results cannot be serialized.');
+
+    $output = fopen('php://memory', 'w+');
+    expect($output)->not->toBeFalse();
+    assert(is_resource($output));
+    (new CliDumper($output))->dump((new VarCloner)->cloneVar($collected));
+    rewind($output);
+    $dump = stream_get_contents($output);
+    fclose($output);
+
+    expect($dump)->toBeString()
+        ->not->toContain('secret-token')
+        ->not->toContain($body)
+        ->toContain('1 sensitive response(s)');
 });
 
 it('fails closed when a structured response cannot be safely redacted', function (): void {

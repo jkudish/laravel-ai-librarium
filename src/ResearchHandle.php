@@ -119,7 +119,8 @@ final readonly class ResearchHandle implements Arrayable, JsonSerializable
             throw ValidationException::withMessages(['handle' => 'The research handle identity is invalid.']);
         }
         if (strlen($value['reference']) > 1024
-            || preg_match('/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/D', $value['reference']) !== 1) {
+            || trim($value['reference']) !== $value['reference']
+            || preg_match('/^[^\x00-\x1f\x7f]+$/uD', $value['reference']) !== 1) {
             throw ValidationException::withMessages(['reference' => 'The provider reference is invalid.']);
         }
         $model = $value['model'] ?? null;

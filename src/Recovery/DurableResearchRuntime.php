@@ -57,7 +57,7 @@ final readonly class DurableResearchRuntime implements RecoversResearch
 
         /** @var Profile $profile */
         $profile = $plan->preview->profiles->first();
-        $this->signer->assertConfigured();
+        $this->signer->assertIssuable($profile, $plan->requestId);
         $driver = $this->driver($profile);
         $prompt = $plan->preview->prompts->get($profile->id);
         if (! is_string($prompt)) {

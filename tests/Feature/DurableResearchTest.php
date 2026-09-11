@@ -179,6 +179,15 @@ it('requires a valid application key before durable submission', function (?stri
     'invalid base64 key' => ['base64:not-valid-base64'],
 ]);
 
+it('proves the Profile binding can be signed before durable submission', function (): void {
+    config()->set('librarium.profiles.exa-research.credential', "invalid-utf8-\xB1");
+    Http::fake();
+
+    expect(fn () => Librarium::query('Must not submit')->using('exa-research')->submit())
+        ->toThrow(LogicException::class, 'The durable Profile binding cannot be encoded');
+    Http::assertNothingSent();
+});
+
 it('rejects unsupported and inline profiles before HTTP', function (string $profile, string $exception, string $message): void {
     Http::fake();
 
@@ -213,6 +222,21 @@ it('submits exactly once and returns redacted evidence and a nontrivial signed h
     PHPUnit::assertNotSame(str_repeat('0', 64), $outcome->handle->fingerprint);
     PHPUnit::assertStringContainsString('[REDACTED]', $wire);
     PHPUnit::assertStringNotContainsString('testing-exa-key', $wire);
+    Http::assertSentCount(1);
+    Http::assertSent(fn (Request $request): bool => $request->method() === 'POST');
+});
+
+it('returns a durable handle for opaque provider references after exactly one submission', function (): void {
+    $reference = 'interactions/run+opaque=/segment';
+    Http::fake(['https://generativelanguage.googleapis.com/v1beta/interactions' => Http::response([
+        ...durableGeminiInteraction('in_progress'),
+        'id' => $reference,
+    ])]);
+
+    $outcome = Librarium::query('Opaque handle')->using('gemini-deep-research')->submit();
+
+    expect($outcome->handle->reference)->toBe($reference)
+        ->and(ResearchHandle::fromArray($outcome->handle->toArray())->reference)->toBe($reference);
     Http::assertSentCount(1);
     Http::assertSent(fn (Request $request): bool => $request->method() === 'POST');
 });
@@ -306,6 +330,52 @@ it('rejects changed profile binding or credential after process reconstruction b
     'credential' => ['librarium.profiles.exa-research.credential', 'rotated-exa-key'],
     'profile semantics' => ['librarium.profiles.exa-research.options', ['effort' => 'max']],
 ]);
+
+it('keeps durable handles valid across non-semantic Profile maintenance', function (string $path, mixed $replacement): void {
+    $handle = durableSubmittedHandle();
+
+    config()->set($path, $replacement);
+    durableReconstructRuntime();
+    Http::fake(['https://api.exa.ai/agent/runs/*' => Http::response(durableExaRun('running'))]);
+
+    $outcome = Librarium::retrieve(ResearchHandle::fromArray($handle->toArray()));
+
+    expect($outcome->pending())->toBeTrue();
+    durableExpectOnlyKnownGets(1, 'https://api.exa.ai/agent/runs/'.durableExaReference());
+})->with([
+    'prompt wording' => ['librarium.profiles.exa-research.prompt', 'Investigate carefully: {{ query }}'],
+    'pricing estimate' => ['librarium.profiles.exa-research.pricing', [
+        'provider' => 'exa',
+        'model' => 'research',
+        'usage' => ['agent_compute_units' => 2],
+        'conservative' => false,
+    ]],
+]);
+
+it('reports the paid submission rather than a private Valyu cancellation attempt', function (): void {
+    Http::fake(function (Request $request) {
+        if (str_ends_with($request->url(), '/cancel')) {
+            return Http::response(['success' => true]);
+        }
+
+        return Http::response([
+            ...durableValyuTask('queued'),
+            'mode' => 'unsupported',
+            'created_at' => '2026-09-11T12:00:00Z',
+        ], 202);
+    });
+
+    try {
+        Librarium::query('Ambiguous Valyu submit')->using('valyu-research')->submit();
+        throw new RuntimeException('Valyu submission unexpectedly succeeded.');
+    } catch (RecoveryException $exception) {
+        expect($exception->diagnostic->operation)->toBe(Operation::Submit)
+            ->and($exception->diagnostic->submissionState)->toBe(SubmissionState::PossiblyAccepted)
+            ->and($exception->diagnostic->httpStatus)->toBe(202);
+    }
+
+    expect(Http::recorded())->toHaveCount(2);
+});
 
 it('omits evidence when capture is disabled for submit and retrieve', function (): void {
     config()->set('librarium.redaction', ['invalid' => true]);

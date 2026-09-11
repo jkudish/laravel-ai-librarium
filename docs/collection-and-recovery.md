@@ -87,6 +87,10 @@ these submission states:
 `retry_at` and `reset_at` are absolute UTC timestamps derived only from a
 single bounded `Retry-After` or recognized rate-limit reset header. Malformed or
 ambiguous values remain absent. Librarium does not retry based on these fields.
+The category describes the observed failure; it is not retry authorization.
+When `submission_state` is `possibly_accepted`, it takes precedence over a
+`temporary` or `rate_limit` category because another submission may duplicate
+paid work.
 
 ## Persist a durable handle before retrieval
 
@@ -120,12 +124,14 @@ identity, provider reference, submission time, HMAC fingerprint, and a signed
 submission-usage snapshot when a provider reports cost only when creating its
 task. It does not contain the prompt, Profile options, credential, response
 body, URL, or a class name. Verification binds the handle to the current
-Profile semantics and credential identity using Laravel's `app.key`; changed
-bindings fail before HTTP. Credential rotation therefore invalidates existing
-handles unless the application retains the matching Profile binding in a
-controlled recovery deployment. Librarium validates `app.key` before the paid
-submission so a local signing-configuration failure cannot consume the only
-copy of a successful provider handle.
+retrieval semantics and credential identity using Laravel's `app.key`; changed
+provider, model, result/provenance semantics, options, Driver, or credential fail
+before HTTP. Prompt wording, enabled state, and pricing estimates are not
+retrieval identity. Credential rotation therefore invalidates existing handles
+unless the application retains the matching Profile binding in a controlled
+recovery deployment. Librarium validates the complete signable binding before
+the paid submission so a local signing-configuration failure cannot consume the
+only copy of a successful provider handle.
 
 Each `retrieve()` call validates the handle and performs one provider
 observation without internal polling. Most providers need one known-handle GET;
@@ -182,6 +188,11 @@ unknown options fail preflight instead of being ignored.
 | Parallel Search/Research | `services.parallel.key` / suggested `PARALLEL_API_KEY` | Captured | `parallel-research` | managed or exact search mode, query/result/fetch limits, location/source policy; Research fixed to `pro` with location/domain policy |
 | Valyu Search/Research | `services.valyu.key` / suggested `VALYU_API_KEY` | Captured | `valyu-research` | search type/result/price/relevance/date/country/source controls; Research fixed to `standard` with source/date/country policy |
 | DataForSEO surface Profiles | `librarium.providers.dataforseo.login/password` / `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` | Captured | three Standard task Profiles | required location/language plus supported device, OS, and web-search controls |
+
+Applications with a previously published `librarium.php` must add an explicit
+`search_engine` to each OpenRouter Profile that enables web search. Missing or
+unsupported engines make the Profile unavailable before provider dispatch;
+Librarium does not choose one implicitly.
 
 Perplexity's low Agent forms are intentionally different Profiles:
 

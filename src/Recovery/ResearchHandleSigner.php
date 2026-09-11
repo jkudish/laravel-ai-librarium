@@ -9,6 +9,8 @@ use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Profile;
 use Jkudish\LaravelAiLibrarium\ResearchHandle;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 use Jkudish\LaravelAiLibrarium\Responses\Usage;
 use JsonException;
 use LogicException;
@@ -18,9 +20,14 @@ final readonly class ResearchHandleSigner
 {
     public function __construct(private ConfigRepository $config) {}
 
-    public function assertConfigured(): void
+    public function assertIssuable(Profile $profile, string $requestId): void
     {
-        $this->key();
+        $this->issue(
+            profile: $profile,
+            requestId: $requestId,
+            reference: 'preflight',
+            submittedAt: CarbonImmutable::now(),
+        );
     }
 
     public function issue(
@@ -74,7 +81,18 @@ final readonly class ResearchHandleSigner
         try {
             $payload = json_encode($this->canonical([
                 'handle' => $fields,
-                'profile' => $profile->toArray(),
+                'profile' => [
+                    'id' => $profile->id,
+                    'driver' => $profile->driver,
+                    'provider' => $profile->provider,
+                    'model' => $profile->model,
+                    'result_kind' => $profile->resultKind->value,
+                    'grounding' => $profile->grounding->value,
+                    'observation' => $profile->observation->value,
+                    'corpora' => $profile->corpora->map(fn (Corpus $corpus): string => $corpus->value)->values()->all(),
+                    'retrieval_methods' => $profile->retrievalMethods->map(fn (RetrievalMethod $method): string => $method->value)->values()->all(),
+                    'options' => $profile->options,
+                ],
                 'credential' => $profile->credential,
             ]), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION);
         } catch (JsonException $exception) {

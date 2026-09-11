@@ -178,7 +178,8 @@ final class CaptureSession
     private function lastAttempt(Profile $profile): ?array
     {
         for ($index = count($this->attempts) - 1; $index >= 0; $index--) {
-            if ($this->attempts[$index]['profile'] === $profile->id) {
+            if ($this->attempts[$index]['profile'] === $profile->id
+                && $this->attempts[$index]['operation'] !== Operation::Cancel) {
                 return $this->attempts[$index];
             }
         }
