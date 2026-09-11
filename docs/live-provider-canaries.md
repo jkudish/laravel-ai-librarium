@@ -1,20 +1,23 @@
 # Live provider canary approval gates
 
-This is the release-candidate inventory of materially unique live checks for 44
-core Profiles plus the optional Firecrawl Search adapter Profile. It is a plan,
-not authorization. No live provider or paid call was made while producing or
-verifying this document.
+This is the inventory and operating policy for materially unique live checks
+for 44 core Profiles plus the optional Firecrawl Search adapter Profile. The
+ordinary test suite remains network-free; every live execution still requires
+an explicit approval bound to its exact candidate, scope, and spend ceiling.
 
 ## Approval contract
 
-Each canary ID below is an independent approval gate. Approval for one ID does
-not authorize another ID, a Profile group, a bulk Composer script, a retry, or
-a changed model, query, timeout, or cost ceiling. Before dispatch, record:
+Each canary ID below is an independent approval gate unless an approval names a
+defined tier below. A tier approval covers only its listed IDs, exact repository
+heads, fixed queries and models, per-canary reservations, aggregate ceiling,
+and one sequential attempt per canary. It never authorizes a retry or a changed
+model, query, timeout, or cost ceiling. Before dispatch, record:
 
 1. the exact commit or release candidate under test;
 2. the canary ID, Profile, query, model or provider-managed target, and timeout;
 3. the credential-owning account and a hard per-call and aggregate spend cap;
-4. whether one retry is authorized and what failure permits it; and
+4. for an individual non-tier canary, whether one retry is authorized and what
+   failure permits it; tier approvals always record one attempt and no retry; and
 5. the terminal receipt location with secrets and raw provider payloads removed.
 
 Unknown cost is not zero. A canary with unknown or variable pricing must not run
@@ -25,6 +28,27 @@ plan; otherwise the operator needs an independently enforced provider/account
 ceiling. The ordinary suite remains network-free. Existing live tests
 additionally require `LIBRARIUM_LIVE_TESTS=1`; the environment flag alone is
 not approval.
+
+## Provider-parity cadence and reservation ledger
+
+Run the cheap Search tier manually once per calendar month. Run the full parity
+tier before a release and after a material provider API, authentication,
+transport, lifecycle, or result-mapping change. Cadence is not standing spend
+authorization: each execution needs a new approval for the exact tested heads
+and aggregate ceiling.
+
+| Tier | Canary IDs | Per-canary USD reservations | Aggregate ceiling |
+| --- | --- | --- | --- |
+| Monthly Search | C30–C34, C40–C41, C43, C45 | 0.02, 0.10, 0.02, 0.10, 0.10, 0.10, 0.01, 0.15, 0.10 | 0.70 |
+| Full provider parity | C30–C45 | 0.02, 0.10, 0.02, 0.10, 0.10, 0.60, 2.00, 0.50, 0.20, 0.25, 0.10, 0.01, 0.15, 0.15, 0.60, 0.10 | 5.00 |
+
+The reservations are safety ceilings, not predicted charges. Revalidate them
+against current provider pricing before approval; in particular, refresh both
+xAI reservations before any run on or after 2026-09-21. Execute canaries
+sequentially, expose only the relevant provider credential to each child
+process, and retain a sanitized receipt containing the tested heads, reservation
+ledger, submission counts, outcomes, and assertion counts. Never retain
+credentials, raw provider bodies, private durable handles, or auth-bearing URLs.
 
 ## Unique canaries
 
@@ -64,31 +88,44 @@ provider/model and truthful search-on terminal projection differ materially.
 | C27 | `dataforseo-gemini-live` | DataForSEO Gemini LLM Scraper Live Advanced | `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` | `DataForSeoProfilesLiveTest` — DataForSEO Gemini Live; not run | Current conservative USD 0.004 quote and exact acknowledgement required |
 | C28 | `dataforseo-google-ai-mode` | DataForSEO Google AI Mode Standard submit/poll/get | `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` | `DataForSeoProfilesLiveTest` — DataForSEO Google AI Mode Standard; not run | Current conservative USD 0.0012 quote and exact acknowledgement required |
 | C29 | `dataforseo-google-ai-mode-live` | DataForSEO Google AI Mode Live Advanced | `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` | `DataForSeoProfilesLiveTest` — DataForSEO Google AI Mode Live; not run | Current conservative USD 0.004 quote and exact acknowledgement required |
-| C30 | `brave-search` | Brave Web Search, raw ranked results | `BRAVE_API_KEY` | `ProviderParityProfilesLiveTest` — Brave Search; not run | Fixed request quote plus independently enforced account cap |
-| C31 | `tavily-search` | Tavily Search, advanced default | `TAVILY_API_KEY` | `ProviderParityProfilesLiveTest` — Tavily Search; not run | Configured-only credit rate; current rate and external cap required |
-| C32 | `perplexity-search` | Perplexity synchronous Search API | `PERPLEXITY_API_KEY` | `ProviderParityProfilesLiveTest` — Perplexity Search; not run | Fixed successful-request quote plus independently enforced account cap |
-| C33 | `jina-search` | Jina Search Foundation API | `JINA_API_KEY` | `ProviderParityProfilesLiveTest` — Jina Search; not run | No response-level USD quote; external provider/account cap required |
-| C34 | `serpapi` | SerpAPI synchronous Google engine | `SERPAPI_API_KEY` | `ProviderParityProfilesLiveTest` — SerpAPI Search; not run | Configured-only successful-search rate; current rate and external cap required |
-| C35 | `exa-research` | Exa Agent Auto submit/poll/retrieve | `EXA_API_KEY` | `ProviderParityProfilesLiveTest` — Exa Research; not run | Variable compute/search spend; explicit external cap required |
-| C36 | `gemini-deep-research` | Gemini Interactions Deep Research agent | `GEMINI_API_KEY` | `ProviderParityProfilesLiveTest` — Gemini Deep Research; not run | Configured-only/unknown request spend; explicit external cap required |
-| C37 | `perplexity-deep-research` | Perplexity Agent API `medium`, background poll/retrieve | `PERPLEXITY_API_KEY` | `ProviderParityProfilesLiveTest` — Perplexity Deep Research; not run | Partial token/tool estimate only; explicit external cap required |
-| C38 | `grok-x-only` | One xAI Responses request with X Search only | `XAI_API_KEY` | `ProviderParityProfilesLiveTest` — Grok X-only; not run | Partial tokens/search estimate; refresh after 2026-09-21 billing change and apply external cap |
-| C39 | `grok-combined` | One xAI Responses request with web and X Search together | `XAI_API_KEY` | `ProviderParityProfilesLiveTest` — Grok combined; not run | Partial tokens/search estimate; refresh after 2026-09-21 billing change and apply external cap |
-| C40 | `parallel-search` | Parallel provider-managed Search mode | `PARALLEL_API_KEY` | `ProviderParityProfilesLiveTest` — Parallel Search; not run | Provider-managed mode prevents a hard preflight quote; external cap required |
-| C41 | `parallel-turbo` | Parallel Search with `mode=turbo` fixed | `PARALLEL_API_KEY` | `ProviderParityProfilesLiveTest` — Parallel Turbo; not run | Fixed request/default-result quote plus external cap |
-| C42 | `parallel-research` | Parallel Task API `pro` submit/status/result | `PARALLEL_API_KEY` | `ProviderParityProfilesLiveTest` — Parallel Research; not run | Fixed successful processor-request quote plus external cap |
-| C43 | `valyu-search` | Valyu Search across web and specialized corpora | `VALYU_API_KEY` | `ProviderParityProfilesLiveTest` — Valyu Search; not run | Source-dependent charges prevent a hard preflight quote; external cap required |
-| C44 | `valyu-research` | Valyu standard Deep Research submit/poll/retrieve | `VALYU_API_KEY` | `ProviderParityProfilesLiveTest` — Valyu Research; not run | Standard base/selected-option quote plus external cap |
-| C45 | `firecrawl-search` | Optional adapter raw `POST /v2/search` | `FIRECRAWL_API_KEY` | Adapter `FirecrawlSearchLiveTest`; not run | Provider credit use has no truthful preflight quantity; search-specific acknowledgement and external cap required |
+| C30 | `brave-search` | Brave Web Search, raw ranked results | `BRAVE_API_KEY` | `ProviderParityProfilesLiveTest` — Brave Search; passed 2026-09-11 | Fixed request quote plus independently enforced account cap |
+| C31 | `tavily-search` | Tavily Search, advanced default | `TAVILY_API_KEY` | `ProviderParityProfilesLiveTest` — Tavily Search; passed 2026-09-11 | Configured-only credit rate; current rate and external cap required |
+| C32 | `perplexity-search` | Perplexity synchronous Search API | `PERPLEXITY_API_KEY` | `ProviderParityProfilesLiveTest` — Perplexity Search; passed 2026-09-11 | Fixed successful-request quote plus independently enforced account cap |
+| C33 | `jina-search` | Jina Search Foundation API | `JINA_API_KEY` | `ProviderParityProfilesLiveTest` — Jina Search; passed 2026-09-11 | No response-level USD quote; external provider/account cap required |
+| C34 | `serpapi` | SerpAPI synchronous Google engine | `SERPAPI_API_KEY` | `ProviderParityProfilesLiveTest` — SerpAPI Search; passed 2026-09-11 | Configured-only successful-search rate; current rate and external cap required |
+| C35 | `exa-research` | Exa Agent Auto submit/poll/retrieve | `EXA_API_KEY` | `ProviderParityProfilesLiveTest` — Exa Research; passed 2026-09-11 | Variable compute/search spend; explicit external cap required |
+| C36 | `gemini-deep-research` | Gemini Interactions Deep Research agent | `GEMINI_API_KEY` | `ProviderParityProfilesLiveTest` — Gemini Deep Research; passed 2026-09-11 | Configured-only/unknown request spend; explicit external cap required |
+| C37 | `perplexity-deep-research` | Perplexity Agent API `medium`, background poll/retrieve | `PERPLEXITY_API_KEY` | `ProviderParityProfilesLiveTest` — Perplexity Deep Research; passed 2026-09-11 | Partial token/tool estimate only; explicit external cap required |
+| C38 | `grok-x-only` | One xAI Responses request with X Search only | `XAI_API_KEY` | `ProviderParityProfilesLiveTest` — Grok X-only; corrected query passed 2026-09-11 | Partial tokens/search estimate; refresh after 2026-09-21 billing change and apply external cap |
+| C39 | `grok-combined` | One xAI Responses request with web and X Search together | `XAI_API_KEY` | `ProviderParityProfilesLiveTest` — Grok combined; passed 2026-09-11 | Partial tokens/search estimate; refresh after 2026-09-21 billing change and apply external cap |
+| C40 | `parallel-search` | Parallel provider-managed Search mode | `PARALLEL_API_KEY` | `ProviderParityProfilesLiveTest` — Parallel Search; passed 2026-09-11 | Provider-managed mode prevents a hard preflight quote; external cap required |
+| C41 | `parallel-turbo` | Parallel Search with `mode=turbo` fixed | `PARALLEL_API_KEY` | `ProviderParityProfilesLiveTest` — Parallel Turbo; passed 2026-09-11 | Fixed request/default-result quote plus external cap |
+| C42 | `parallel-research` | Parallel Task API `pro` submit/status/result | `PARALLEL_API_KEY` | `ProviderParityProfilesLiveTest` — Parallel Research; passed 2026-09-11 | Fixed successful processor-request quote plus external cap |
+| C43 | `valyu-search` | Valyu Search across web and specialized corpora | `VALYU_API_KEY` | `ProviderParityProfilesLiveTest` — Valyu Search; passed 2026-09-11 | Source-dependent charges prevent a hard preflight quote; external cap required |
+| C44 | `valyu-research` | Valyu standard Deep Research submit/poll/retrieve | `VALYU_API_KEY` | `ProviderParityProfilesLiveTest` — Valyu Research; passed 2026-09-11 | Standard base/selected-option quote plus external cap |
+| C45 | `firecrawl-search` | Optional adapter raw `POST /v2/search` | `FIRECRAWL_API_KEY` | Adapter `FirecrawlSearchLiveTest`; passed 2026-09-11 | Provider credit use has no truthful preflight quantity; search-specific acknowledgement and external cap required |
 
 ## Narrow invocation
 
 For C01–C06, C14–C29, and C30–C44, invoke only the named dataset after approval
-rather than a bulk Composer script:
+rather than a bulk Composer script. Pass only the selected Profile credential
+to the child environment (`credential_name` must be the canonical name from the
+table):
 
 ```bash
-LIBRARIUM_LIVE_TESTS=1 vendor/bin/pest tests/Live/<test-file> \
-  --filter='<exact dataset name from the table>' --fail-on-skipped
+credential_name='<CREDENTIAL_NAME>'
+credential_value="${CREDENTIAL_VALUE_FROM_SECRET_STORE}"
+
+env -i HOME="$HOME" PATH="$PATH" \
+  LIBRARIUM_LIVE_TESTS=1 \
+  LIBRARIUM_LIVE_PROFILE='<profile>' \
+  LIBRARIUM_LIVE_MAX_USD='<reservation>' \
+  LIBRARIUM_LIVE_UNPRICED_ACK='external-cap:<profile>:USD:<reservation>' \
+  "${credential_name}=${credential_value}" \
+  vendor/bin/pest tests/Live/<test-file> \
+    --filter='<exact dataset name from the table>' --fail-on-skipped
+
+unset credential_value
 ```
 
 C12 uses its single-test `composer test:live:openai-research` command. C07–C11
@@ -97,9 +134,11 @@ reviewed narrow harness rather than an ad hoc provider request. C30–C44 also
 require `LIBRARIUM_LIVE_PROFILE`, `LIBRARIUM_LIVE_MAX_USD`, and, when preview
 pricing cannot enforce a hard ceiling, the exact `LIBRARIUM_LIVE_UNPRICED_ACK`
 printed by the harness after an external provider/account cap is applied. C45
-uses the adapter's search-specific harness and acknowledgement. In every case,
-the operator must first satisfy and record the approval contract above; the
-command itself is not authorization.
+uses the adapter's search-specific harness and acknowledgement under the same
+child-environment isolation. `JINA_AI_API_KEY` may supply `credential_value`,
+but the child name remains `JINA_API_KEY`. In every case, the operator must first
+satisfy and record the approval contract above; the command itself is not
+authorization.
 
 For all five new durable canaries (C35–C37, C42, and C44), an ambiguous
 submission failure is terminal for that attempt: never retry it automatically.
@@ -112,8 +151,17 @@ allowed only after a validated provider handle and within the shared deadline.
   implementation heads. PlanMode tasks #2834, #2836, and #2901 retain the
   frozen SHAs and redacted receipts. That evidence does not authorize a rerun or
   claim that a later release-candidate SHA was exercised.
-- C14–C45 remain unverified live. Their committed opt-in harness is runnable one
+- C14–C29 remain unverified live. Their committed opt-in harness is runnable one
   dataset at a time after the approval contract above is satisfied.
+- C30–C37 and C39–C45 passed on 2026-09-11 against core
+  `dfce4d2b3f06147ff0e1f94bafd54eb44141d179`, pricing
+  `7caa14b59ef56724718c63e2f9b170b296ba8e9e`, and Firecrawl
+  `67dfb86f7086e0fbe961298f0d81d171d2b50b55`. C38's first post-merge request
+  failed for missing valid citations and was not retried. Its corrected X-native
+  query then passed in one separately authorized, credential-isolated request at
+  core candidate `05943e28e47b77deca6dec0ad5404653bf97eaf9`. The
+  [sanitized receipt](provider-parity-live-2026-09-11.md) retains both attempts;
+  all C30–C45 Profiles have now passed their live canary.
 - Any rerun, including a final-release revalidation, needs current provider-doc
   review, credentials, a spend cap, and an approved SHA. The bulk
   `test:live:sdk` and `test:live:searchapi` scripts are convenience commands,
