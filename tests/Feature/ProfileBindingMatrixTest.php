@@ -232,6 +232,8 @@ it('keeps one separately gated live canary for every landed PHP Profile', functi
         ->toContain('C14–C29 remain unverified live.')
         ->toContain('C30–C37 and C39–C45 passed on 2026-09-11')
         ->toContain('new candidate SHA and separately approved')
+        ->toContain('env -i HOME="$HOME" PATH="$PATH"')
+        ->toContain('"${credential_name}=${credential_value}"')
         ->toContain("--filter='<exact dataset name from the table>' --fail-on-skipped")
         ->and($receipt)->toContain('dfce4d2b3f06147ff0e1f94bafd54eb44141d179')
         ->toContain('7caa14b59ef56724718c63e2f9b170b296ba8e9e')

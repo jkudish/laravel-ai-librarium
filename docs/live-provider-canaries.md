@@ -108,11 +108,24 @@ provider/model and truthful search-on terminal projection differ materially.
 ## Narrow invocation
 
 For C01–C06, C14–C29, and C30–C44, invoke only the named dataset after approval
-rather than a bulk Composer script:
+rather than a bulk Composer script. Pass only the selected Profile credential
+to the child environment (`credential_name` must be the canonical name from the
+table):
 
 ```bash
-LIBRARIUM_LIVE_TESTS=1 vendor/bin/pest tests/Live/<test-file> \
-  --filter='<exact dataset name from the table>' --fail-on-skipped
+credential_name='<CREDENTIAL_NAME>'
+credential_value="${CREDENTIAL_VALUE_FROM_SECRET_STORE}"
+
+env -i HOME="$HOME" PATH="$PATH" \
+  LIBRARIUM_LIVE_TESTS=1 \
+  LIBRARIUM_LIVE_PROFILE='<profile>' \
+  LIBRARIUM_LIVE_MAX_USD='<reservation>' \
+  LIBRARIUM_LIVE_UNPRICED_ACK='external-cap:<profile>:USD:<reservation>' \
+  "${credential_name}=${credential_value}" \
+  vendor/bin/pest tests/Live/<test-file> \
+    --filter='<exact dataset name from the table>' --fail-on-skipped
+
+unset credential_value
 ```
 
 C12 uses its single-test `composer test:live:openai-research` command. C07–C11
@@ -121,9 +134,11 @@ reviewed narrow harness rather than an ad hoc provider request. C30–C44 also
 require `LIBRARIUM_LIVE_PROFILE`, `LIBRARIUM_LIVE_MAX_USD`, and, when preview
 pricing cannot enforce a hard ceiling, the exact `LIBRARIUM_LIVE_UNPRICED_ACK`
 printed by the harness after an external provider/account cap is applied. C45
-uses the adapter's search-specific harness and acknowledgement. In every case,
-the operator must first satisfy and record the approval contract above; the
-command itself is not authorization.
+uses the adapter's search-specific harness and acknowledgement under the same
+child-environment isolation. `JINA_AI_API_KEY` may supply `credential_value`,
+but the child name remains `JINA_API_KEY`. In every case, the operator must first
+satisfy and record the approval contract above; the command itself is not
+authorization.
 
 For all five new durable canaries (C35–C37, C42, and C44), an ambiguous
 submission failure is terminal for that attempt: never retry it automatically.
