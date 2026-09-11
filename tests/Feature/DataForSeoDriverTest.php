@@ -351,6 +351,21 @@ it('accepts the documented ChatGPT receipt alias while keeping the request route
     Http::assertSent(fn (Request $request): bool => $request->url() === 'https://api.dataforseo.com/v3/ai_optimization/chat_gpt/llm_scraper/live/advanced');
 });
 
+it('accepts the observed ChatGPT Standard creation receipt identity', function (): void {
+    $query = str_repeat('é', 2000);
+    $payload = dataForSeoEnvelope('dataforseo-chatgpt', 'ai_optimization/chat_gpt/llm_scraper', 'task_post', 'chatgpt', $query, 20100, false, '0.0012');
+    $payload['tasks'][0]['data']['function'] = 'llm_scraper';
+    $payload['tasks'][0]['data']['keyword'] = rawurlencode($query);
+    unset($payload['tasks'][0]['data']['se_type']);
+    Http::fake(fn () => Http::response($payload));
+
+    $submission = Librarium::query($query)->using('dataforseo-chatgpt')->submit();
+
+    expect($submission->handle->reference)->toBe(DATAFORSEO_TEST_ID)
+        ->and($submission->usage()?->actualCost)->toBe('0.0012');
+    Http::assertSentCount(1);
+});
+
 it('accepts omitted optional scraper echoes but rejects contradictory product or control echoes', function (array $echo, bool $accepted): void {
     $payload = dataForSeoEnvelope('dataforseo-chatgpt-live', 'ai_optimization/chat_gpt/llm_scraper', 'live/advanced', 'chatgpt', 'echo', 20000, true, '0.004');
     unset($payload['tasks'][0]['data']['force_web_search']);

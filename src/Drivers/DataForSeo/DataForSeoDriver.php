@@ -511,24 +511,28 @@ final readonly class DataForSeoDriver implements DurableDriver
         string $operation,
         DriverRequest|RecoveryRequest $request,
     ): void {
-        $function = match (true) {
+        $functions = match (true) {
             $descriptor['api'] === 'ai_optimization'
-                && ! ($descriptor['surface'] === 'chatgpt' && $operation === 'task_post') => 'llm_scraper',
-            $operation === 'task_post' => 'task_post',
-            str_starts_with($operation, 'task_get/') => 'task_get',
-            default => 'live',
+                && $descriptor['surface'] === 'chatgpt'
+                && $operation === 'task_post' => ['task_post', 'llm_scraper'],
+            $descriptor['api'] === 'ai_optimization' => ['llm_scraper'],
+            $operation === 'task_post' => ['task_post'],
+            str_starts_with($operation, 'task_get/') => ['task_get'],
+            default => ['live'],
         };
         $keyword = is_array($data) ? ($data['keyword'] ?? null) : null;
+        $keywordValid = is_string($keyword)
+            && trim($keyword) !== ''
+            && ($request instanceof DriverRequest
+                ? in_array($keyword, [$request->prompt, rawurlencode($request->prompt)], true)
+                : mb_strlen($keyword) <= $descriptor['max_chars']);
         if (! is_array($data) || array_is_list($data)
             || ($data['api'] ?? null) !== $descriptor['api']
-            || ($data['function'] ?? null) !== $function
+            || ! in_array($data['function'] ?? null, $functions, true)
             || ! in_array($data['se'] ?? null, [$descriptor['se'], ...($descriptor['se_aliases'] ?? [])], true)
             || (($descriptor['api'] === 'serp' || array_key_exists('se_type', $data))
                 && ($data['se_type'] ?? null) !== ($descriptor['se_type'] ?? null))
-            || ! is_string($keyword)
-            || trim($keyword) === ''
-            || mb_strlen($keyword) > $descriptor['max_chars']
-            || ($request instanceof DriverRequest && $keyword !== $request->prompt)
+            || ! $keywordValid
             || ($data['location_code'] ?? null) !== data_get($request->profile->options, 'location_code')
             || ($data['language_code'] ?? null) !== data_get($request->profile->options, 'language_code')) {
             throw self::invalidResponse('DataForSEO returned a receipt for a different task family or request.');
