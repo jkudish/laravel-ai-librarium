@@ -11,6 +11,7 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
+use Jkudish\LaravelAiLibrarium\Contracts\DefinesSpendingBound;
 use Jkudish\LaravelAiLibrarium\Contracts\DurableDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
@@ -23,11 +24,13 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
+use Jkudish\LaravelAiLibrarium\SpendingBound;
+use Jkudish\LaravelAiPricing\ValueObjects\Money;
 use stdClass;
 use Throwable;
 
 /** Runs one durable Exa Agent task for the exact exa/research Profile. */
-final readonly class ExaResearchDriver implements DurableDriver
+final readonly class ExaResearchDriver implements DefinesSpendingBound, DurableDriver
 {
     private const string ENDPOINT = 'https://api.exa.ai/agent/runs';
 
@@ -57,9 +60,10 @@ final readonly class ExaResearchDriver implements DurableDriver
                 'prohibited_if:options.effort,minimal,low,medium,high,xhigh',
                 static function (string $attribute, mixed $value, Closure $fail): void {
                     if ((! is_int($value) && ! is_float($value))
-                        || $value <= 0
+                        || $value < 1
+                        || $value > 100
                         || (is_float($value) && ! is_finite($value))) {
-                        $fail("The {$attribute} field must be a finite positive number.");
+                        $fail("The {$attribute} field must be a finite number between 1 and 100.");
                     }
                 },
             ],
@@ -102,6 +106,25 @@ final readonly class ExaResearchDriver implements DurableDriver
             $this->mapper->map($request, $terminal),
             [$credential, $runId],
             $this->invalidResponse(),
+        );
+    }
+
+    public function spendingBound(DriverRequest $request): SpendingBound
+    {
+        $options = $request->profile->options;
+        $effort = $options['effort'] ?? 'auto';
+        $maximum = $options['max_cost_dollars'] ?? null;
+
+        if (! $this->compatibleProfile($request)
+            || ! $this->validOptions($options)
+            || trim($request->prompt) === ''
+            || ! in_array($effort, ['auto', 'max'], true)
+            || (! is_int($maximum) && ! is_float($maximum))) {
+            return SpendingBound::unknown();
+        }
+
+        return SpendingBound::nativeMonetaryCeiling(
+            new Money($this->budgetDecimal($maximum), 'USD'),
         );
     }
 
@@ -163,15 +186,7 @@ final readonly class ExaResearchDriver implements DurableDriver
     private function preflight(DriverRequest|RecoveryRequest $request): string
     {
         $profile = $request->profile;
-        if ($profile->id !== 'exa-research'
-            || $profile->provider !== 'exa'
-            || $profile->model !== null
-            || $profile->resultKind !== ResultKind::ResearchReport
-            || $profile->grounding !== GroundingPolicy::Required
-            || $profile->observation !== ObservationMode::ApiOutput
-            || $profile->corpora->values()->all() !== [Corpus::Web]
-            || $profile->retrievalMethods->values()->all() !== [RetrievalMethod::ResearchAgent]
-        ) {
+        if (! $this->compatibleProfile($request)) {
             throw new DriverException(
                 'exa_research.invalid_profile',
                 'The Exa Research Profile has incompatible provider or provenance semantics.',
@@ -232,9 +247,31 @@ final readonly class ExaResearchDriver implements DurableDriver
         $cost = $options['max_cost_dollars'];
 
         return (is_int($cost) || is_float($cost))
-            && $cost > 0
+            && $cost >= 1
+            && $cost <= 100
             && (! is_float($cost) || is_finite($cost))
             && in_array($effort, ['auto', 'max'], true);
+    }
+
+    private function compatibleProfile(DriverRequest|RecoveryRequest $request): bool
+    {
+        $profile = $request->profile;
+
+        return $profile->id === 'exa-research'
+            && $profile->provider === 'exa'
+            && $profile->model === null
+            && $profile->resultKind === ResultKind::ResearchReport
+            && $profile->grounding === GroundingPolicy::Required
+            && $profile->observation === ObservationMode::ApiOutput
+            && $profile->corpora->values()->all() === [Corpus::Web]
+            && $profile->retrievalMethods->values()->all() === [RetrievalMethod::ResearchAgent];
+    }
+
+    private function budgetDecimal(int|float $value): string
+    {
+        return is_int($value)
+            ? (string) $value
+            : (string) json_encode($value, JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR);
     }
 
     private function isJsonValue(mixed $value): bool

@@ -39,6 +39,7 @@ use Jkudish\LaravelAiLibrarium\Drivers\Valyu\ValyuSearchDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Xai\XaiGrokDriver;
 use Jkudish\LaravelAiLibrarium\Execution\ProfileCompatibility;
 use Jkudish\LaravelAiLibrarium\Execution\ResearchRuntime;
+use Jkudish\LaravelAiLibrarium\Execution\SpendingBoundResolver;
 use Jkudish\LaravelAiLibrarium\Recovery\DurableResearchRuntime;
 use Jkudish\LaravelAiLibrarium\Webhooks\WebhookSignalStore;
 use Jkudish\LaravelAiPricing\Contracts\CostResolver;
@@ -64,6 +65,7 @@ final class LaravelAiLibrariumServiceProvider extends ServiceProvider
         $this->app->singleton(ProfileCatalog::class);
         $this->app->singleton(ProfileCompatibility::class);
         $this->app->singleton(ResearchCompiler::class);
+        $this->app->singleton(SpendingBoundResolver::class);
         $this->app->when(ResearchCompiler::class)
             ->needs(CostResolver::class)
             ->give(fn (): CostResolver => $this->offlineCostResolver());

@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
+use Jkudish\LaravelAiLibrarium\Contracts\DefinesSpendingBound;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
 use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
@@ -28,9 +29,12 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\SourceKind;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 use Jkudish\LaravelAiLibrarium\Responses\ResultProvenance;
 use Jkudish\LaravelAiLibrarium\Responses\Source;
+use Jkudish\LaravelAiLibrarium\SpendingBound;
+use Jkudish\LaravelAiPricing\ValueObjects\ModelIdentity;
+use Jkudish\LaravelAiPricing\ValueObjects\Usage as PricingUsage;
 
 /** Direct, synchronous access to Perplexity's raw Search API. */
-final readonly class PerplexitySearchDriver implements Driver
+final readonly class PerplexitySearchDriver implements DefinesSpendingBound, Driver
 {
     private const string ENDPOINT = 'https://api.perplexity.ai/search';
 
@@ -135,6 +139,18 @@ final readonly class PerplexitySearchDriver implements Driver
             completedAt: $now,
             providerMeta: (object) ['result_count' => count($results)],
         ), [(string) $request->profile->credential], $this->invalidResponse());
+    }
+
+    public function spendingBound(DriverRequest $request): SpendingBound
+    {
+        if ($request->profile->id !== 'perplexity-search' || $request->profile->options !== []) {
+            return SpendingBound::unknown();
+        }
+
+        return SpendingBound::billableQuantities(
+            new ModelIdentity('perplexity', 'search'),
+            new PricingUsage(['requests' => 1]),
+        );
     }
 
     private function preflight(DriverRequest $request): void

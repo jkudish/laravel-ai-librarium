@@ -10,6 +10,7 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
+use Jkudish\LaravelAiLibrarium\Contracts\DefinesSpendingBound;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
 use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
@@ -27,9 +28,12 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\SourceKind;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 use Jkudish\LaravelAiLibrarium\Responses\ResultProvenance;
 use Jkudish\LaravelAiLibrarium\Responses\Source;
+use Jkudish\LaravelAiLibrarium\SpendingBound;
+use Jkudish\LaravelAiPricing\ValueObjects\ModelIdentity;
+use Jkudish\LaravelAiPricing\ValueObjects\Usage as PricingUsage;
 
 /** Runs one synchronous Google search through SerpAPI. */
-final readonly class SerpApiDriver implements Driver
+final readonly class SerpApiDriver implements DefinesSpendingBound, Driver
 {
     private const string ENDPOINT = 'https://serpapi.com/search';
 
@@ -70,6 +74,18 @@ final readonly class SerpApiDriver implements Driver
         }
 
         return $this->result($request, $this->organicResults($json), (string) $credential);
+    }
+
+    public function spendingBound(DriverRequest $request): SpendingBound
+    {
+        if ($request->profile->id !== 'serpapi' || $request->profile->options !== []) {
+            return SpendingBound::unknown();
+        }
+
+        return SpendingBound::billableQuantities(
+            new ModelIdentity('serpapi', 'search'),
+            new PricingUsage(['successful_search_request' => 1]),
+        );
     }
 
     private function validateProfile(DriverRequest $request): void

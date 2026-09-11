@@ -13,6 +13,7 @@ use Jkudish\LaravelAiLibrarium\Collection\SensitiveCollection;
 use Jkudish\LaravelAiLibrarium\Contracts\CollectsResearch;
 use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
 use Jkudish\LaravelAiLibrarium\Contracts\RecoversResearch;
+use Jkudish\LaravelAiLibrarium\Execution\SpendingBoundResolver;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
@@ -50,6 +51,7 @@ final class PendingResearch
         private readonly Closure $resolveCollector,
         private readonly Closure $resolveRecovery,
         private readonly ResponseRedactor $redactor,
+        private readonly ?SpendingBoundResolver $spendingBounds = null,
     ) {}
 
     public function using(string $profile): self
@@ -128,6 +130,15 @@ final class PendingResearch
     public function preview(): ResearchPreview
     {
         return $this->compiler->compile($this)->preview;
+    }
+
+    public function spendingBound(): SpendingBound
+    {
+        if ($this->spendingBounds === null) {
+            throw new \LogicException('The spending-bound resolver is not configured.');
+        }
+
+        return $this->spendingBounds->resolve($this);
     }
 
     public function run(): ResearchResponse

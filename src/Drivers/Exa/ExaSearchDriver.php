@@ -10,6 +10,7 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
+use Jkudish\LaravelAiLibrarium\Contracts\DefinesSpendingBound;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
@@ -21,6 +22,9 @@ use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 use Jkudish\LaravelAiLibrarium\Responses\ResultProvenance;
 use Jkudish\LaravelAiLibrarium\Responses\Source;
 use Jkudish\LaravelAiLibrarium\Responses\Usage;
+use Jkudish\LaravelAiLibrarium\SpendingBound;
+use Jkudish\LaravelAiPricing\ValueObjects\ModelIdentity;
+use Jkudish\LaravelAiPricing\ValueObjects\Usage as PricingUsage;
 
 /**
  * A focused Laravel HTTP Driver for the Exa Search API.
@@ -28,7 +32,7 @@ use Jkudish\LaravelAiLibrarium\Responses\Usage;
  * Only validated result fields become terminal content. Credentials, response
  * bodies, and provider error text never enter results or Driver exceptions.
  */
-final readonly class ExaSearchDriver implements Driver
+final readonly class ExaSearchDriver implements DefinesSpendingBound, Driver
 {
     private const string ENDPOINT = 'https://api.exa.ai/search';
 
@@ -103,6 +107,18 @@ final readonly class ExaSearchDriver implements Driver
             completedAt: $now,
             usage: $this->usage(data_get($json, 'costDollars.total')),
             providerMeta: (object) ['result_count' => count($results)],
+        );
+    }
+
+    public function spendingBound(DriverRequest $request): SpendingBound
+    {
+        if ($request->profile->id !== 'exa' || $request->profile->options !== []) {
+            return SpendingBound::unknown();
+        }
+
+        return SpendingBound::billableQuantities(
+            new ModelIdentity('exa', 'search'),
+            new PricingUsage(['requests' => 1, 'additional_results' => 0, 'summary_pages' => 0]),
         );
     }
 

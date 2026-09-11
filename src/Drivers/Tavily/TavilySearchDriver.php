@@ -10,6 +10,7 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
+use Jkudish\LaravelAiLibrarium\Contracts\DefinesSpendingBound;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
 use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
@@ -27,9 +28,12 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\SourceKind;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 use Jkudish\LaravelAiLibrarium\Responses\ResultProvenance;
 use Jkudish\LaravelAiLibrarium\Responses\Source;
+use Jkudish\LaravelAiLibrarium\SpendingBound;
+use Jkudish\LaravelAiPricing\ValueObjects\ModelIdentity;
+use Jkudish\LaravelAiPricing\ValueObjects\Usage as PricingUsage;
 
 /** Laravel HTTP Driver for the synchronous Tavily Search API. */
-final readonly class TavilySearchDriver implements Driver
+final readonly class TavilySearchDriver implements DefinesSpendingBound, Driver
 {
     private const string ENDPOINT = 'https://api.tavily.com/search';
 
@@ -122,6 +126,18 @@ final readonly class TavilySearchDriver implements Driver
             completedAt: $now,
             providerMeta: (object) $providerMeta,
         ), [(string) $request->profile->credential], $this->invalidResponse());
+    }
+
+    public function spendingBound(DriverRequest $request): SpendingBound
+    {
+        if ($request->profile->id !== 'tavily-search' || $request->profile->options !== []) {
+            return SpendingBound::unknown();
+        }
+
+        return SpendingBound::billableQuantities(
+            new ModelIdentity('tavily', 'search'),
+            new PricingUsage(['credits' => 2]),
+        );
     }
 
     /** @return array<array-key, mixed> */
