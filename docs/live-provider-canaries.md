@@ -96,7 +96,7 @@ provider/model and truthful search-on terminal projection differ materially.
 | C35 | `exa-research` | Exa Agent Auto submit/poll/retrieve | `EXA_API_KEY` | `ProviderParityProfilesLiveTest` — Exa Research; passed 2026-09-11 | Variable compute/search spend; explicit external cap required |
 | C36 | `gemini-deep-research` | Gemini Interactions Deep Research agent | `GEMINI_API_KEY` | `ProviderParityProfilesLiveTest` — Gemini Deep Research; passed 2026-09-11 | Configured-only/unknown request spend; explicit external cap required |
 | C37 | `perplexity-deep-research` | Perplexity Agent API `medium`, background poll/retrieve | `PERPLEXITY_API_KEY` | `ProviderParityProfilesLiveTest` — Perplexity Deep Research; passed 2026-09-11 | Partial token/tool estimate only; explicit external cap required |
-| C38 | `grok-x-only` | One xAI Responses request with X Search only | `XAI_API_KEY` | `ProviderParityProfilesLiveTest` — Grok X-only; candidate passed, corrected exact-head rerun pending | Partial tokens/search estimate; refresh after 2026-09-21 billing change and apply external cap |
+| C38 | `grok-x-only` | One xAI Responses request with X Search only | `XAI_API_KEY` | `ProviderParityProfilesLiveTest` — Grok X-only; corrected query passed 2026-09-11 | Partial tokens/search estimate; refresh after 2026-09-21 billing change and apply external cap |
 | C39 | `grok-combined` | One xAI Responses request with web and X Search together | `XAI_API_KEY` | `ProviderParityProfilesLiveTest` — Grok combined; passed 2026-09-11 | Partial tokens/search estimate; refresh after 2026-09-21 billing change and apply external cap |
 | C40 | `parallel-search` | Parallel provider-managed Search mode | `PARALLEL_API_KEY` | `ProviderParityProfilesLiveTest` — Parallel Search; passed 2026-09-11 | Provider-managed mode prevents a hard preflight quote; external cap required |
 | C41 | `parallel-turbo` | Parallel Search with `mode=turbo` fixed | `PARALLEL_API_KEY` | `ProviderParityProfilesLiveTest` — Parallel Turbo; passed 2026-09-11 | Fixed request/default-result quote plus external cap |
@@ -156,14 +156,12 @@ allowed only after a validated provider handle and within the shared deadline.
 - C30–C37 and C39–C45 passed on 2026-09-11 against core
   `dfce4d2b3f06147ff0e1f94bafd54eb44141d179`, pricing
   `7caa14b59ef56724718c63e2f9b170b296ba8e9e`, and Firecrawl
-  `67dfb86f7086e0fbe961298f0d81d171d2b50b55`. The full result is retained in
-  the [sanitized receipt](provider-parity-live-2026-09-11.md): 15/16 passed;
-  C38 made one request, failed for missing valid citations, and was not retried.
-  C38 passed the reviewed candidate on 2026-09-10, but its first post-merge run
-  exposed a suspected mismatch between its official-documentation query and
-  X-only tool. The harness now asks for an official Laravel X post; that revised
-  query remains unverified and needs a new candidate SHA and separately approved
-  USD 0.20 rerun.
+  `67dfb86f7086e0fbe961298f0d81d171d2b50b55`. C38's first post-merge request
+  failed for missing valid citations and was not retried. Its corrected X-native
+  query then passed in one separately authorized, credential-isolated request at
+  core candidate `05943e28e47b77deca6dec0ad5404653bf97eaf9`. The
+  [sanitized receipt](provider-parity-live-2026-09-11.md) retains both attempts;
+  all C30–C45 Profiles have now passed their live canary.
 - Any rerun, including a final-release revalidation, needs current provider-doc
   review, credentials, a spend cap, and an approved SHA. The bulk
   `test:live:sdk` and `test:live:searchapi` scripts are convenience commands,

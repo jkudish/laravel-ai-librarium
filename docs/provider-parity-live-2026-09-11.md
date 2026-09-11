@@ -5,15 +5,20 @@
 - Core: `dfce4d2b3f06147ff0e1f94bafd54eb44141d179`
 - Pricing: `7caa14b59ef56724718c63e2f9b170b296ba8e9e`
 - Firecrawl: `67dfb86f7086e0fbe961298f0d81d171d2b50b55`
+- Corrected C38 core candidate: `05943e28e47b77deca6dec0ad5404653bf97eaf9`
 
 Composer resolved the exact pricing head for core. The Firecrawl run resolved
 the exact core and pricing heads from disposable clean checkouts.
 
 ## Execution contract
 
-- Authorized aggregate reservation: USD 5.00.
+- Initial matrix aggregate reservation: USD 5.00.
+- Separately authorized corrected C38 reservation: USD 0.20.
+- Total reservation across both approvals: USD 5.20.
 - All 16 canaries ran sequentially with their documented per-canary reservation.
-- Exactly one request or paid submission was attempted per Profile.
+- The initial matrix attempted exactly one request or paid submission per Profile.
+- The corrected C38 attempt made exactly one additional request in an `env -i`
+  child containing only its credential and canary controls.
 - No failed submission was retried.
 - Durable retrieval occurred only after a validated private handle.
 - No credential, raw provider body, private handle, or auth-bearing URL was
@@ -38,7 +43,7 @@ use an explicit child-environment allowlist.
 | `exa-research` | 0.60 | PASS | 7 | One paid submission; handle accepted; retrieval completed. |
 | `gemini-deep-research` | 2.00 | PASS | 7 | One paid submission; terminal report contained citations. |
 | `perplexity-deep-research` | 0.50 | PASS | 7 | One paid submission; terminal report contained citations. |
-| `grok-x-only` | 0.20 | FAIL | 2 | One request returned no valid citations; no retry. |
+| `grok-x-only` | 0.20 | PASS | 7 | Corrected X-native query made one request with valid content and citations. |
 | `grok-combined` | 0.25 | PASS | 7 | One request with web and X Search. |
 | `parallel-search` | 0.10 | PASS | 7 | One request. |
 | `parallel-turbo` | 0.01 | PASS | 7 | One fixed-turbo request. |
@@ -49,14 +54,16 @@ use an explicit child-environment allowlist.
 
 ## C38 disposition
 
-The X-only canary used the common query asking for official Laravel web
-documentation. The adjacent combined web-and-X canary passed with the same
-credential and endpoint. This weighs against a persistent shared authentication
-or transport problem but does not establish C38's root cause. A query/tool
-mismatch is a working hypothesis. The harness now asks C38 for a recent post
-from the official Laravel X account and its citation; that revised query remains
-unverified live and was not rerun under this approval.
+The first post-merge X-only canary used the common query asking for official
+Laravel web documentation. It made one request, returned no valid citations,
+and was not retried. The adjacent combined web-and-X canary passed with the same
+credential and endpoint, which weighed against a persistent shared
+authentication or transport problem.
 
-The prior reviewed candidate passed C38. This result therefore does not prove a
-driver regression, but the corrected canary needs a new candidate SHA and a
-separately approved USD 0.20 attempt.
+A separately authorized USD 0.20 attempt at core candidate
+`05943e28e47b77deca6dec0ad5404653bf97eaf9` used an X-native query asking for a
+recent post from the official Laravel X account and its citation. The isolated
+child made exactly one request and passed all seven content, citation, profile,
+provider, provenance, and submission-count assertions. This result supports the
+query/tool mismatch hypothesis without claiming the first response's root cause
+was proven.

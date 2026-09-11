@@ -231,13 +231,16 @@ it('keeps one separately gated live canary for every landed PHP Profile', functi
         ->toContain('C01–C13 passed separately authorized live checks')
         ->toContain('C14–C29 remain unverified live.')
         ->toContain('C30–C37 and C39–C45 passed on 2026-09-11')
-        ->toContain('new candidate SHA and separately approved')
+        ->toContain('all C30–C45 Profiles have now passed their live canary')
         ->toContain('env -i HOME="$HOME" PATH="$PATH"')
         ->toContain('"${credential_name}=${credential_value}"')
         ->toContain("--filter='<exact dataset name from the table>' --fail-on-skipped")
         ->and($receipt)->toContain('dfce4d2b3f06147ff0e1f94bafd54eb44141d179')
         ->toContain('7caa14b59ef56724718c63e2f9b170b296ba8e9e')
         ->toContain('67dfb86f7086e0fbe961298f0d81d171d2b50b55')
-        ->toContain('| `grok-x-only` | 0.20 | FAIL | 2 |')
+        ->toContain('05943e28e47b77deca6dec0ad5404653bf97eaf9')
+        ->toContain('| `grok-x-only` | 0.20 | PASS | 7 |')
+        ->toContain('Separately authorized corrected C38 reservation: USD 0.20.')
+        ->toContain('Total reservation across both approvals: USD 5.20.')
         ->toContain('No failed submission was retried.');
 });
