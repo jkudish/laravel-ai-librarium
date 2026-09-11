@@ -37,8 +37,6 @@ final readonly class SerpBaseDriver implements Driver
 
     private const float CONNECT_TIMEOUT_SECONDS = 3.0;
 
-    private const float REQUEST_TIMEOUT_SECONDS = 20.0;
-
     private const int RICH_MAX_DEPTH = 4;
 
     private const int RICH_MAX_ENTRIES = 20;
@@ -160,7 +158,7 @@ final readonly class SerpBaseDriver implements Driver
                 ->asJson()
                 ->withOptions(['allow_redirects' => false])
                 ->connectTimeout(min(self::CONNECT_TIMEOUT_SECONDS, $remaining))
-                ->timeout(min(self::REQUEST_TIMEOUT_SECONDS, $remaining))
+                ->timeout($remaining)
                 ->post(self::BASE_URL.'/google/'.$kind, $payload);
         } catch (ConnectionException) {
             $request->captureNoResponse(Operation::Inline);

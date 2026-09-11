@@ -34,10 +34,10 @@ afterEach(function (): void {
     CarbonImmutable::setTestNow();
 });
 
-it('posts one search with exact endpoint options and a header-only credential', function (): void {
-    Http::fake(function (Request $request, array $options) {
-        expect($options['connect_timeout'])->toBe(2.5)
-            ->and($options['timeout'])->toBe(2.5)
+it('posts one search using the caller deadline and a header-only credential', function (float $seconds, float $connectSeconds): void {
+    Http::fake(function (Request $request, array $options) use ($seconds, $connectSeconds) {
+        expect($options['connect_timeout'])->toBe($connectSeconds)
+            ->and($options['timeout'])->toBe($seconds)
             ->and($options['allow_redirects'] ?? null)->toBeFalse();
 
         return Http::response(serpBaseEnvelope('search'));
@@ -46,7 +46,7 @@ it('posts one search with exact endpoint options and a header-only credential', 
     serpBaseDriver()->run(serpBaseRequest(
         options: ['hl' => 'fr-CA', 'gl' => 'ca', 'page' => 3, 'device' => 'mobile', 'include_rich_results' => true],
         prompt: 'literal + %20 café',
-        deadline: CarbonImmutable::now()->addMilliseconds(2500),
+        deadline: CarbonImmutable::now()->addMilliseconds($seconds * 1000),
     ));
 
     Http::assertSent(fn (Request $request): bool => $request->method() === 'POST'
@@ -62,7 +62,7 @@ it('posts one search with exact endpoint options and a header-only credential', 
         ]
         && ! str_contains($request->url(), 'testing-serpbase-key'));
     Http::assertSentCount(1);
-});
+})->with(['short remaining deadline' => [2.5, 2.5], 'news can exceed twenty seconds' => [45.0, 3.0]]);
 
 it('validates shared options and rejects endpoint-incompatible or malformed values before dispatch', function (): void {
     $validator = app(ProfileOptionValidator::class);
