@@ -31,7 +31,7 @@ children inherited the orb's other provider credential names, although each
 canary configured and used only its named Profile credential. Future runs must
 use an explicit child-environment allowlist.
 
-## Results
+## Initial matrix results
 
 | Profile | USD reservation | Outcome | Assertions | Sanitized note |
 | --- | ---: | --- | ---: | --- |
@@ -43,7 +43,7 @@ use an explicit child-environment allowlist.
 | `exa-research` | 0.60 | PASS | 7 | One paid submission; handle accepted; retrieval completed. |
 | `gemini-deep-research` | 2.00 | PASS | 7 | One paid submission; terminal report contained citations. |
 | `perplexity-deep-research` | 0.50 | PASS | 7 | One paid submission; terminal report contained citations. |
-| `grok-x-only` | 0.20 | PASS | 7 | Corrected X-native query made one request with valid content and citations. |
+| `grok-x-only` | 0.20 | FAIL | 2 | One request returned no valid citations; no retry. |
 | `grok-combined` | 0.25 | PASS | 7 | One request with web and X Search. |
 | `parallel-search` | 0.10 | PASS | 7 | One request. |
 | `parallel-turbo` | 0.01 | PASS | 7 | One fixed-turbo request. |
@@ -67,3 +67,9 @@ child made exactly one request and passed all seven content, citation, profile,
 provider, provenance, and submission-count assertions. This result supports the
 query/tool mismatch hypothesis without claiming the first response's root cause
 was proven.
+
+### Corrected attempt
+
+| Profile | Core candidate | USD reservation | Outcome | Assertions | Sanitized note |
+| --- | --- | ---: | --- | ---: | --- |
+| `grok-x-only` | `05943e28e47b77deca6dec0ad5404653bf97eaf9` | 0.20 | PASS | 7 | One credential-isolated request returned valid content and citations; no retry. |
