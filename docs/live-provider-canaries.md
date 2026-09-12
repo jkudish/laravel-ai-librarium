@@ -161,7 +161,7 @@ allowed only after a validated provider handle and within the shared deadline.
   review evidence.
 - C21–C23 and C46 remain unverified live. Their committed opt-in harness is
   runnable one dataset at a time after the approval contract above is satisfied.
-- C24–C29 passed on 2026-09-12 against core production commit
+- C24–C29 passed on 2026-09-12 against core candidate
   `8e47c1b861e23fe91b2279bfcbea099dd1a47c0c`. Each case made exactly one paid
   POST; Standard cases made only bound retrieval GETs, Live cases made none,
   and all six passed within the aggregate USD 0.0156 reservation. PlanMode
