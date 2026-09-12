@@ -277,6 +277,40 @@ it('polls documented pending states and retries only safe GET failures while pre
         ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'POST'))->toHaveCount(1);
 });
 
+it('does not poll or resubmit a task-level internal failure', function (int $tasksError, string $expectedCode): void {
+    $calls = 0;
+    Http::fake(function (Request $request) use (&$calls, $tasksError) {
+        $calls++;
+        $payload = dataForSeoEnvelope(
+            'dataforseo-chatgpt',
+            'ai_optimization/chat_gpt/llm_scraper',
+            $request->method() === 'POST' ? 'task_post' : 'task_get/advanced/'.DATAFORSEO_TEST_ID,
+            'chatgpt',
+            'terminal task failure',
+            $request->method() === 'POST' ? 20100 : 50000,
+            false,
+            $request->method() === 'POST' ? '0.0012' : '0',
+        );
+        if ($request->method() === 'GET') {
+            $payload['tasks_error'] = $tasksError;
+        }
+
+        return Http::response($payload);
+    });
+
+    $response = Librarium::query('terminal task failure')->using('dataforseo-chatgpt')->run();
+
+    expect($response->status)->toBe(ResponseStatus::Failed)
+        ->and($response->errors->sole()->code)->toBe($expectedCode)
+        ->and($calls)->toBe(2)
+        ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'POST'))->toHaveCount(1)
+        ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'GET'))->toHaveCount(1);
+    Sleep::assertNeverSlept();
+})->with([
+    'valid envelope with failed task' => [0, 'dataforseo.provider'],
+    'envelope reports a task error' => [1, 'dataforseo.invalid_response'],
+]);
+
 it('never retries an ambiguous paid POST or follows a credential-bearing redirect', function (mixed $failure): void {
     $calls = 0;
     Http::fake(function () use (&$calls, $failure) {
