@@ -9,10 +9,14 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
+use Jkudish\LaravelAiLibrarium\Contracts\DefinesSpendingBound;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
+use Jkudish\LaravelAiLibrarium\SpendingBound;
+use Jkudish\LaravelAiPricing\ValueObjects\ModelIdentity;
+use Jkudish\LaravelAiPricing\ValueObjects\Usage as PricingUsage;
 use stdClass;
 
 /**
@@ -22,7 +26,7 @@ use stdClass;
  * fixed collector/surface identity. Credentials use bearer authentication and
  * never enter the URL, progress, errors, provider metadata, or results.
  */
-final readonly class SearchApiDriver implements Driver
+final readonly class SearchApiDriver implements DefinesSpendingBound, Driver
 {
     private const string ENDPOINT = 'https://www.searchapi.io/api/v1/search';
 
@@ -68,6 +72,21 @@ final readonly class SearchApiDriver implements Driver
             'overview' => $this->runOverview($request, $zeroRetention),
             default => throw $this->fail('searchapi.unsupported_profile', 'The requested SearchAPI profile is not supported.', $zeroRetention, false),
         };
+    }
+
+    public function spendingBound(DriverRequest $request): SpendingBound
+    {
+        $descriptor = self::PROFILES[$request->profile->id] ?? null;
+        if ($descriptor === null) {
+            return SpendingBound::unknown();
+        }
+
+        return SpendingBound::billableQuantities(
+            new ModelIdentity('searchapi', 'search'),
+            new PricingUsage([
+                'successful_search_request' => $descriptor['mode'] === 'overview' ? 2 : 1,
+            ]),
+        );
     }
 
     /**

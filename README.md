@@ -178,6 +178,12 @@ legacy preview `cost` JSON member and the corresponding `maximumEstimatedCost`,
 aggregated `CostQuote` values. New consumers should use the versioned `pricing`
 object.
 
+Applications that authorize spend can separately query an exact single-Profile
+request with `spendingBound()`. It returns either a provider-native monetary
+ceiling, complete billable quantities for an authoritative pricing lookup, or
+an explicit unknown result. See [exact-request spending bounds](docs/spending-bounds.md)
+for the public contract, supported Profiles, and ownership boundaries.
+
 Agent-mode exit codes are stable:
 
 | Code | Meaning |

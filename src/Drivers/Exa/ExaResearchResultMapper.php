@@ -69,6 +69,7 @@ final readonly class ExaResearchResultMapper
                 retrievalMethods: $request->profile->retrievalMethods,
                 corpora: $request->profile->corpora,
                 observedAt: $completedAt,
+                observationMode: $request->profile->observation,
             ),
             citations: $citations,
             completedAt: $completedAt,

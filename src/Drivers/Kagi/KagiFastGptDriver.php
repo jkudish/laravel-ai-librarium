@@ -11,6 +11,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
+use Jkudish\LaravelAiLibrarium\Contracts\DefinesSpendingBound;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
@@ -22,11 +23,14 @@ use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 use Jkudish\LaravelAiLibrarium\Responses\ResultProvenance;
 use Jkudish\LaravelAiLibrarium\Responses\Source;
 use Jkudish\LaravelAiLibrarium\Responses\Usage;
+use Jkudish\LaravelAiLibrarium\SpendingBound;
+use Jkudish\LaravelAiPricing\ValueObjects\ModelIdentity;
+use Jkudish\LaravelAiPricing\ValueObjects\Usage as PricingUsage;
 
 /**
  * Laravel HTTP Driver for Kagi's inline FastGPT grounded-answer endpoint.
  */
-final readonly class KagiFastGptDriver implements Driver
+final readonly class KagiFastGptDriver implements DefinesSpendingBound, Driver
 {
     private const string ENDPOINT = 'https://kagi.com/api/v0/fastgpt';
 
@@ -73,6 +77,18 @@ final readonly class KagiFastGptDriver implements Driver
         }
 
         return $this->result($request, $json);
+    }
+
+    public function spendingBound(DriverRequest $request): SpendingBound
+    {
+        if ($request->profile->id !== 'kagi-fastgpt' || $request->profile->options !== []) {
+            return SpendingBound::unknown();
+        }
+
+        return SpendingBound::billableQuantities(
+            new ModelIdentity('kagi', 'fastgpt'),
+            new PricingUsage(['uncached_queries' => 1]),
+        );
     }
 
     private function send(DriverRequest $request, string $credential): Response

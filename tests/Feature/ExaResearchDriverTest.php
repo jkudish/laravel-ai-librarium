@@ -15,11 +15,13 @@ use Jkudish\LaravelAiLibrarium\Profile;
 use Jkudish\LaravelAiLibrarium\ProfileOptionValidator;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
+use Jkudish\LaravelAiLibrarium\Recovery\RecoveryRequest;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ContentFormat;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
+use Jkudish\LaravelAiLibrarium\SpendingBoundKind;
 
 beforeEach(function (): void {
     CarbonImmutable::setTestNow('2026-09-10T12:00:00Z');
@@ -46,7 +48,8 @@ it('submits, polls a known private handle, and freshly retrieves the completed r
         ->push(exaResearchRun('completed', output: ['text' => 'stale poll report', 'structured' => null, 'grounding' => []]))
         ->push(exaResearchCompletedRun())]);
 
-    $result = exaResearchDriver()->run(exaResearchRequest(options: [
+    $driver = exaResearchDriver();
+    $request = exaResearchRequest(options: [
         'effort' => 'max',
         'system_prompt' => 'Prefer primary sources.',
         'output_schema' => [
@@ -54,12 +57,15 @@ it('submits, polls a known private handle, and freshly retrieves the completed r
             'properties' => ['answer' => ['type' => 'string']],
         ],
         'max_cost_dollars' => 1.75,
-    ]));
+    ]);
+    $bound = $driver->spendingBound($request);
+    $result = $driver->run($request);
 
     Http::assertSent(function (Request $request): bool {
         return $request->method() === 'POST'
             && $request->url() === 'https://api.exa.ai/agent/runs'
             && $request->hasHeader('x-api-key', 'testing-exa-key')
+            && $request->hasHeader('Exa-Beta', 'agent-max-effort-2026-07-27')
             && ! $request->hasHeader('Authorization')
             && $request->data() === [
                 'query' => 'Compare durable research systems.',
@@ -78,7 +84,10 @@ it('submits, polls a known private handle, and freshly retrieves the completed r
     Http::assertSentCount(4);
     Sleep::assertSleptTimes(2);
 
-    expect($transports)->toHaveCount(4)
+    expect($bound->kind)->toBe(SpendingBoundKind::NativeMonetaryCeiling)
+        ->and((string) $bound->maximumCost?->amount)->toBe('1.75')
+        ->and($bound->maximumCost?->currency)->toBe('USD')
+        ->and($transports)->toHaveCount(4)
         ->and(collect($transports)->every(fn (array $transport): bool => ($transport['allow_redirects'] ?? null) === false))->toBeTrue()
         ->and($result->contentFormat)->toBe(ContentFormat::Markdown)
         ->and($result->content)->toBe('Authoritative final report [[1]] and [[2]].')
@@ -89,6 +98,8 @@ it('submits, polls a known private handle, and freshly retrieves the completed r
         ->and($result->provenance->resultKind)->toBe(ResultKind::ResearchReport)
         ->and($result->provenance->retrievalMethods->all())->toBe([RetrievalMethod::ResearchAgent])
         ->and($result->provenance->corpora->all())->toBe([Corpus::Web])
+        ->and($result->provenance->observationMode)->toBe(ObservationMode::ApiOutput)
+        ->and($result->toArray()['provenance']['observation_mode'])->toBe('api_output')
         ->and($result->completedAt->toISOString())->toBe('2026-09-10T12:03:04.000000Z')
         ->and($result->citations)->toHaveCount(2)
         ->and($result->citations->pluck('source.url')->all())->toBe([
@@ -122,6 +133,28 @@ it('submits, polls a known private handle, and freshly retrieves the completed r
         ]);
 });
 
+it('preserves API-output provenance through durable retrieval and serialization', function (): void {
+    Http::fake(['https://api.exa.ai/agent/runs*' => Http::sequence()
+        ->push(exaResearchRun('running'))
+        ->push(exaResearchCompletedRun())]);
+    $driver = exaResearchDriver();
+    $driverRequest = exaResearchRequest(options: ['effort' => 'auto', 'max_cost_dollars' => 9.5]);
+    $submission = $driver->submitDurable($driverRequest);
+    $result = $driver->retrieveDurable(new RecoveryRequest(
+        requestId: $driverRequest->requestId,
+        requestedProfile: $driverRequest->requestedProfile,
+        profile: $driverRequest->profile,
+        deadline: $driverRequest->deadline,
+        responseCallback: static fn (): null => null,
+        noResponseCallback: static fn (): null => null,
+    ), $submission->reference);
+
+    expect($result)->not->toBeNull()
+        ->and($result?->provenance->observationMode)->toBe(ObservationMode::ApiOutput)
+        ->and($result?->toArray()['provenance']['observation_mode'])->toBe('api_output');
+    Http::assertSentCount(2);
+});
+
 it('uses the remaining request-wide deadline for every lifecycle call', function (): void {
     $requestOptions = [];
     Http::globalMiddleware(function (callable $handler) use (&$requestOptions): Closure {
@@ -149,9 +182,16 @@ it('retrieves an immediately completed submission once before delivery', functio
         ->push(exaResearchRun('completed', output: ['text' => 'submission copy', 'structured' => null, 'grounding' => []]))
         ->push(exaResearchCompletedRun())]);
 
-    $result = exaResearchDriver()->run(exaResearchRequest());
+    $driver = exaResearchDriver();
+    $request = exaResearchRequest();
+    $bound = $driver->spendingBound($request);
+    $result = $driver->run($request);
 
-    expect($result->content)->toBe('Authoritative final report [[1]] and [[2]].');
+    expect($bound->kind)->toBe(SpendingBoundKind::Unknown)
+        ->and($result->content)->toBe('Authoritative final report [[1]] and [[2]].');
+    Http::assertSent(fn (Request $request): bool => $request->method() === 'POST'
+        && ! array_key_exists('budget', $request->data())
+        && ! $request->hasHeader('Exa-Beta'));
     Http::assertSentCount(2);
     Sleep::assertNeverSlept();
 });
@@ -261,6 +301,8 @@ it('rejects invalid credentials, input, options, and deadlines before dispatch',
     'non-JSON output schema' => [['options' => ['output_schema' => ['bad' => new stdClass]]], 'exa_research.invalid_request'],
     'string cost' => [['options' => ['max_cost_dollars' => '1.00']], 'exa_research.invalid_request'],
     'non-positive cost' => [['options' => ['max_cost_dollars' => 0]], 'exa_research.invalid_request'],
+    'below provider minimum' => [['options' => ['max_cost_dollars' => 0.99]], 'exa_research.invalid_request'],
+    'above provider maximum' => [['options' => ['max_cost_dollars' => 100.01]], 'exa_research.invalid_request'],
     'budget on fixed effort' => [['options' => ['effort' => 'high', 'max_cost_dollars' => 1]], 'exa_research.invalid_request'],
     'expired deadline' => [['deadline' => CarbonImmutable::parse('2026-09-10T11:59:59Z')], 'exa_research.deadline_exceeded'],
 ]);

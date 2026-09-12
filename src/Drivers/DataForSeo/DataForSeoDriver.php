@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
 use Illuminate\Support\Str;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
+use Jkudish\LaravelAiLibrarium\Contracts\DefinesSpendingBound;
 use Jkudish\LaravelAiLibrarium\Contracts\DurableDriver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
@@ -20,6 +21,9 @@ use Jkudish\LaravelAiLibrarium\Recovery\DurableSubmission;
 use Jkudish\LaravelAiLibrarium\Recovery\RecoveryRequest;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 use Jkudish\LaravelAiLibrarium\Responses\Usage;
+use Jkudish\LaravelAiLibrarium\SpendingBound;
+use Jkudish\LaravelAiPricing\ValueObjects\ModelIdentity;
+use Jkudish\LaravelAiPricing\ValueObjects\Usage as PricingUsage;
 
 /**
  * Executes one fixed DataForSEO task for one consumer surface.
@@ -27,7 +31,7 @@ use Jkudish\LaravelAiLibrarium\Responses\Usage;
  * Standard submission is intentionally never retried. Its private task ID is
  * used only for bounded retrieval polling during this process.
  */
-final readonly class DataForSeoDriver implements DurableDriver
+final readonly class DataForSeoDriver implements DefinesSpendingBound, DurableDriver
 {
     private const string ORIGIN = 'https://api.dataforseo.com';
 
@@ -71,6 +75,28 @@ final readonly class DataForSeoDriver implements DurableDriver
         return $descriptor['mode'] === 'live'
             ? $this->runLive($request, $descriptor, $credentials, $task)
             : $this->runStandard($request, $descriptor, $credentials, $task);
+    }
+
+    public function spendingBound(DriverRequest $request): SpendingBound
+    {
+        $models = [
+            'dataforseo-chatgpt' => 'chatgpt-llm-scraper-standard',
+            'dataforseo-chatgpt-live' => 'chatgpt-llm-scraper-live',
+            'dataforseo-gemini' => 'gemini-llm-scraper-standard',
+            'dataforseo-gemini-live' => 'gemini-llm-scraper-live',
+            'dataforseo-google-ai-mode' => 'google-ai-mode-standard',
+            'dataforseo-google-ai-mode-live' => 'google-ai-mode-live',
+        ];
+        $model = $models[$request->profile->id] ?? null;
+
+        if ($model === null) {
+            return SpendingBound::unknown();
+        }
+
+        return SpendingBound::billableQuantities(
+            new ModelIdentity('dataforseo', $model),
+            new PricingUsage(['requests' => 1]),
+        );
     }
 
     public function submitDurable(DriverRequest $request): DurableSubmission

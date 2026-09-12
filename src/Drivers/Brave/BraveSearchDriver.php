@@ -10,6 +10,7 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
+use Jkudish\LaravelAiLibrarium\Contracts\DefinesSpendingBound;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
 use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
@@ -27,9 +28,12 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\SourceKind;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 use Jkudish\LaravelAiLibrarium\Responses\ResultProvenance;
 use Jkudish\LaravelAiLibrarium\Responses\Source;
+use Jkudish\LaravelAiLibrarium\SpendingBound;
+use Jkudish\LaravelAiPricing\ValueObjects\ModelIdentity;
+use Jkudish\LaravelAiPricing\ValueObjects\Usage as PricingUsage;
 
 /** Runs one raw Brave Web Search request through Laravel's HTTP client. */
-final readonly class BraveSearchDriver implements Driver
+final readonly class BraveSearchDriver implements DefinesSpendingBound, Driver
 {
     private const string ENDPOINT = 'https://api.search.brave.com/res/v1/web/search';
 
@@ -110,6 +114,18 @@ final readonly class BraveSearchDriver implements Driver
             completedAt: $completedAt,
             providerMeta: (object) ['result_count' => $citations->count()],
         ), [(string) $request->profile->credential], $this->invalidResponse());
+    }
+
+    public function spendingBound(DriverRequest $request): SpendingBound
+    {
+        if ($request->profile->id !== 'brave-search' || $request->profile->options !== []) {
+            return SpendingBound::unknown();
+        }
+
+        return SpendingBound::billableQuantities(
+            new ModelIdentity('brave', 'search'),
+            new PricingUsage(['requests' => 1]),
+        );
     }
 
     private function validateRequest(DriverRequest $request): void

@@ -12,6 +12,7 @@ use Jkudish\LaravelAiLibrarium\Contracts\CollectsResearch;
 use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
 use Jkudish\LaravelAiLibrarium\Contracts\Librarium;
 use Jkudish\LaravelAiLibrarium\Contracts\RecoversResearch;
+use Jkudish\LaravelAiLibrarium\Execution\SpendingBoundResolver;
 
 final readonly class LibrariumManager implements Librarium
 {
@@ -21,6 +22,7 @@ final readonly class LibrariumManager implements Librarium
         private Container $container,
         private ResearchStatusStore $statusStore,
         private ResponseRedactor $redactor,
+        private SpendingBoundResolver $spendingBounds,
     ) {}
 
     public function query(string $input): PendingResearch
@@ -39,6 +41,7 @@ final readonly class LibrariumManager implements Librarium
             resolveCollector: fn (): CollectsResearch => $this->container->make(CollectsResearch::class),
             resolveRecovery: fn (): RecoversResearch => $this->container->make(RecoversResearch::class),
             redactor: $this->redactor,
+            spendingBounds: $this->spendingBounds,
         );
     }
 

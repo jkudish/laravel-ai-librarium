@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
+use Jkudish\LaravelAiLibrarium\Contracts\DefinesSpendingBound;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
 use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
@@ -29,9 +30,12 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\SourceKind;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 use Jkudish\LaravelAiLibrarium\Responses\ResultProvenance;
 use Jkudish\LaravelAiLibrarium\Responses\Source;
+use Jkudish\LaravelAiLibrarium\SpendingBound;
+use Jkudish\LaravelAiPricing\ValueObjects\ModelIdentity;
+use Jkudish\LaravelAiPricing\ValueObjects\Usage as PricingUsage;
 
 /** Runs one synchronous SerpBase Google Search or Google News request. */
-final readonly class SerpBaseDriver implements Driver
+final readonly class SerpBaseDriver implements DefinesSpendingBound, Driver
 {
     private const string BASE_URL = 'https://api.serpbase.dev';
 
@@ -84,6 +88,25 @@ final readonly class SerpBaseDriver implements Driver
         }
 
         return $this->result($request, $json, $kind);
+    }
+
+    public function spendingBound(DriverRequest $request): SpendingBound
+    {
+        $profile = $request->profile;
+        $model = match ($profile->id) {
+            'serpbase-search' => ($profile->options['include_rich_results'] ?? false) === false ? 'search' : null,
+            'serpbase-news' => 'news',
+            default => null,
+        };
+
+        if ($model === null) {
+            return SpendingBound::unknown();
+        }
+
+        return SpendingBound::billableQuantities(
+            new ModelIdentity('serpbase', $model),
+            new PricingUsage(['credits' => 1]),
+        );
     }
 
     private function preflight(DriverRequest $request): string

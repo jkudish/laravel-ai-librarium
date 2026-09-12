@@ -34,6 +34,16 @@ final readonly class ResearchCompiler
 
     public function compile(PendingResearch $research): ResearchPlan
     {
+        return $this->compileRequest($research, true);
+    }
+
+    public function compileSpendingBoundRequest(PendingResearch $research): ResearchPlan
+    {
+        return $this->compileRequest($research, false);
+    }
+
+    private function compileRequest(PendingResearch $research, bool $resolvePricing): ResearchPlan
+    {
         $selected = $this->primaries($research);
         $profiles = $selected['profiles'];
         $unavailable = $selected['unavailable'];
@@ -67,7 +77,9 @@ final readonly class ResearchCompiler
             ]);
         }
 
-        $pricing = $this->pricing($profiles, $fallbacks, $research->maximumCost());
+        $pricing = $resolvePricing
+            ? $this->pricing($profiles, $fallbacks, $research->maximumCost())
+            : null;
         $all = $profiles->concat($fallbacks);
         $prompts = $all->mapWithKeys(fn (Profile $profile): array => [
             $profile->id => $profile->renderPrompt($research->input),
@@ -103,13 +115,13 @@ final readonly class ResearchCompiler
                 prompts: $prompts,
                 unavailable: collect($unavailable),
                 warnings: $warnings,
-                pricingQuotes: $pricing['quotes'],
-                knownCostSubtotals: $pricing['known_subtotals'],
-                pricingStatus: $pricing['status'],
-                hardCostCeilingAvailable: $pricing['preflight_cost_check_available'],
-                maximumEstimatedCost: $pricing['maximum_estimated_cost'],
-                currency: $pricing['currency'],
-                costEstimateComplete: $pricing['preflight_cost_check_available'],
+                pricingQuotes: $pricing['quotes'] ?? collect(),
+                knownCostSubtotals: $pricing['known_subtotals'] ?? collect(),
+                pricingStatus: $pricing['status'] ?? CostCompleteness::Unavailable->value,
+                hardCostCeilingAvailable: $pricing['preflight_cost_check_available'] ?? false,
+                maximumEstimatedCost: $pricing['maximum_estimated_cost'] ?? null,
+                currency: $pricing['currency'] ?? null,
+                costEstimateComplete: $pricing['preflight_cost_check_available'] ?? false,
             ),
             timeout: $timeout,
             jobTimeout: $jobTimeout,
