@@ -66,10 +66,11 @@ Standard is the recommended background-collection strategy. It submits one
 task once, retains that submission's reported charge, and privately polls the
 matching free Advanced GET until completion or the shared Librarium deadline.
 Task statuses `40601` and `40602` remain pending when the provider omits or
-nulls the optional `result_count` and `result` fields; contradictory nonempty
-result data is rejected. Only retrieval failures are retried. An ambiguous or
-malformed paid POST is never retried, and a slow Standard task never switches
-to Live.
+nulls optional envelope counts, endpoint identity metadata, `result_count`, or
+`result`. Any non-null endpoint identity still has to match the submitted task,
+and contradictory counts or result data are rejected. Only retrieval failures
+are retried. An ambiguous or malformed paid POST is never retried, and a slow
+Standard task never switches to Live.
 
 Live makes one paid POST and waits for its response. It must be selected by its
 `-live` Profile name; there is no automatic choice or fallback.

@@ -427,8 +427,6 @@ final readonly class DataForSeoDriver implements DurableDriver
         $json = $response->json();
         if (! is_array($json) || array_is_list($json)
             || ($json['status_code'] ?? null) !== 20000
-            || ($json['tasks_count'] ?? null) !== 1
-            || ($json['tasks_error'] ?? null) !== 0
             || ! is_array($json['tasks'] ?? null)
             || count($json['tasks']) !== 1
             || ! is_array($json['tasks'][0] ?? null)
@@ -452,6 +450,14 @@ final readonly class DataForSeoDriver implements DurableDriver
 
         /** @var array<string, mixed> $receipt */
         $receipt = $json['tasks'][0];
+        $pending = in_array($receipt['status_code'] ?? null, [40601, 40602], true);
+        $tasksCount = $json['tasks_count'] ?? null;
+        $tasksError = $json['tasks_error'] ?? null;
+        if (($pending && (! in_array($tasksCount, [null, 1], true) || ! in_array($tasksError, [null, 0, 1], true)))
+            || (! $pending && ($tasksCount !== 1 || $tasksError !== 0))) {
+            throw self::invalidResponse('DataForSEO returned contradictory task counts.');
+        }
+
         $id = $receipt['id'] ?? null;
         if (! is_string($id) || ! Str::isUuid($id) || ($expectedId !== null && $id !== $expectedId)) {
             throw self::invalidResponse('DataForSEO returned a mismatched task identifier.');
@@ -460,8 +466,14 @@ final readonly class DataForSeoDriver implements DurableDriver
             throw $this->taskFailure($receipt['status_code'] ?? null);
         }
 
-        $this->assertPath($receipt['path'] ?? null, $descriptor['family'], $operation, $expectedId);
-        $this->assertIdentity($receipt['data'] ?? null, $descriptor, $operation, $request);
+        $path = $receipt['path'] ?? null;
+        $data = $receipt['data'] ?? null;
+        if (! $pending || $path !== null) {
+            $this->assertPath($path, $descriptor['family'], $operation, $expectedId);
+        }
+        if (! $pending || $data !== null) {
+            $this->assertIdentity($data, $descriptor, $operation, $request);
+        }
         $receipt['_api_version'] = $json['version'] ?? null;
 
         return $receipt;

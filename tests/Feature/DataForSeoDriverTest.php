@@ -317,6 +317,95 @@ it('accepts omitted or null result fields while a task is pending', function (Cl
     },
 ]);
 
+it('accepts documented optional envelope and identity metadata while a task is pending', function (Closure $pendingShape): void {
+    $calls = 0;
+    Http::fake(function (Request $request) use (&$calls, $pendingShape) {
+        $calls++;
+        $status = $request->method() === 'POST' ? 20100 : ($calls === 2 ? 40602 : 20000);
+        $payload = dataForSeoEnvelope(
+            'dataforseo-chatgpt',
+            'ai_optimization/chat_gpt/llm_scraper',
+            $request->method() === 'POST' ? 'task_post' : 'task_get/advanced/'.DATAFORSEO_TEST_ID,
+            'chatgpt',
+            'optional pending metadata',
+            $status,
+            $status === 20000,
+            $request->method() === 'POST' ? '0.0012' : '0',
+        );
+        if ($status === 40602) {
+            $pendingShape($payload);
+        }
+
+        return Http::response($payload);
+    });
+
+    $response = Librarium::query('optional pending metadata')->using('dataforseo-chatgpt')->run();
+
+    expect($response->status)->toBe(ResponseStatus::Succeeded)
+        ->and($response->results)->toHaveCount(1)
+        ->and($calls)->toBe(3)
+        ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'POST'))->toHaveCount(1)
+        ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'GET'))->toHaveCount(2);
+})->with([
+    'provider counts pending as a task error' => static function (array &$payload): void {
+        $payload['tasks_error'] = 1;
+    },
+    'provider omits optional pending metadata' => static function (array &$payload): void {
+        unset($payload['tasks_count'], $payload['tasks_error']);
+        unset($payload['tasks'][0]['path'], $payload['tasks'][0]['data']);
+    },
+    'provider nulls optional pending metadata' => static function (array &$payload): void {
+        $payload['tasks_count'] = null;
+        $payload['tasks_error'] = null;
+        $payload['tasks'][0]['path'] = null;
+        $payload['tasks'][0]['data'] = null;
+    },
+]);
+
+it('rejects contradictory envelope and identity metadata while a task is pending', function (Closure $contradiction): void {
+    $calls = 0;
+    Http::fake(function (Request $request) use (&$calls, $contradiction) {
+        $calls++;
+        $payload = dataForSeoEnvelope(
+            'dataforseo-chatgpt',
+            'ai_optimization/chat_gpt/llm_scraper',
+            $request->method() === 'POST' ? 'task_post' : 'task_get/advanced/'.DATAFORSEO_TEST_ID,
+            'chatgpt',
+            'contradictory pending metadata',
+            $request->method() === 'POST' ? 20100 : 40601,
+            false,
+            $request->method() === 'POST' ? '0.0012' : '0',
+        );
+        if ($request->method() === 'GET') {
+            $contradiction($payload);
+        }
+
+        return Http::response($payload);
+    });
+
+    $response = Librarium::query('contradictory pending metadata')->using('dataforseo-chatgpt')->run();
+
+    expect($response->status)->toBe(ResponseStatus::Failed)
+        ->and($response->errors->sole()->code)->toBe('dataforseo.invalid_response')
+        ->and($calls)->toBe(2)
+        ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'POST'))->toHaveCount(1)
+        ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'GET'))->toHaveCount(1);
+    Sleep::assertNeverSlept();
+})->with([
+    'wrong task count' => static function (array &$payload): void {
+        $payload['tasks_count'] = 2;
+    },
+    'multiple task errors' => static function (array &$payload): void {
+        $payload['tasks_error'] = 2;
+    },
+    'wrong endpoint path' => static function (array &$payload): void {
+        $payload['tasks'][0]['path'] = ['v3', 'appendix', 'user_data'];
+    },
+    'mismatched request identity' => static function (array &$payload): void {
+        $payload['tasks'][0]['data']['location_code'] = 2124;
+    },
+]);
+
 it('rejects a pending task that claims completed result data', function (Closure $contradiction): void {
     $calls = 0;
     Http::fake(function (Request $request) use (&$calls, $contradiction) {
