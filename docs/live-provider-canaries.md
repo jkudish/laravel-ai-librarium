@@ -72,22 +72,22 @@ provider/model and truthful search-on terminal projection differ materially.
 | C11 | `grok` | xAI Responses API, `grok-4.6`, web-only tool | `XAI_API_KEY` | Approved ephemeral harness; passed under #2901 | Tokens plus tool charge; cap required |
 | C12 | `openai-research` | OpenAI background Responses lifecycle, `gpt-5.6-sol`, xhigh reasoning | `OPENAI_API_KEY` | `OpenAiResearchDriverLiveTest`; passed under #2836 | Potentially material variable spend; explicit cap required |
 | C13 | `perplexity-sonar-deep` | Perplexity Agent API `high`, background poll/retrieve | `PERPLEXITY_API_KEY` | Approved ephemeral harness; passed under #2901 | Potentially material variable spend; explicit cap required |
-| C14 | `searchapi` | SearchAPI Google raw search | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — raw google; not run | Configured-only; unavailable until the application supplies a current conservative rate |
-| C15 | `searchapi-chatgpt` | SearchAPI ChatGPT surface with web search | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — chatgpt; not run | Configured-only; unavailable until the application supplies a current conservative rate |
-| C16 | `searchapi-gemini` | SearchAPI Gemini surface | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — gemini; not run | Configured-only; unavailable until the application supplies a current conservative rate |
-| C17 | `searchapi-perplexity` | SearchAPI Perplexity surface | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — perplexity; not run | Configured-only; unavailable until the application supplies a current conservative rate |
-| C18 | `searchapi-google-ai-mode` | SearchAPI Google AI Mode surface | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — google ai mode; not run | Configured-only; unavailable until the application supplies a current conservative rate |
-| C19 | `searchapi-bing-copilot` | SearchAPI Bing Copilot surface | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — bing copilot; not run | Configured-only; unavailable until the application supplies a current conservative rate |
-| C20 | `searchapi-google-ai-overview` | SearchAPI two-stage Google page token then AI Overview | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — google ai overview; not run | Configured-only two-unit quote; unavailable until the application supplies a current conservative rate |
+| C14 | `searchapi` | SearchAPI Google raw search | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — raw google; passed 2026-09-12 under #2986 | Configured-only; external cap required |
+| C15 | `searchapi-chatgpt` | SearchAPI ChatGPT surface with web search | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — chatgpt; passed 2026-09-12 under #2986 | Configured-only; external cap required |
+| C16 | `searchapi-gemini` | SearchAPI Gemini surface | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — gemini; passed 2026-09-12 under #2986 | Configured-only; external cap required |
+| C17 | `searchapi-perplexity` | SearchAPI Perplexity surface | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — perplexity; passed 2026-09-12 under #2986 | Configured-only; external cap required |
+| C18 | `searchapi-google-ai-mode` | SearchAPI Google AI Mode surface | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — google ai mode; passed 2026-09-12 under #2986 | Configured-only; external cap required |
+| C19 | `searchapi-bing-copilot` | SearchAPI Bing Copilot surface | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — bing copilot; passed 2026-09-12 under #2986 | Configured-only; external cap required |
+| C20 | `searchapi-google-ai-overview` | SearchAPI two-stage Google page token then AI Overview | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — google ai overview; passed 2026-09-12 under #2986 | Configured-only two-unit quote; external cap required |
 | C21 | `you-answer` | You.com Answer endpoint and citation mapping | `YOU_COM_API_KEY` or `YDC_API_KEY` | `YouProfilesLiveTest` — You Answer; not run | Current conservative resolver quote and exact acknowledgement required |
 | C22 | `you-research-grounded` | You.com synchronous standard Research without background mode | `YOU_COM_API_KEY` or `YDC_API_KEY` | `YouProfilesLiveTest` — You Research grounded; not run | Current conservative resolver quote and exact acknowledgement required |
 | C23 | `you-research-research` | You.com background standard Research submit/poll/retrieve | `YOU_COM_API_KEY` or `YDC_API_KEY` | `YouProfilesLiveTest` — You Research durable; not run | Current conservative resolver quote and exact acknowledgement required |
-| C24 | `dataforseo-chatgpt` | DataForSEO ChatGPT LLM Scraper Standard submit/poll/get | `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` | `DataForSeoProfilesLiveTest` — DataForSEO ChatGPT Standard; not run | Current conservative USD 0.0012 quote and exact acknowledgement required |
-| C25 | `dataforseo-chatgpt-live` | DataForSEO ChatGPT LLM Scraper Live Advanced | `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` | `DataForSeoProfilesLiveTest` — DataForSEO ChatGPT Live; not run | Current conservative USD 0.004 quote and exact acknowledgement required |
-| C26 | `dataforseo-gemini` | DataForSEO Gemini LLM Scraper Standard submit/poll/get | `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` | `DataForSeoProfilesLiveTest` — DataForSEO Gemini Standard; not run | Current conservative USD 0.0012 quote and exact acknowledgement required |
-| C27 | `dataforseo-gemini-live` | DataForSEO Gemini LLM Scraper Live Advanced | `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` | `DataForSeoProfilesLiveTest` — DataForSEO Gemini Live; not run | Current conservative USD 0.004 quote and exact acknowledgement required |
-| C28 | `dataforseo-google-ai-mode` | DataForSEO Google AI Mode Standard submit/poll/get | `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` | `DataForSeoProfilesLiveTest` — DataForSEO Google AI Mode Standard; not run | Current conservative USD 0.0012 quote and exact acknowledgement required |
-| C29 | `dataforseo-google-ai-mode-live` | DataForSEO Google AI Mode Live Advanced | `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` | `DataForSeoProfilesLiveTest` — DataForSEO Google AI Mode Live; not run | Current conservative USD 0.004 quote and exact acknowledgement required |
+| C24 | `dataforseo-chatgpt` | DataForSEO ChatGPT LLM Scraper Standard submit/poll/get | `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` | `DataForSeoProfilesLiveTest` — DataForSEO ChatGPT Standard; passed 2026-09-12 under #3471 | Current conservative USD 0.0012 quote and exact acknowledgement required |
+| C25 | `dataforseo-chatgpt-live` | DataForSEO ChatGPT LLM Scraper Live Advanced | `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` | `DataForSeoProfilesLiveTest` — DataForSEO ChatGPT Live; passed 2026-09-12 under #3471 | Current conservative USD 0.004 quote and exact acknowledgement required |
+| C26 | `dataforseo-gemini` | DataForSEO Gemini LLM Scraper Standard submit/poll/get | `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` | `DataForSeoProfilesLiveTest` — DataForSEO Gemini Standard; passed 2026-09-12 under #3471 | Current conservative USD 0.0012 quote and exact acknowledgement required |
+| C27 | `dataforseo-gemini-live` | DataForSEO Gemini LLM Scraper Live Advanced | `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` | `DataForSeoProfilesLiveTest` — DataForSEO Gemini Live; passed 2026-09-12 under #3471 | Current conservative USD 0.004 quote and exact acknowledgement required |
+| C28 | `dataforseo-google-ai-mode` | DataForSEO Google AI Mode Standard submit/poll/get | `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` | `DataForSeoProfilesLiveTest` — DataForSEO Google AI Mode Standard; passed 2026-09-12 under #3471 | Current conservative USD 0.0012 quote and exact acknowledgement required |
+| C29 | `dataforseo-google-ai-mode-live` | DataForSEO Google AI Mode Live Advanced | `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` | `DataForSeoProfilesLiveTest` — DataForSEO Google AI Mode Live; passed 2026-09-12 under #3471 | Current conservative USD 0.004 quote and exact acknowledgement required |
 | C30 | `brave-search` | Brave Web Search, raw ranked results | `BRAVE_API_KEY` | `ProviderParityProfilesLiveTest` — Brave Search; passed 2026-09-11 | Fixed request quote plus independently enforced account cap |
 | C31 | `tavily-search` | Tavily Search, advanced default | `TAVILY_API_KEY` | `ProviderParityProfilesLiveTest` — Tavily Search; passed 2026-09-11 | Configured-only credit rate; current rate and external cap required |
 | C32 | `perplexity-search` | Perplexity synchronous Search API | `PERPLEXITY_API_KEY` | `ProviderParityProfilesLiveTest` — Perplexity Search; passed 2026-09-11 | Fixed successful-request quote plus independently enforced account cap |
@@ -154,8 +154,18 @@ allowed only after a validated provider handle and within the shared deadline.
   implementation heads. PlanMode tasks #2834, #2836, and #2901 retain the
   frozen SHAs and redacted receipts. That evidence does not authorize a rerun or
   claim that a later release-candidate SHA was exercised.
-- C14–C29 and C46 remain unverified live. Their committed opt-in harness is
+- C14–C20 passed on 2026-09-12 against core candidate
+  `35e3a8920b1ef1868d76f75a0970fc89d06b3425`. All seven guarded cases passed
+  with eight total requests and USD 0.032 reserved under the approved USD 0.05
+  ceiling. PlanMode #2986 retains the sanitized reports and exact-manifest
+  review evidence.
+- C21–C23 and C46 remain unverified live. Their committed opt-in harness is
   runnable one dataset at a time after the approval contract above is satisfied.
+- C24–C29 passed on 2026-09-12 against core candidate
+  `8e47c1b861e23fe91b2279bfcbea099dd1a47c0c`. Each case made exactly one paid
+  POST; Standard cases made only bound retrieval GETs, Live cases made none,
+  and all six passed within the aggregate USD 0.0156 reservation. PlanMode
+  #3471 retains the sanitized reports and exact-manifest review evidence.
 - C47 passed at core `51ce3c85cbe44202bc5496c8a459abf58a62400d`, returning
   nine citations and one reported credit. C48 first failed without a response
   or known charge; after removing an extra 20-second request cap, a separately

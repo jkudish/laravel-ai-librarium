@@ -152,14 +152,10 @@ final readonly class DataForSeoDriver implements DefinesSpendingBound, DurableDr
         }
 
         $receipt = $this->receipt($response, $descriptor, $operation, $request, null, $reference);
-        $status = $receipt['status_code'] ?? null;
-        if (in_array($status, [40601, 40602], true)) {
-            if (($receipt['result_count'] ?? null) !== 0 || ($receipt['result'] ?? null) !== null) {
-                throw self::invalidResponse('DataForSEO returned a contradictory pending task receipt.');
-            }
-
+        if ($this->isPending($receipt)) {
             return null;
         }
+        $status = $receipt['status_code'] ?? null;
         if ($status !== 20000) {
             throw $this->taskFailure($status);
         }
@@ -226,17 +222,13 @@ final readonly class DataForSeoDriver implements DefinesSpendingBound, DurableDr
                 continue;
             }
 
-            $status = $receipt['status_code'] ?? null;
-            if (in_array($status, [40601, 40602], true)) {
-                if (($receipt['result_count'] ?? null) !== 0 || ($receipt['result'] ?? null) !== null) {
-                    throw self::invalidResponse('DataForSEO returned a contradictory pending task receipt.');
-                }
-
+            if ($this->isPending($receipt)) {
                 $request->progress('DataForSEO is still processing the task.');
                 $this->wait($request, $attempt++);
 
                 continue;
             }
+            $status = $receipt['status_code'] ?? null;
             if ($status !== 20000) {
                 throw $this->taskFailure($status);
             }
@@ -461,8 +453,6 @@ final readonly class DataForSeoDriver implements DefinesSpendingBound, DurableDr
         $json = $response->json();
         if (! is_array($json) || array_is_list($json)
             || ($json['status_code'] ?? null) !== 20000
-            || ($json['tasks_count'] ?? null) !== 1
-            || ($json['tasks_error'] ?? null) !== 0
             || ! is_array($json['tasks'] ?? null)
             || count($json['tasks']) !== 1
             || ! is_array($json['tasks'][0] ?? null)
@@ -486,6 +476,14 @@ final readonly class DataForSeoDriver implements DefinesSpendingBound, DurableDr
 
         /** @var array<string, mixed> $receipt */
         $receipt = $json['tasks'][0];
+        $pending = in_array($receipt['status_code'] ?? null, [40601, 40602], true);
+        $tasksCount = $json['tasks_count'] ?? null;
+        $tasksError = $json['tasks_error'] ?? null;
+        if (($pending && (! in_array($tasksCount, [null, 1], true) || ! in_array($tasksError, [null, 0, 1], true)))
+            || (! $pending && ($tasksCount !== 1 || $tasksError !== 0))) {
+            throw self::invalidResponse('DataForSEO returned contradictory task counts.');
+        }
+
         $id = $receipt['id'] ?? null;
         if (! is_string($id) || ! Str::isUuid($id) || ($expectedId !== null && $id !== $expectedId)) {
             throw self::invalidResponse('DataForSEO returned a mismatched task identifier.');
@@ -494,8 +492,14 @@ final readonly class DataForSeoDriver implements DefinesSpendingBound, DurableDr
             throw $this->taskFailure($receipt['status_code'] ?? null);
         }
 
-        $this->assertPath($receipt['path'] ?? null, $descriptor['family'], $operation, $expectedId);
-        $this->assertIdentity($receipt['data'] ?? null, $descriptor, $operation, $request);
+        $path = $receipt['path'] ?? null;
+        $data = $receipt['data'] ?? null;
+        if (! $pending || $path !== null) {
+            $this->assertPath($path, $descriptor['family'], $operation, $expectedId);
+        }
+        if (! $pending || $data !== null) {
+            $this->assertIdentity($data, $descriptor, $operation, $request);
+        }
         $receipt['_api_version'] = $json['version'] ?? null;
 
         return $receipt;
@@ -518,8 +522,17 @@ final readonly class DataForSeoDriver implements DefinesSpendingBound, DurableDr
         $expectedKeyword = $request instanceof DriverRequest
             ? $request->prompt
             : data_get($receipt, 'data.keyword');
+        $acceptedKeywords = is_string($expectedKeyword) ? [$expectedKeyword] : [];
+        if ($request instanceof DriverRequest && is_string($expectedKeyword)) {
+            $acceptedKeywords[] = rawurlencode($expectedKeyword);
+        } elseif (is_string($expectedKeyword)) {
+            $decodedKeyword = rawurldecode($expectedKeyword);
+            if (rawurlencode($decodedKeyword) === $expectedKeyword) {
+                $acceptedKeywords[] = $decodedKeyword;
+            }
+        }
         if (! is_string($expectedKeyword) || trim($expectedKeyword) === ''
-            || ($result['keyword'] ?? null) !== $expectedKeyword
+            || ! in_array($result['keyword'] ?? null, $acceptedKeywords, true)
             || ($result['location_code'] ?? null) !== data_get($request->profile->options, 'location_code')
             || ($result['language_code'] ?? null) !== data_get($request->profile->options, 'language_code')) {
             throw self::invalidResponse('DataForSEO returned a result for different request controls.');
@@ -537,24 +550,32 @@ final readonly class DataForSeoDriver implements DefinesSpendingBound, DurableDr
         string $operation,
         DriverRequest|RecoveryRequest $request,
     ): void {
-        $function = match (true) {
+        $functions = match (true) {
             $descriptor['api'] === 'ai_optimization'
-                && ! ($descriptor['surface'] === 'chatgpt' && $operation === 'task_post') => 'llm_scraper',
-            $operation === 'task_post' => 'task_post',
-            str_starts_with($operation, 'task_get/') => 'task_get',
-            default => 'live',
+                && $descriptor['surface'] === 'chatgpt'
+                && $operation === 'task_post' => ['task_post', 'llm_scraper'],
+            $descriptor['api'] === 'ai_optimization' => ['llm_scraper'],
+            $operation === 'task_post' => ['task_post'],
+            str_starts_with($operation, 'task_get/') => ['task_get'],
+            default => ['live'],
         };
         $keyword = is_array($data) ? ($data['keyword'] ?? null) : null;
+        $decodedKeyword = is_string($keyword) ? rawurldecode($keyword) : null;
+        $keywordValid = is_string($keyword)
+            && trim($keyword) !== ''
+            && ($request instanceof DriverRequest
+                ? in_array($keyword, [$request->prompt, rawurlencode($request->prompt)], true)
+                : mb_strlen($keyword) <= $descriptor['max_chars']
+                    || (is_string($decodedKeyword)
+                        && rawurlencode($decodedKeyword) === $keyword
+                        && mb_strlen($decodedKeyword) <= $descriptor['max_chars']));
         if (! is_array($data) || array_is_list($data)
             || ($data['api'] ?? null) !== $descriptor['api']
-            || ($data['function'] ?? null) !== $function
+            || ! in_array($data['function'] ?? null, $functions, true)
             || ! in_array($data['se'] ?? null, [$descriptor['se'], ...($descriptor['se_aliases'] ?? [])], true)
             || (($descriptor['api'] === 'serp' || array_key_exists('se_type', $data))
                 && ($data['se_type'] ?? null) !== ($descriptor['se_type'] ?? null))
-            || ! is_string($keyword)
-            || trim($keyword) === ''
-            || mb_strlen($keyword) > $descriptor['max_chars']
-            || ($request instanceof DriverRequest && $keyword !== $request->prompt)
+            || ! $keywordValid
             || ($data['location_code'] ?? null) !== data_get($request->profile->options, 'location_code')
             || ($data['language_code'] ?? null) !== data_get($request->profile->options, 'language_code')) {
             throw self::invalidResponse('DataForSEO returned a receipt for a different task family or request.');
@@ -600,6 +621,21 @@ final readonly class DataForSeoDriver implements DefinesSpendingBound, DurableDr
         $json = $response->json();
 
         return is_array($json) && ! array_is_list($json) && ($json['status_code'] ?? null) === 50000;
+    }
+
+    /** @param array<string, mixed> $receipt */
+    private function isPending(array $receipt): bool
+    {
+        if (! in_array($receipt['status_code'] ?? null, [40601, 40602], true)) {
+            return false;
+        }
+
+        $resultCount = $receipt['result_count'] ?? null;
+        if (($resultCount !== null && $resultCount !== 0) || ($receipt['result'] ?? null) !== null) {
+            throw self::invalidResponse('DataForSEO returned a contradictory pending task receipt.');
+        }
+
+        return true;
     }
 
     private function wait(DriverRequest $request, int $attempt): void

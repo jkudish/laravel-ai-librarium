@@ -13,6 +13,7 @@ use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
 use Jkudish\LaravelAiLibrarium\Drivers\DataForSeo\DataForSeoCredential;
 use Jkudish\LaravelAiLibrarium\Drivers\DataForSeo\DataForSeoDriver;
+use Jkudish\LaravelAiLibrarium\Exceptions\RecoveryException;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\Jobs\RunResearch;
 use Jkudish\LaravelAiLibrarium\LaravelAiLibrariumServiceProvider;
@@ -276,6 +277,207 @@ it('polls documented pending states and retries only safe GET failures while pre
         ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'POST'))->toHaveCount(1);
 });
 
+it('accepts omitted or null result fields while a task is pending', function (Closure $pendingShape): void {
+    $calls = 0;
+    Http::fake(function (Request $request) use (&$calls, $pendingShape) {
+        $calls++;
+        $operation = $request->method() === 'POST' ? 'task_post' : 'task_get/advanced/'.DATAFORSEO_TEST_ID;
+        $status = $request->method() === 'POST' ? 20100 : ($calls === 2 ? 40601 : 20000);
+        $payload = dataForSeoEnvelope(
+            'dataforseo-chatgpt',
+            'ai_optimization/chat_gpt/llm_scraper',
+            $operation,
+            'chatgpt',
+            'optional pending fields',
+            $status,
+            $status === 20000,
+            $request->method() === 'POST' ? '0.0012' : '0',
+        );
+        if ($status === 40601) {
+            $pendingShape($payload['tasks'][0]);
+        }
+
+        return Http::response($payload);
+    });
+
+    $response = Librarium::query('optional pending fields')->using('dataforseo-chatgpt')->run();
+
+    expect($response->status)->toBe(ResponseStatus::Succeeded)
+        ->and($response->results)->toHaveCount(1)
+        ->and($calls)->toBe(3)
+        ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'POST'))->toHaveCount(1)
+        ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'GET'))->toHaveCount(2);
+})->with([
+    'omitted by provider' => static function (array &$task): void {
+        unset($task['result_count'], $task['result']);
+    },
+    'explicitly null' => static function (array &$task): void {
+        $task['result_count'] = null;
+        $task['result'] = null;
+    },
+]);
+
+it('accepts documented optional envelope and identity metadata while a task is pending', function (Closure $pendingShape): void {
+    $calls = 0;
+    Http::fake(function (Request $request) use (&$calls, $pendingShape) {
+        $calls++;
+        $status = $request->method() === 'POST' ? 20100 : ($calls === 2 ? 40602 : 20000);
+        $payload = dataForSeoEnvelope(
+            'dataforseo-chatgpt',
+            'ai_optimization/chat_gpt/llm_scraper',
+            $request->method() === 'POST' ? 'task_post' : 'task_get/advanced/'.DATAFORSEO_TEST_ID,
+            'chatgpt',
+            'optional pending metadata',
+            $status,
+            $status === 20000,
+            $request->method() === 'POST' ? '0.0012' : '0',
+        );
+        if ($status === 40602) {
+            $pendingShape($payload);
+        }
+
+        return Http::response($payload);
+    });
+
+    $response = Librarium::query('optional pending metadata')->using('dataforseo-chatgpt')->run();
+
+    expect($response->status)->toBe(ResponseStatus::Succeeded)
+        ->and($response->results)->toHaveCount(1)
+        ->and($calls)->toBe(3)
+        ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'POST'))->toHaveCount(1)
+        ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'GET'))->toHaveCount(2);
+})->with([
+    'provider counts pending as a task error' => static function (array &$payload): void {
+        $payload['tasks_error'] = 1;
+    },
+    'provider omits optional pending metadata' => static function (array &$payload): void {
+        unset($payload['tasks_count'], $payload['tasks_error']);
+        unset($payload['tasks'][0]['path'], $payload['tasks'][0]['data']);
+    },
+    'provider nulls optional pending metadata' => static function (array &$payload): void {
+        $payload['tasks_count'] = null;
+        $payload['tasks_error'] = null;
+        $payload['tasks'][0]['path'] = null;
+        $payload['tasks'][0]['data'] = null;
+    },
+]);
+
+it('rejects contradictory envelope and identity metadata while a task is pending', function (Closure $contradiction): void {
+    $calls = 0;
+    Http::fake(function (Request $request) use (&$calls, $contradiction) {
+        $calls++;
+        $payload = dataForSeoEnvelope(
+            'dataforseo-chatgpt',
+            'ai_optimization/chat_gpt/llm_scraper',
+            $request->method() === 'POST' ? 'task_post' : 'task_get/advanced/'.DATAFORSEO_TEST_ID,
+            'chatgpt',
+            'contradictory pending metadata',
+            $request->method() === 'POST' ? 20100 : 40601,
+            false,
+            $request->method() === 'POST' ? '0.0012' : '0',
+        );
+        if ($request->method() === 'GET') {
+            $contradiction($payload);
+        }
+
+        return Http::response($payload);
+    });
+
+    $response = Librarium::query('contradictory pending metadata')->using('dataforseo-chatgpt')->run();
+
+    expect($response->status)->toBe(ResponseStatus::Failed)
+        ->and($response->errors->sole()->code)->toBe('dataforseo.invalid_response')
+        ->and($calls)->toBe(2)
+        ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'POST'))->toHaveCount(1)
+        ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'GET'))->toHaveCount(1);
+    Sleep::assertNeverSlept();
+})->with([
+    'wrong task count' => static function (array &$payload): void {
+        $payload['tasks_count'] = 2;
+    },
+    'multiple task errors' => static function (array &$payload): void {
+        $payload['tasks_error'] = 2;
+    },
+    'wrong endpoint path' => static function (array &$payload): void {
+        $payload['tasks'][0]['path'] = ['v3', 'appendix', 'user_data'];
+    },
+    'mismatched request identity' => static function (array &$payload): void {
+        $payload['tasks'][0]['data']['location_code'] = 2124;
+    },
+]);
+
+it('rejects a pending task that claims completed result data', function (Closure $contradiction): void {
+    $calls = 0;
+    Http::fake(function (Request $request) use (&$calls, $contradiction) {
+        $calls++;
+        $payload = dataForSeoEnvelope(
+            'dataforseo-chatgpt',
+            'ai_optimization/chat_gpt/llm_scraper',
+            $request->method() === 'POST' ? 'task_post' : 'task_get/advanced/'.DATAFORSEO_TEST_ID,
+            'chatgpt',
+            'contradictory pending fields',
+            $request->method() === 'POST' ? 20100 : 40602,
+            false,
+            $request->method() === 'POST' ? '0.0012' : '0',
+        );
+        if ($request->method() === 'GET') {
+            $contradiction($payload['tasks'][0]);
+        }
+
+        return Http::response($payload);
+    });
+
+    $response = Librarium::query('contradictory pending fields')->using('dataforseo-chatgpt')->run();
+
+    expect($response->status)->toBe(ResponseStatus::Failed)
+        ->and($response->errors->sole()->code)->toBe('dataforseo.invalid_response')
+        ->and($calls)->toBe(2)
+        ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'POST'))->toHaveCount(1)
+        ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'GET'))->toHaveCount(1);
+    Sleep::assertNeverSlept();
+})->with([
+    'nonzero result count' => static function (array &$task): void {
+        $task['result_count'] = 1;
+    },
+    'non-null result' => static function (array &$task): void {
+        $task['result'] = [];
+    },
+]);
+
+it('does not poll or resubmit a task-level internal failure', function (int $tasksError, string $expectedCode): void {
+    $calls = 0;
+    Http::fake(function (Request $request) use (&$calls, $tasksError) {
+        $calls++;
+        $payload = dataForSeoEnvelope(
+            'dataforseo-chatgpt',
+            'ai_optimization/chat_gpt/llm_scraper',
+            $request->method() === 'POST' ? 'task_post' : 'task_get/advanced/'.DATAFORSEO_TEST_ID,
+            'chatgpt',
+            'terminal task failure',
+            $request->method() === 'POST' ? 20100 : 50000,
+            false,
+            $request->method() === 'POST' ? '0.0012' : '0',
+        );
+        if ($request->method() === 'GET') {
+            $payload['tasks_error'] = $tasksError;
+        }
+
+        return Http::response($payload);
+    });
+
+    $response = Librarium::query('terminal task failure')->using('dataforseo-chatgpt')->run();
+
+    expect($response->status)->toBe(ResponseStatus::Failed)
+        ->and($response->errors->sole()->code)->toBe($expectedCode)
+        ->and($calls)->toBe(2)
+        ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'POST'))->toHaveCount(1)
+        ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'GET'))->toHaveCount(1);
+    Sleep::assertNeverSlept();
+})->with([
+    'valid envelope with failed task' => [0, 'dataforseo.provider'],
+    'envelope reports a task error' => [1, 'dataforseo.invalid_response'],
+]);
+
 it('never retries an ambiguous paid POST or follows a credential-bearing redirect', function (mixed $failure): void {
     $calls = 0;
     Http::fake(function () use (&$calls, $failure) {
@@ -339,6 +541,15 @@ it('fails closed on mismatched IDs, families, statuses, paths, echoes, and envel
     'contradictory count' => [function (array &$payload): void {
         $payload['tasks_count'] = 2;
     }, 'dataforseo.invalid_response'],
+    'completed task with omitted count' => [function (array &$payload): void {
+        unset($payload['tasks_count']);
+    }, 'dataforseo.invalid_response'],
+    'completed task counted as an error' => [function (array &$payload): void {
+        $payload['tasks_error'] = 1;
+    }, 'dataforseo.invalid_response'],
+    'completed task with omitted error count' => [function (array &$payload): void {
+        unset($payload['tasks_error']);
+    }, 'dataforseo.invalid_response'],
 ]);
 
 it('accepts the documented ChatGPT receipt alias while keeping the request route pinned', function (): void {
@@ -350,6 +561,50 @@ it('accepts the documented ChatGPT receipt alias while keeping the request route
     expect(Librarium::query('alias')->using('dataforseo-chatgpt-live')->run()->status)->toBe(ResponseStatus::Succeeded);
     Http::assertSent(fn (Request $request): bool => $request->url() === 'https://api.dataforseo.com/v3/ai_optimization/chat_gpt/llm_scraper/live/advanced');
 });
+
+it('accepts the observed ChatGPT Standard creation receipt identity', function (): void {
+    $query = str_repeat('é', 2000);
+    $payload = dataForSeoEnvelope('dataforseo-chatgpt', 'ai_optimization/chat_gpt/llm_scraper', 'task_post', 'chatgpt', $query, 20100, false, '0.0012');
+    $payload['tasks'][0]['data']['function'] = 'llm_scraper';
+    $payload['tasks'][0]['data']['keyword'] = rawurlencode($query);
+    unset($payload['tasks'][0]['data']['se_type']);
+    Http::fake(fn () => Http::response($payload));
+
+    $submission = Librarium::query($query)->using('dataforseo-chatgpt')->submit();
+
+    expect($submission->handle->reference)->toBe(DATAFORSEO_TEST_ID)
+        ->and($submission->usage()?->actualCost)->toBe('0.0012');
+    Http::assertSentCount(1);
+});
+
+it('keeps observed Standard receipt aliases exact', function (string $profile, string $family, string $surface, Closure $mutate): void {
+    $query = 'literal + %20 % café';
+    $payload = dataForSeoEnvelope($profile, $family, 'task_post', $surface, $query, 20100, false, '0.0012');
+    $mutate($payload, $query);
+    Http::fake(fn () => Http::response($payload));
+
+    expect(fn () => Librarium::query($query)->using($profile)->submit())
+        ->toThrow(RecoveryException::class, 'different task family or request');
+    Http::assertSentCount(1);
+})->with([
+    'encoded echo of another prompt' => [
+        'dataforseo-chatgpt',
+        'ai_optimization/chat_gpt/llm_scraper',
+        'chatgpt',
+        function (array &$payload, string $query): void {
+            $payload['tasks'][0]['data']['function'] = 'llm_scraper';
+            $payload['tasks'][0]['data']['keyword'] = rawurlencode($query.' changed');
+        },
+    ],
+    'AI Optimization function on a SERP receipt' => [
+        'dataforseo-google-ai-mode',
+        'serp/google/ai_mode',
+        'google_ai_mode',
+        function (array &$payload): void {
+            $payload['tasks'][0]['data']['function'] = 'llm_scraper';
+        },
+    ],
+]);
 
 it('accepts omitted optional scraper echoes but rejects contradictory product or control echoes', function (array $echo, bool $accepted): void {
     $payload = dataForSeoEnvelope('dataforseo-chatgpt-live', 'ai_optimization/chat_gpt/llm_scraper', 'live/advanced', 'chatgpt', 'echo', 20000, true, '0.004');
