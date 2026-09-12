@@ -126,14 +126,10 @@ final readonly class DataForSeoDriver implements DurableDriver
         }
 
         $receipt = $this->receipt($response, $descriptor, $operation, $request, null, $reference);
-        $status = $receipt['status_code'] ?? null;
-        if (in_array($status, [40601, 40602], true)) {
-            if (($receipt['result_count'] ?? null) !== 0 || ($receipt['result'] ?? null) !== null) {
-                throw self::invalidResponse('DataForSEO returned a contradictory pending task receipt.');
-            }
-
+        if ($this->isPending($receipt)) {
             return null;
         }
+        $status = $receipt['status_code'] ?? null;
         if ($status !== 20000) {
             throw $this->taskFailure($status);
         }
@@ -200,17 +196,13 @@ final readonly class DataForSeoDriver implements DurableDriver
                 continue;
             }
 
-            $status = $receipt['status_code'] ?? null;
-            if (in_array($status, [40601, 40602], true)) {
-                if (($receipt['result_count'] ?? null) !== 0 || ($receipt['result'] ?? null) !== null) {
-                    throw self::invalidResponse('DataForSEO returned a contradictory pending task receipt.');
-                }
-
+            if ($this->isPending($receipt)) {
                 $request->progress('DataForSEO is still processing the task.');
                 $this->wait($request, $attempt++);
 
                 continue;
             }
+            $status = $receipt['status_code'] ?? null;
             if ($status !== 20000) {
                 throw $this->taskFailure($status);
             }
@@ -591,6 +583,21 @@ final readonly class DataForSeoDriver implements DurableDriver
         $json = $response->json();
 
         return is_array($json) && ! array_is_list($json) && ($json['status_code'] ?? null) === 50000;
+    }
+
+    /** @param array<string, mixed> $receipt */
+    private function isPending(array $receipt): bool
+    {
+        if (! in_array($receipt['status_code'] ?? null, [40601, 40602], true)) {
+            return false;
+        }
+
+        $resultCount = $receipt['result_count'] ?? null;
+        if (($resultCount !== null && $resultCount !== 0) || ($receipt['result'] ?? null) !== null) {
+            throw self::invalidResponse('DataForSEO returned a contradictory pending task receipt.');
+        }
+
+        return true;
     }
 
     private function wait(DriverRequest $request, int $attempt): void

@@ -277,6 +277,84 @@ it('polls documented pending states and retries only safe GET failures while pre
         ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'POST'))->toHaveCount(1);
 });
 
+it('accepts omitted or null result fields while a task is pending', function (Closure $pendingShape): void {
+    $calls = 0;
+    Http::fake(function (Request $request) use (&$calls, $pendingShape) {
+        $calls++;
+        $operation = $request->method() === 'POST' ? 'task_post' : 'task_get/advanced/'.DATAFORSEO_TEST_ID;
+        $status = $request->method() === 'POST' ? 20100 : ($calls === 2 ? 40601 : 20000);
+        $payload = dataForSeoEnvelope(
+            'dataforseo-chatgpt',
+            'ai_optimization/chat_gpt/llm_scraper',
+            $operation,
+            'chatgpt',
+            'optional pending fields',
+            $status,
+            $status === 20000,
+            $request->method() === 'POST' ? '0.0012' : '0',
+        );
+        if ($status === 40601) {
+            $pendingShape($payload['tasks'][0]);
+        }
+
+        return Http::response($payload);
+    });
+
+    $response = Librarium::query('optional pending fields')->using('dataforseo-chatgpt')->run();
+
+    expect($response->status)->toBe(ResponseStatus::Succeeded)
+        ->and($response->results)->toHaveCount(1)
+        ->and($calls)->toBe(3)
+        ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'POST'))->toHaveCount(1)
+        ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'GET'))->toHaveCount(2);
+})->with([
+    'omitted by provider' => static function (array &$task): void {
+        unset($task['result_count'], $task['result']);
+    },
+    'explicitly null' => static function (array &$task): void {
+        $task['result_count'] = null;
+        $task['result'] = null;
+    },
+]);
+
+it('rejects a pending task that claims completed result data', function (Closure $contradiction): void {
+    $calls = 0;
+    Http::fake(function (Request $request) use (&$calls, $contradiction) {
+        $calls++;
+        $payload = dataForSeoEnvelope(
+            'dataforseo-chatgpt',
+            'ai_optimization/chat_gpt/llm_scraper',
+            $request->method() === 'POST' ? 'task_post' : 'task_get/advanced/'.DATAFORSEO_TEST_ID,
+            'chatgpt',
+            'contradictory pending fields',
+            $request->method() === 'POST' ? 20100 : 40602,
+            false,
+            $request->method() === 'POST' ? '0.0012' : '0',
+        );
+        if ($request->method() === 'GET') {
+            $contradiction($payload['tasks'][0]);
+        }
+
+        return Http::response($payload);
+    });
+
+    $response = Librarium::query('contradictory pending fields')->using('dataforseo-chatgpt')->run();
+
+    expect($response->status)->toBe(ResponseStatus::Failed)
+        ->and($response->errors->sole()->code)->toBe('dataforseo.invalid_response')
+        ->and($calls)->toBe(2)
+        ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'POST'))->toHaveCount(1)
+        ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'GET'))->toHaveCount(1);
+    Sleep::assertNeverSlept();
+})->with([
+    'nonzero result count' => static function (array &$task): void {
+        $task['result_count'] = 1;
+    },
+    'non-null result' => static function (array &$task): void {
+        $task['result'] = [];
+    },
+]);
+
 it('does not poll or resubmit a task-level internal failure', function (int $tasksError, string $expectedCode): void {
     $calls = 0;
     Http::fake(function (Request $request) use (&$calls, $tasksError) {
