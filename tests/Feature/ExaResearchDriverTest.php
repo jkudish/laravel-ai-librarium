@@ -65,6 +65,7 @@ it('submits, polls a known private handle, and freshly retrieves the completed r
         return $request->method() === 'POST'
             && $request->url() === 'https://api.exa.ai/agent/runs'
             && $request->hasHeader('x-api-key', 'testing-exa-key')
+            && $request->hasHeader('Exa-Beta', 'agent-max-effort-2026-07-27')
             && ! $request->hasHeader('Authorization')
             && $request->data() === [
                 'query' => 'Compare durable research systems.',
@@ -188,8 +189,9 @@ it('retrieves an immediately completed submission once before delivery', functio
 
     expect($bound->kind)->toBe(SpendingBoundKind::Unknown)
         ->and($result->content)->toBe('Authoritative final report [[1]] and [[2]].');
-    Http::assertSent(fn (Request $request): bool => $request->method() !== 'POST'
-        || ! array_key_exists('budget', $request->data()));
+    Http::assertSent(fn (Request $request): bool => $request->method() === 'POST'
+        && ! array_key_exists('budget', $request->data())
+        && ! $request->hasHeader('Exa-Beta'));
     Http::assertSentCount(2);
     Sleep::assertNeverSlept();
 });

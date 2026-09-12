@@ -402,6 +402,10 @@ final readonly class ExaResearchDriver implements DefinesSpendingBound, DurableD
             ->connectTimeout(min(self::CONNECT_TIMEOUT_SECONDS, $remaining))
             ->timeout(min(self::REQUEST_TIMEOUT_SECONDS, $remaining));
 
+        if ($method === 'post' && ($payload['effort'] ?? null) === 'max') {
+            $pending->withHeaders(['Exa-Beta' => 'agent-max-effort-2026-07-27']);
+        }
+
         try {
             $response = $method === 'post'
                 ? $pending->post($url, $payload)
