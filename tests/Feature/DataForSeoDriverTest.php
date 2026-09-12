@@ -541,6 +541,12 @@ it('fails closed on mismatched IDs, families, statuses, paths, echoes, and envel
     'contradictory count' => [function (array &$payload): void {
         $payload['tasks_count'] = 2;
     }, 'dataforseo.invalid_response'],
+    'completed task with omitted count' => [function (array &$payload): void {
+        unset($payload['tasks_count']);
+    }, 'dataforseo.invalid_response'],
+    'completed task counted as an error' => [function (array &$payload): void {
+        $payload['tasks_error'] = 1;
+    }, 'dataforseo.invalid_response'],
 ]);
 
 it('accepts the documented ChatGPT receipt alias while keeping the request route pinned', function (): void {
