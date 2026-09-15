@@ -33,6 +33,8 @@ it('runs an explicitly funded You.com canary', function (
         $this->markTestSkipped("Set LIBRARIUM_YOU_LIVE_SPEND_USD={$estimate} to acknowledge this canary's current pre-dispatch estimate.");
     }
 
+    Http::record();
+
     $response = Librarium::query($query)
         ->using($profile)
         ->maxCost($estimate)
