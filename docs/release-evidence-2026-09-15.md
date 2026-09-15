@@ -75,10 +75,23 @@ target. Sanitized receipts retained no credentials, response bodies, result
 content, citation text, private handles, or provider identifiers.
 
 This evidence completes the You.com subset of the remaining-live-canaries gate.
-C46 remains independently pending, so the aggregate gate remains open.
+
+## Perplexity frozen-low live canary
+
+C46 passed on 2026-09-15 under #2595 at exact core target
+`bca04cc092fccae92a585a29eb22a661783941bf`. The frozen
+`perplexity-low-frozen` Agent configuration made exactly one authorized POST and
+returned one successfully mapped grounded answer with nonempty content and
+citations. It used zero retries or fallbacks. The USD 1.00 reservation was an
+external ceiling; the provider did not report actual USD cost. Credential scan
+found zero occurrences, no provider response or result content was retained,
+and the raw test log was deleted.
+
+Together with C21–C23, this completes the aggregate remaining-live-canaries
+gate.
 
 ## Gates intentionally left open
 
-This report does not complete PlanMode/Agentsy dogfood (#2594), C46, the stable
+This report does not complete PlanMode/Agentsy dogfood (#2594), the stable
 `laravel-ai-pricing` release, or the accepted TypeScript v2 release tag. Those
 remain independent release gates.

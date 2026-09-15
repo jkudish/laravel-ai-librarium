@@ -104,7 +104,7 @@ provider/model and truthful search-on terminal projection differ materially.
 | C43 | `valyu-search` | Valyu Search across web and specialized corpora | `VALYU_API_KEY` | `ProviderParityProfilesLiveTest` — Valyu Search; passed 2026-09-11 | Source-dependent charges prevent a conservative preflight estimate; external cap required |
 | C44 | `valyu-research` | Valyu standard Deep Research submit/poll/retrieve | `VALYU_API_KEY` | `ProviderParityProfilesLiveTest` — Valyu Research; passed 2026-09-11 | Standard base/selected-option quote plus external cap |
 | C45 | `firecrawl-search` | Optional adapter raw `POST /v2/search` | `FIRECRAWL_API_KEY` | Adapter `FirecrawlSearchLiveTest`; passed 2026-09-11 | Provider credit use has no truthful preflight quantity; search-specific acknowledgement and external cap required |
-| C46 | `perplexity-low-frozen` | Perplexity Agent API frozen low configuration from 2026-09-11, inline result | `PERPLEXITY_API_KEY` | `PerplexityAgentDriverTest`; not run live | Output and tool token limits constrain work, not total USD spend; explicit external cap required |
+| C46 | `perplexity-low-frozen` | Perplexity Agent API frozen low configuration from 2026-09-11, inline result | `PERPLEXITY_API_KEY` | `ProviderParityProfilesLiveTest` — Perplexity frozen low; passed 2026-09-15 under #2595 | Output and tool token limits constrain work, not total USD spend; explicit external cap required |
 | C47 | `serpbase-search` | One SerpBase Google Search POST, one page, no retry | `SERPBASE_API_KEY` | Approved ephemeral harness passed 2026-09-11; durable dataset: `ProviderParityProfilesLiveTest` — SerpBase Search | Account-configured credit rate and independently enforced account cap required |
 | C48 | `serpbase-news` | One SerpBase Google News POST, one page, no retry | `SERPBASE_API_KEY` | Approved ephemeral harness passed 2026-09-11; durable dataset: `ProviderParityProfilesLiveTest` — SerpBase News | Account-configured credit rate and independently enforced account cap required |
 
@@ -162,9 +162,13 @@ allowed only after a validated provider handle and within the shared deadline.
 - C21–C23 passed on 2026-09-15 under #2694. Answer, synchronous Research, and
   durable background Research each returned one successfully mapped result with
   citations. The three separately authorized submissions used zero retries or
-  fallbacks and USD 0.105 in configured estimates. C46 remains unverified live;
-  its committed opt-in harness is runnable after the approval contract above is
-  satisfied.
+  fallbacks and USD 0.105 in configured estimates.
+- C46 passed on 2026-09-15 under #2595 at core candidate
+  `bca04cc092fccae92a585a29eb22a661783941bf`. The frozen low Agent made exactly
+  one authorized POST, returned one grounded answer with citations, and used no
+  retry or fallback. The USD 1.00 reservation was an external ceiling; actual
+  provider cost was not reported. This completes the release-required live
+  canary set.
 - C24–C29 passed on 2026-09-12 against core candidate
   `8e47c1b861e23fe91b2279bfcbea099dd1a47c0c`. Each case made exactly one paid
   POST; Standard cases made only bound retrieval GETs, Live cases made none,
