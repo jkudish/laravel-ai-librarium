@@ -59,8 +59,26 @@ accepted outcome.
 
 Release-readiness gate `3471`: complete.
 
+## You.com live canaries
+
+PlanMode task #2694 completed C21–C23 on 2026-09-15. You.com Answer,
+synchronous standard Research, and durable background Research each returned
+one successfully mapped result with citations. The three independently gated
+submissions used zero retries or fallbacks and USD 0.105 in configured
+estimates.
+
+The first C21 test process exposed a live-harness observability defect after the
+provider result passed its semantic assertions: Laravel HTTP request recording
+was not enabled for the final request assertion. The harness was corrected
+without repeating C21, then C22 and C23 passed against the corrected exact
+target. Sanitized receipts retained no credentials, response bodies, result
+content, citation text, private handles, or provider identifiers.
+
+This evidence completes the You.com subset of the remaining-live-canaries gate.
+C46 remains independently pending, so the aggregate gate remains open.
+
 ## Gates intentionally left open
 
-This report does not complete PlanMode/Agentsy dogfood (#2594), the remaining
-live canaries, the stable `laravel-ai-pricing` release, or the accepted
-TypeScript v2 release tag. Those remain independent release gates.
+This report does not complete PlanMode/Agentsy dogfood (#2594), C46, the stable
+`laravel-ai-pricing` release, or the accepted TypeScript v2 release tag. Those
+remain independent release gates.

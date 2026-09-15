@@ -79,9 +79,9 @@ provider/model and truthful search-on terminal projection differ materially.
 | C18 | `searchapi-google-ai-mode` | SearchAPI Google AI Mode surface | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — google ai mode; passed 2026-09-12 under #2986 | Configured-only; external cap required |
 | C19 | `searchapi-bing-copilot` | SearchAPI Bing Copilot surface | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — bing copilot; passed 2026-09-12 under #2986 | Configured-only; external cap required |
 | C20 | `searchapi-google-ai-overview` | SearchAPI two-stage Google page token then AI Overview | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — google ai overview; passed 2026-09-12 under #2986 | Configured-only two-unit quote; external cap required |
-| C21 | `you-answer` | You.com Answer endpoint and citation mapping | `YOU_COM_API_KEY` or `YDC_API_KEY` | `YouProfilesLiveTest` — You Answer; not run | Current conservative resolver quote and exact acknowledgement required |
-| C22 | `you-research-grounded` | You.com synchronous standard Research without background mode | `YOU_COM_API_KEY` or `YDC_API_KEY` | `YouProfilesLiveTest` — You Research grounded; not run | Current conservative resolver quote and exact acknowledgement required |
-| C23 | `you-research-research` | You.com background standard Research submit/poll/retrieve | `YOU_COM_API_KEY` or `YDC_API_KEY` | `YouProfilesLiveTest` — You Research durable; not run | Current conservative resolver quote and exact acknowledgement required |
+| C21 | `you-answer` | You.com Answer endpoint and citation mapping | `YOU_COM_API_KEY` or `YDC_API_KEY` | `YouProfilesLiveTest` — You Answer; passed 2026-09-15 under #2694 | Current conservative resolver quote and exact acknowledgement required |
+| C22 | `you-research-grounded` | You.com synchronous standard Research without background mode | `YOU_COM_API_KEY` or `YDC_API_KEY` | `YouProfilesLiveTest` — You Research grounded; passed 2026-09-15 under #2694 | Current conservative resolver quote and exact acknowledgement required |
+| C23 | `you-research-research` | You.com background standard Research submit/poll/retrieve | `YOU_COM_API_KEY` or `YDC_API_KEY` | `YouProfilesLiveTest` — You Research durable; passed 2026-09-15 under #2694 | Current conservative resolver quote and exact acknowledgement required |
 | C24 | `dataforseo-chatgpt` | DataForSEO ChatGPT LLM Scraper Standard submit/poll/get | `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` | `DataForSeoProfilesLiveTest` — DataForSEO ChatGPT Standard; passed 2026-09-12 under #3471 | Current conservative USD 0.0012 quote and exact acknowledgement required |
 | C25 | `dataforseo-chatgpt-live` | DataForSEO ChatGPT LLM Scraper Live Advanced | `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` | `DataForSeoProfilesLiveTest` — DataForSEO ChatGPT Live; passed 2026-09-12 under #3471 | Current conservative USD 0.004 quote and exact acknowledgement required |
 | C26 | `dataforseo-gemini` | DataForSEO Gemini LLM Scraper Standard submit/poll/get | `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` | `DataForSeoProfilesLiveTest` — DataForSEO Gemini Standard; passed 2026-09-12 under #3471 | Current conservative USD 0.0012 quote and exact acknowledgement required |
@@ -159,8 +159,12 @@ allowed only after a validated provider handle and within the shared deadline.
   with eight total requests and USD 0.032 reserved under the approved USD 0.05
   ceiling. PlanMode #2986 retains the sanitized reports and exact-manifest
   review evidence.
-- C21–C23 and C46 remain unverified live. Their committed opt-in harness is
-  runnable one dataset at a time after the approval contract above is satisfied.
+- C21–C23 passed on 2026-09-15 under #2694. Answer, synchronous Research, and
+  durable background Research each returned one successfully mapped result with
+  citations. The three separately authorized submissions used zero retries or
+  fallbacks and USD 0.105 in configured estimates. C46 remains unverified live;
+  its committed opt-in harness is runnable after the approval contract above is
+  satisfied.
 - C24–C29 passed on 2026-09-12 against core candidate
   `8e47c1b861e23fe91b2279bfcbea099dd1a47c0c`. Each case made exactly one paid
   POST; Standard cases made only bound retrieval GETs, Live cases made none,
