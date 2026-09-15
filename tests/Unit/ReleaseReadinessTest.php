@@ -64,7 +64,6 @@ it('reports every current local and external 1.0 release blocker', function (): 
         'Runtime dependency jkudish/laravel-ai-pricing uses non-stable constraint [dev-main].',
         'The accepted TypeScript v2 release tag is not recorded.',
         'Gate [2594] is pending: PlanMode and Agentsy dogfood.',
-        'Gate [remaining-live-canaries] is pending: Remaining release-required live canaries.',
         'Gate [stable-pricing-release] is pending: Stable laravel-ai-pricing release and constraint.',
     ]);
 });

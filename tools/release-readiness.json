@@ -62,8 +62,11 @@
         {
             "id": "remaining-live-canaries",
             "title": "Remaining release-required live canaries",
-            "status": "pending",
-            "evidence": null
+            "status": "complete",
+            "evidence": {
+                "uri": "https://raw.githubusercontent.com/jkudish/laravel-ai-librarium/c65c72c6ccec9802167915825f38d4694063fa3e/docs/release-evidence-2026-09-15.md",
+                "sha256": "851cefac6fa8c749118eeb04252e2706f0c03463c117765477edc6e2b3c4f8f2"
+            }
         },
         {
             "id": "stable-pricing-release",
