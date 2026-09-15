@@ -63,7 +63,6 @@ it('reports every current local and external 1.0 release blocker', function (): 
     expect((new ReleaseReadiness)->blockers())->toBe([
         'The accepted TypeScript v2 release tag is not recorded.',
         'Gate [2594] is pending: PlanMode and Agentsy dogfood.',
-        'Gate [stable-pricing-release] is pending: Stable laravel-ai-pricing release and constraint.',
     ]);
 });
 
