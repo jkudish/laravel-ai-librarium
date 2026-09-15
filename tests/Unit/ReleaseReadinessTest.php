@@ -62,14 +62,8 @@ function releaseReadinessManifestFixture(): array
 it('reports every current local and external 1.0 release blocker', function (): void {
     expect((new ReleaseReadiness)->blockers())->toBe([
         'Runtime dependency jkudish/laravel-ai-pricing uses non-stable constraint [dev-main].',
-        'CHANGELOG.md does not contain a dated 1.0.0 release heading.',
         'The accepted TypeScript v2 release tag is not recorded.',
-        'Gate [php-8.4-lowest-compatibility] is blocked: PHP 8.4 lowest-dependency compatibility.',
-        'Gate [php-8.5-highest-compatibility] is blocked: PHP 8.5 highest-dependency compatibility.',
-        'Gate [2593] is pending: SearchAPI and Firecrawl fidelity bake-off.',
         'Gate [2594] is pending: PlanMode and Agentsy dogfood.',
-        'Gate [2986] is pending: SearchAPI live canaries.',
-        'Gate [3471] is pending: DataForSEO acceptance.',
         'Gate [remaining-live-canaries] is pending: Remaining release-required live canaries.',
         'Gate [stable-pricing-release] is pending: Stable laravel-ai-pricing release and constraint.',
     ]);
