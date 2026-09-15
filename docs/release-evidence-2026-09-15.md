@@ -90,8 +90,22 @@ and the raw test log was deleted.
 Together with C21–C23, this completes the aggregate remaining-live-canaries
 gate.
 
+## Stable pricing release and constraint
+
+`jkudish/laravel-ai-pricing` v0.1.2 was published on 2026-09-15 from merge
+commit `4a7fd874fdaa86abc0b77bd0c4d431cfeddb8b75`. Its fresh `main` checks passed
+the PHP 8.4/8.5 Linux and Windows matrix, the lowest supported Brick Math lane,
+quality checks, and a clean Laravel 12 consumer installation. Composer and
+Packagist resolve v0.1.2 to that same source commit.
+
+Librarium now requires the stable `^0.1.1` compatibility range, which resolves
+to v0.1.2 and excludes future 0.2 breaking changes. The release checker pins
+that exact constraint so another stable but incompatible range cannot silently
+satisfy the gate.
+
+Release-readiness gate `stable-pricing-release`: complete.
+
 ## Gates intentionally left open
 
-This report does not complete PlanMode/Agentsy dogfood (#2594), the stable
-`laravel-ai-pricing` release, or the accepted TypeScript v2 release tag. Those
-remain independent release gates.
+This report does not complete PlanMode/Agentsy dogfood (#2594) or the accepted
+TypeScript v2 release tag. Those remain independent release gates.
