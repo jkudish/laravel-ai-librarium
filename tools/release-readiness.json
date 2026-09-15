@@ -11,20 +11,29 @@
         {
             "id": "php-8.4-lowest-compatibility",
             "title": "PHP 8.4 lowest-dependency compatibility",
-            "status": "blocked",
-            "evidence": null
+            "status": "complete",
+            "evidence": {
+                "uri": "https://raw.githubusercontent.com/jkudish/laravel-ai-librarium/70ec1a2dbe7a25e47000c8ff007b99064ea6ba01/docs/release-evidence-2026-09-15.md",
+                "sha256": "29345e86ea7f6fb45cee6354847b1da1362d381a9b64b8bbd4abd4852bd8e7dd"
+            }
         },
         {
             "id": "php-8.5-highest-compatibility",
             "title": "PHP 8.5 highest-dependency compatibility",
-            "status": "blocked",
-            "evidence": null
+            "status": "complete",
+            "evidence": {
+                "uri": "https://raw.githubusercontent.com/jkudish/laravel-ai-librarium/70ec1a2dbe7a25e47000c8ff007b99064ea6ba01/docs/release-evidence-2026-09-15.md",
+                "sha256": "29345e86ea7f6fb45cee6354847b1da1362d381a9b64b8bbd4abd4852bd8e7dd"
+            }
         },
         {
             "id": "2593",
             "title": "SearchAPI and Firecrawl fidelity bake-off",
-            "status": "pending",
-            "evidence": null
+            "status": "complete",
+            "evidence": {
+                "uri": "https://raw.githubusercontent.com/jkudish/laravel-ai-librarium/70ec1a2dbe7a25e47000c8ff007b99064ea6ba01/docs/release-evidence-2026-09-15.md",
+                "sha256": "29345e86ea7f6fb45cee6354847b1da1362d381a9b64b8bbd4abd4852bd8e7dd"
+            }
         },
         {
             "id": "2594",
@@ -35,26 +44,38 @@
         {
             "id": "2986",
             "title": "SearchAPI live canaries",
-            "status": "pending",
-            "evidence": null
+            "status": "complete",
+            "evidence": {
+                "uri": "https://raw.githubusercontent.com/jkudish/laravel-ai-librarium/70ec1a2dbe7a25e47000c8ff007b99064ea6ba01/docs/release-evidence-2026-09-15.md",
+                "sha256": "29345e86ea7f6fb45cee6354847b1da1362d381a9b64b8bbd4abd4852bd8e7dd"
+            }
         },
         {
             "id": "3471",
             "title": "DataForSEO acceptance",
-            "status": "pending",
-            "evidence": null
+            "status": "complete",
+            "evidence": {
+                "uri": "https://raw.githubusercontent.com/jkudish/laravel-ai-librarium/70ec1a2dbe7a25e47000c8ff007b99064ea6ba01/docs/release-evidence-2026-09-15.md",
+                "sha256": "29345e86ea7f6fb45cee6354847b1da1362d381a9b64b8bbd4abd4852bd8e7dd"
+            }
         },
         {
             "id": "remaining-live-canaries",
             "title": "Remaining release-required live canaries",
-            "status": "pending",
-            "evidence": null
+            "status": "complete",
+            "evidence": {
+                "uri": "https://raw.githubusercontent.com/jkudish/laravel-ai-librarium/c65c72c6ccec9802167915825f38d4694063fa3e/docs/release-evidence-2026-09-15.md",
+                "sha256": "851cefac6fa8c749118eeb04252e2706f0c03463c117765477edc6e2b3c4f8f2"
+            }
         },
         {
             "id": "stable-pricing-release",
             "title": "Stable laravel-ai-pricing release and constraint",
-            "status": "pending",
-            "evidence": null
+            "status": "complete",
+            "evidence": {
+                "uri": "https://raw.githubusercontent.com/jkudish/laravel-ai-librarium/a1db4a781687d89122972ecfbe7d250ca9cdc9a1/docs/release-evidence-2026-09-15.md",
+                "sha256": "a729741263d5006ae9542677d8e1bb23af0c7cf3757c4484d32915e39fe57b30"
+            }
         }
     ]
 }

@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## Unreleased
+## 1.0.0 - 2026-09-15
 
 - Add the Laravel-native query, preview, synchronous, queued, event, and
   terminal-response APIs without package-owned persistence.
