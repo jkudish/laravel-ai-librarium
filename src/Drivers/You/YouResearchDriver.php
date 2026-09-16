@@ -187,6 +187,7 @@ final readonly class YouResearchDriver implements Driver
 
         try {
             $pending = Http::withHeaders(['X-API-Key' => $credential])
+                ->withoutRedirecting()
                 ->acceptJson()
                 ->connectTimeout(min(self::CONNECT_TIMEOUT_SECONDS, $remaining))
                 ->timeout(min(self::REQUEST_TIMEOUT_SECONDS, $remaining));

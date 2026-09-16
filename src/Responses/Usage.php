@@ -6,8 +6,10 @@ namespace Jkudish\LaravelAiLibrarium\Responses;
 
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
+use JsonSerializable;
+use stdClass;
 
-final readonly class Usage
+final readonly class Usage implements JsonSerializable
 {
     /**
      * Token quantities are exclusive partitions: prompt_tokens counts only
@@ -103,6 +105,14 @@ final readonly class Usage
         self::validate($value);
 
         return $value;
+    }
+
+    /** @return array<string, mixed>|stdClass */
+    public function jsonSerialize(): array|stdClass
+    {
+        $value = $this->toArray();
+
+        return $value === [] ? new stdClass : $value;
     }
 
     /** @param array<array-key, mixed> $value */

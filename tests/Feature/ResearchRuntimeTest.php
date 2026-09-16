@@ -73,6 +73,28 @@ it('runs through one runtime and emits the successful event order', function ():
         ->and(Librarium::status($response->requestId)?->state)->toBe(ResearchState::Completed);
 });
 
+it('preserves effective identity for a Profile that deliberately permits routing', function (): void {
+    config()->set('librarium.profiles.primary', runtimeProfileConfig(
+        'routing-gateway',
+        allowProviderRouting: true,
+    ));
+    FakeRuntimeDriver::$outcomes['primary'] = [
+        fn (DriverRequest $request): ResearchResult => runtimeResult(
+            $request,
+            'Routed answer.',
+            provider: 'anthropic',
+            model: 'claude-sonnet-5',
+        ),
+    ];
+
+    $result = Librarium::query('Research this.')->using('primary')->run()->results->sole();
+
+    expect($result->requestedProfile)->toBe('primary')
+        ->and($result->profile)->toBe('primary')
+        ->and($result->provider)->toBe('anthropic')
+        ->and($result->model)->toBe('claude-sonnet-5');
+});
+
 it('queues one encrypted one-attempt job that uses the same runtime and callbacks', function (): void {
     Queue::fake();
     config()->set('librarium.queue.connection', 'redis');
@@ -499,7 +521,22 @@ it('keeps the first terminal status and emits only its terminal event', function
 
     Event::assertDispatchedOnce(ResearchFailed::class);
     Event::assertNotDispatched(ResearchCompleted::class);
-    expect(Librarium::status($plan->requestId)?->state)->toBe(ResearchState::Failed);
+    expect(Librarium::status($plan->requestId)?->state)->toBe(ResearchState::Failed)
+        ->and(FakeRuntimeDriver::$requests)->toBeEmpty()
+        ->and(FakeRuntimeDriver::$constructorCalls)->toBe(0);
+});
+
+it('rejects a terminal request before dispatching another queue job', function (): void {
+    Queue::fake();
+    config()->set('librarium.profiles.primary', runtimeProfileConfig('primary'));
+    $plan = app(ResearchCompiler::class)
+        ->compile(Librarium::query('Research this.')->using('primary'));
+    (new RunResearch($plan))->failed(new RuntimeException('Already failed.'));
+
+    expect(fn () => app(ExecutesResearch::class)->queue($plan))
+        ->toThrow(LogicException::class, 'already reached a terminal state');
+
+    Queue::assertNothingPushed();
 });
 
 it('keeps terminal events and callbacks working when transient status is unavailable', function (): void {
@@ -597,6 +634,7 @@ function runtimeProfileConfig(
     array $corpora = [Corpus::Web],
     array $retrievalMethods = [RetrievalMethod::ModelSearchTool],
     ?string $credential = null,
+    bool $allowProviderRouting = false,
 ): array {
     $configuration = [
         'driver' => FakeRuntimeDriver::class,
@@ -610,6 +648,7 @@ function runtimeProfileConfig(
         'prompt' => 'Research carefully: {{ query }}',
         'enabled' => true,
         'options' => [],
+        'allow_provider_routing' => $allowProviderRouting,
         'pricing' => [
             'provider' => $provider,
             'model' => 'test-model',
@@ -629,13 +668,15 @@ function runtimeResult(
     DriverRequest $request,
     string $content,
     ?ResultProvenance $provenance = null,
+    ?string $provider = null,
+    ?string $model = null,
 ): ResearchResult {
     return new ResearchResult(
         id: Str::ulid()->toString(),
         contentFormat: ContentFormat::Markdown,
         content: $content,
         requestedProfile: 'driver-placeholder',
-        provider: 'driver-placeholder',
+        provider: $provider ?? $request->profile->provider,
         profile: 'driver-placeholder',
         provenance: $provenance ?? new ResultProvenance(
             resultKind: $request->profile->resultKind,
@@ -645,5 +686,6 @@ function runtimeResult(
         ),
         citations: collect(),
         completedAt: CarbonImmutable::now(),
+        model: $model,
     );
 }

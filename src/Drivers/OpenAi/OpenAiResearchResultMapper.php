@@ -10,29 +10,64 @@ use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\ResearchResultMapper;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
+use Jkudish\LaravelAiLibrarium\Responses\Usage as ResearchUsage;
 use Laravel\Ai\Responses\AgentResponse;
 use Laravel\Ai\Responses\Data\Citation;
 use Laravel\Ai\Responses\Data\Meta;
 use Laravel\Ai\Responses\Data\TextUsage;
 use Laravel\Ai\Responses\Data\UrlCitation;
 
-/** @internal */
+/**
+ * @internal
+ *
+ * @phpstan-type ReportedUsage array{input: ?int, output: ?int, cached: ?int, reasoning: ?int}
+ */
 final readonly class OpenAiResearchResultMapper
 {
+    private const int MAX_SAFE_INTEGER = 9_007_199_254_740_991;
+
+    private const int MAX_UNIX_TIMESTAMP = 253_402_300_799;
+
     public function __construct(private ResearchResultMapper $results) {}
 
     /** @param array<array-key, mixed> $response */
     public function map(array $response, DriverRequest $request): ResearchResult
     {
-        return $this->results->map(
-            response: $this->toAgentResponse($response, $request),
+        $reported = $this->reportedUsage($response);
+        $result = $this->results->map(
+            response: $this->agentResponse($response, $request, $reported),
             request: $request,
             completedAt: $this->completedAt($response),
+        );
+
+        return new ResearchResult(
+            id: $result->id,
+            contentFormat: $result->contentFormat,
+            content: $result->content,
+            requestedProfile: $result->requestedProfile,
+            provider: $result->provider,
+            profile: $result->profile,
+            provenance: $result->provenance,
+            citations: $result->citations,
+            completedAt: $result->completedAt,
+            model: $result->model,
+            fallbackReason: $result->fallbackReason,
+            usage: $this->researchUsage($reported),
+            providerMeta: $result->providerMeta,
         );
     }
 
     /** @param array<array-key, mixed> $response */
     public function toAgentResponse(array $response, DriverRequest $request): AgentResponse
+    {
+        return $this->agentResponse($response, $request, $this->reportedUsage($response));
+    }
+
+    /**
+     * @param  array<array-key, mixed>  $response
+     * @param  ReportedUsage|null  $usage
+     */
+    private function agentResponse(array $response, DriverRequest $request, ?array $usage): AgentResponse
     {
         $parts = $this->outputTextParts($response);
         $citations = $this->citations($response);
@@ -47,7 +82,12 @@ final readonly class OpenAiResearchResultMapper
         return new AgentResponse(
             invocationId: $request->requestId,
             text: implode("\n\n", $parts),
-            usage: $this->usage(data_get($response, 'usage')),
+            usage: new TextUsage(
+                inputTokens: $usage['input'] ?? 0,
+                outputTokens: $usage['output'] ?? 0,
+                cacheReadInputTokens: $usage['cached'] ?? null,
+                reasoningTokens: $usage['reasoning'] ?? null,
+            ),
             meta: new Meta(
                 provider: $request->profile->provider,
                 model: $this->str(data_get($response, 'model')) ?? $request->profile->model,
@@ -145,24 +185,109 @@ final readonly class OpenAiResearchResultMapper
     }
 
     /**
-     * The webhook payload's OpenAI Responses API usage. Its input_tokens
-     * already totals the cached partition, which matches the laravel/ai 1.0
-     * TextUsage contract, so the counts pass straight through and the
-     * interchange mapper derives the exclusive prompt partition.
+     * The OpenAI Responses API usage record, validated strictly. An absent
+     * record stays unknown; a present but malformed record fails closed
+     * rather than being read as zero. Its input_tokens already totals the
+     * cached partition, which matches the laravel/ai 1.0 TextUsage contract.
      * cache_write_input_tokens is not an OpenAI Responses API field and
      * stays unreported, as it always was on this route.
+     *
+     * @param  array<array-key, mixed>  $response
+     * @return ReportedUsage|null
      */
-    private function usage(mixed $value): TextUsage
+    private function reportedUsage(array $response): ?array
     {
-        if (! is_array($value) || array_is_list($value)) {
-            return new TextUsage;
+        if (! array_key_exists('usage', $response)) {
+            return null;
         }
 
-        return new TextUsage(
-            inputTokens: $this->nonNegativeInt(data_get($value, 'input_tokens')) ?? 0,
-            outputTokens: $this->nonNegativeInt(data_get($value, 'output_tokens')) ?? 0,
-            cacheReadInputTokens: $this->nonNegativeInt(data_get($value, 'input_tokens_details.cached_tokens')),
-            reasoningTokens: $this->nonNegativeInt(data_get($value, 'output_tokens_details.reasoning_tokens')),
+        $value = $response['usage'];
+        if (! is_array($value) || array_is_list($value)) {
+            throw $this->invalidUsage();
+        }
+
+        $inputDetails = $this->optionalRecord($value, 'input_tokens_details');
+        $outputDetails = $this->optionalRecord($value, 'output_tokens_details');
+        $inputTokens = $this->optionalNonNegativeInt($value, 'input_tokens');
+        $outputTokens = $this->optionalNonNegativeInt($value, 'output_tokens');
+        $totalTokens = $this->optionalNonNegativeInt($value, 'total_tokens');
+
+        if ($totalTokens !== null && $inputTokens !== null && $outputTokens !== null && $totalTokens !== $inputTokens + $outputTokens) {
+            throw $this->invalidUsage();
+        }
+
+        return [
+            'input' => $inputTokens,
+            'output' => $outputTokens,
+            'cached' => $this->optionalNonNegativeInt($inputDetails, 'cached_tokens'),
+            'reasoning' => $this->optionalNonNegativeInt($outputDetails, 'reasoning_tokens'),
+        ];
+    }
+
+    /**
+     * Derive the interchange's exclusive prompt partition. When the cached
+     * partition exceeds the inclusive input total, the provider's report is
+     * internally inconsistent, so the input side is unknown rather than a
+     * fabricated split, matching the shared Laravel AI mapper.
+     *
+     * @param  ReportedUsage|null  $usage
+     */
+    private function researchUsage(?array $usage): ?ResearchUsage
+    {
+        if ($usage === null) {
+            return null;
+        }
+
+        $input = $usage['input'];
+        $cached = $usage['cached'];
+        $consistent = $input === null || $input - ($cached ?? 0) >= 0;
+
+        return new ResearchUsage(
+            promptTokens: $input !== null && $consistent ? $input - ($cached ?? 0) : null,
+            completionTokens: $usage['output'],
+            cacheReadInputTokens: $consistent ? $cached : null,
+            reasoningTokens: $usage['reasoning'],
+        );
+    }
+
+    /**
+     * @param  array<array-key, mixed>  $value
+     * @return array<array-key, mixed>
+     */
+    private function optionalRecord(array $value, string $key): array
+    {
+        if (! array_key_exists($key, $value)) {
+            return [];
+        }
+
+        $record = $value[$key];
+        if (! is_array($record) || array_is_list($record)) {
+            throw $this->invalidUsage();
+        }
+
+        return $record;
+    }
+
+    /** @param array<array-key, mixed> $value */
+    private function optionalNonNegativeInt(array $value, string $key): ?int
+    {
+        if (! array_key_exists($key, $value)) {
+            return null;
+        }
+
+        $number = $value[$key];
+        if (! is_int($number) || $number < 0 || $number > self::MAX_SAFE_INTEGER) {
+            throw $this->invalidUsage();
+        }
+
+        return $number;
+    }
+
+    private function invalidUsage(): DriverException
+    {
+        return new DriverException(
+            'openai.invalid_response',
+            'OpenAI returned invalid usage data.',
         );
     }
 
@@ -175,7 +300,7 @@ final readonly class OpenAiResearchResultMapper
             return CarbonImmutable::now();
         }
 
-        if (is_int($timestamp) && $timestamp >= 0) {
+        if (is_int($timestamp) && $timestamp >= 0 && $timestamp <= self::MAX_UNIX_TIMESTAMP) {
             return CarbonImmutable::createFromTimestampUTC($timestamp);
         }
 

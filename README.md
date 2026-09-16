@@ -46,14 +46,28 @@ See [collection and durable recovery](docs/collection-and-recovery.md) for
 redaction, exact sensitive capture, retry diagnostics, supported recoverable
 Profiles, provider credential paths and controls, and spending-limit semantics.
 
+Terminal values serialize to the shared snake_case JSON contract:
+
+```php
+return response()->json($response);
+// For application-owned persistence, use $response->toArray().
+```
+
+`ResearchResponse`, `ResearchResult`, and their nested terminal values implement
+`JsonSerializable`. Empty usage remains `{}`, not an empty JSON list. Provider
+content and citation URLs remain untrusted evidence; escape them for the output
+context rather than treating them as application instructions or trusted HTML.
+
 Use `queue()` for the same research path in one encrypted Laravel job:
 
 ```php
 $research = Librarium::query('Compare current agent memory architectures.')
     ->group('deep')
     ->queue()
-    ->then(fn ($response) => /* store or present the terminal response */)
-    ->catch(fn ($exception) => /* report the infrastructure failure */);
+    ->then(fn ($response) => logger()->info('Research completed.', [
+        'request_id' => $response->requestId,
+    ]))
+    ->catch(fn ($exception) => report($exception));
 ```
 
 ## Artisan commands
@@ -154,8 +168,11 @@ by default).
 SearchAPI remains configured-only. To price its built-in
 `searchapi:search` identity, applications must define the
 `successful_search_request` rate in `config/ai-pricing.php`; otherwise its quote
-is unavailable. Provider-reported actual totals continue to take precedence in
-the pricing resolver after execution.
+is unavailable. This integration resolves previews; it does not adapt terminal
+`ResearchResult` values into `AiPricing::cost()`. Read provider-reported actual
+cost from `$result->usage?->actualCost` and its currency after execution. Absence
+means unknown, not zero. Do not feed the result's nested usage or effective model
+directly into a generic pricing resolver and assume it uses the Profile's pricing SKU.
 
 SerpBase is also configured-only because public headline minimums do not
 describe an account's actual credit price. Configure a `credits` rate for
@@ -219,6 +236,24 @@ The Profiles use Laravel AI's native `WebSearch`. Applications may disable it
 for an optional-search Profile by setting its `options.web_search` value to
 `false`; the terminal result then reports an ungrounded `model_answer` without
 invented retrieval facts.
+
+Provider identity is fail-closed. Every built-in Profile expects the Driver or
+Laravel AI SDK to report the Profile's exact `provider`; the runtime rejects a
+mismatch instead of replacing the reported identity with the configured one.
+A custom Profile that deliberately routes across providers may opt in with
+the top-level `allow_provider_routing` setting:
+
+```php
+'provider' => 'routing-gateway',
+'allow_provider_routing' => true,
+'options' => [],
+```
+
+The setting defaults to `false` and is runtime policy, so it is not forwarded in
+Driver options. Only an explicit `true` preserves a different effective provider.
+The result still records the original requested Profile and the actually executed
+Profile, and preserves a provider-reported model (falling back to the configured
+model only when none is reported). Provider aliases are not inferred.
 
 The package also ships focused Laravel HTTP Drivers for provider capabilities
 that Laravel AI does not expose through its prompt API:
@@ -450,6 +485,12 @@ Provider-native polling and webhook verification remain inside Drivers. Public
 durable handles are available only through explicit `submit()` and `retrieve()`
 for the supported Profiles listed in
 [collection and durable recovery](docs/collection-and-recovery.md).
+
+Known terminal requests are rejected before another Driver call or queue dispatch.
+This is a best-effort cache guard, not an exactly-once execution guarantee:
+concurrent duplicate delivery, cache loss/expiry, or resubmitting after worker
+death can still repeat paid work. Applications must own durable deduplication and
+recovery policy; do not automatically resubmit an uncertain paid operation.
 
 ## Boundaries
 

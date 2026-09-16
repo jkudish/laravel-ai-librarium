@@ -160,7 +160,7 @@ final class ProfileCatalog
     private function profile(string $id, array $value): Profile
     {
         $this->validator->make(['profile' => $value], [
-            'profile' => ['array:driver,provider,model,result_kind,grounding,observation,corpora,retrieval_methods,prompt,enabled,options,credential,pricing'],
+            'profile' => ['array:driver,provider,model,result_kind,grounding,observation,corpora,retrieval_methods,prompt,enabled,options,allow_provider_routing,credential,pricing'],
             'profile.driver' => ['required', 'string', 'min:1'],
             'profile.provider' => ['required', 'string', 'min:1'],
             'profile.model' => ['nullable', 'string', 'min:1'],
@@ -174,6 +174,7 @@ final class ProfileCatalog
             'profile.prompt' => ['required', 'string', 'regex:/\{\{ query \}\}/'],
             'profile.enabled' => ['sometimes', 'boolean'],
             'profile.options' => ['sometimes', 'array'],
+            'profile.allow_provider_routing' => ['sometimes', 'boolean'],
             'profile.credential' => ['nullable', 'string', 'min:1'],
             'profile.pricing' => ['nullable', 'array:provider,model,usage,conservative'],
             'profile.pricing.provider' => ['required_with:profile.pricing', 'string', 'min:1'],
@@ -193,11 +194,16 @@ final class ProfileCatalog
         $prompt = $this->string($value, 'prompt');
         $enabled = data_get($value, 'enabled', true);
         $options = $this->associativeArray(data_get($value, 'options', []), 'options');
+        $allowProviderRouting = data_get($value, 'allow_provider_routing', false);
         $credential = $this->nullableString($value, 'credential');
         $pricing = data_get($value, 'pricing');
 
         if (! is_bool($enabled)) {
             throw ValidationException::withMessages(['enabled' => 'The enabled value must be true or false.']);
+        }
+
+        if (! is_bool($allowProviderRouting)) {
+            throw ValidationException::withMessages(['allow_provider_routing' => 'The allow provider routing value must be true or false.']);
         }
 
         $pricingIdentity = null;
@@ -267,6 +273,7 @@ final class ProfileCatalog
             prompt: $prompt,
             enabled: $enabled,
             options: $options,
+            allowProviderRouting: $allowProviderRouting,
             credential: $credential,
             pricingIdentity: $pricingIdentity,
             pricingUsage: $pricingUsage,

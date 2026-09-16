@@ -1,0 +1,2 @@
+providers:
+  - Jkudish\LaravelAiLibrarium\LaravelAiLibrariumServiceProvider

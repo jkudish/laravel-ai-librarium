@@ -18,6 +18,7 @@ use Jkudish\LaravelAiLibrarium\Responses\ResearchResponse;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 use Jkudish\LaravelAiLibrarium\Responses\ResultProvenance;
 use Jkudish\LaravelAiLibrarium\Responses\Source;
+use Jkudish\LaravelAiLibrarium\Responses\Usage;
 
 /** @return array<string, mixed> */
 function responseFixture(string $path): array
@@ -36,6 +37,7 @@ it('round trips every accepted terminal response fixture without a mapper', func
     $response = ResearchResponse::fromArray($value);
 
     expect(json_encode($response->toArray(), JSON_THROW_ON_ERROR))->toBe(json_encode($value, JSON_THROW_ON_ERROR))
+        ->and(json_encode($response, JSON_THROW_ON_ERROR))->toBe(json_encode($value, JSON_THROW_ON_ERROR))
         ->and($response->results)->each->toBeInstanceOf(ResearchResult::class);
 })->with([
     'markdown result' => ['markdown-success.json'],
@@ -116,6 +118,7 @@ it('does not introduce an interchange mapper or terminal execution model', funct
         'CitationDerivation',
         'ContentFormat',
         'Corpus',
+        'OpaqueIdentifier',
         'Personalization',
         'ResearchError',
         'ResearchResponse',
@@ -351,17 +354,70 @@ it('accepts benign token accounting names', function (string $key): void {
     'numeric raw description' => ['raw2'],
 ]);
 
-it('rejects Unicode edge whitespace in shared opaque identifiers', function (string $fixtureName, string $path): void {
+it('rejects ECMAScript Unicode edge whitespace in shared opaque identifiers', function (string $fixtureName, string $path, string $whitespace): void {
     $fixture = responseFixture("valid/{$fixtureName}");
-    data_set($fixture, $path, "\u{00A0}".data_get($fixture, $path));
+    data_set($fixture, $path, $whitespace.data_get($fixture, $path).$whitespace);
 
     expect(fn (): ResearchResponse => ResearchResponse::fromArray($fixture))
         ->toThrow(ValidationException::class);
+})->with([
+    'request ID with no-break space' => ['markdown-success.json', 'request_id', "\u{00A0}"],
+    'result ID with no-break space' => ['markdown-success.json', 'results.0.id', "\u{00A0}"],
+    'citation ID with no-break space' => ['markdown-success.json', 'results.0.citations.0.id', "\u{00A0}"],
+    'provider reference with no-break space' => ['provider-reference-source.json', 'results.0.citations.0.source.provider_reference', "\u{00A0}"],
+    'request ID with byte order mark' => ['markdown-success.json', 'request_id', "\u{FEFF}"],
+    'result ID with byte order mark' => ['markdown-success.json', 'results.0.id', "\u{FEFF}"],
+    'citation ID with byte order mark' => ['markdown-success.json', 'results.0.citations.0.id', "\u{FEFF}"],
+    'provider reference with byte order mark' => ['provider-reference-source.json', 'results.0.citations.0.source.provider_reference', "\u{FEFF}"],
+]);
+
+it('accepts U+0085 at shared opaque identifier edges like ECMAScript', function (string $fixtureName, string $path): void {
+    $fixture = responseFixture("valid/{$fixtureName}");
+    data_set($fixture, $path, "\u{0085}".data_get($fixture, $path)."\u{0085}");
+
+    expect(ResearchResponse::fromArray($fixture)->toArray())->toBe($fixture);
 })->with([
     'request ID' => ['markdown-success.json', 'request_id'],
     'result ID' => ['markdown-success.json', 'results.0.id'],
     'citation ID' => ['markdown-success.json', 'results.0.citations.0.id'],
     'provider reference' => ['provider-reference-source.json', 'results.0.citations.0.source.provider_reference'],
+]);
+
+it('serializes empty usage values as JSON objects and round trips their wire shape', function (): void {
+    $objectFixture = responseFixture('valid/partial-top-level-usage.json');
+    $objectFixture['usage'] = new stdClass;
+    $objectFixture['results'][0]['usage'] = new stdClass;
+
+    $associativeFixture = $objectFixture;
+    $associativeFixture['usage'] = [];
+    $associativeFixture['results'][0]['usage'] = [];
+
+    $response = ResearchResponse::fromArray($associativeFixture);
+    $serialized = $response->toArray();
+    $result = $response->results->sole();
+
+    expect($serialized['usage'])->toBeInstanceOf(stdClass::class)
+        ->and($serialized['results'][0]['usage'])->toBeInstanceOf(stdClass::class)
+        ->and(json_encode($serialized, JSON_THROW_ON_ERROR))->toBe(json_encode($objectFixture, JSON_THROW_ON_ERROR))
+        ->and(json_encode($result->toArray(), JSON_THROW_ON_ERROR))->toBe(json_encode($objectFixture['results'][0], JSON_THROW_ON_ERROR))
+        ->and(json_encode($response, JSON_THROW_ON_ERROR))->toBe(json_encode($objectFixture, JSON_THROW_ON_ERROR))
+        ->and(json_encode($result, JSON_THROW_ON_ERROR))->toBe(json_encode($objectFixture['results'][0], JSON_THROW_ON_ERROR))
+        ->and(json_encode(new Usage, JSON_THROW_ON_ERROR))->toBe('{}')
+        ->and(json_encode(ResearchResponse::fromArray($serialized)->toArray(), JSON_THROW_ON_ERROR))
+        ->toBe(json_encode($objectFixture, JSON_THROW_ON_ERROR));
+});
+
+it('rejects non-object usage shapes at both terminal levels', function (string $path, mixed $usage): void {
+    $fixture = responseFixture('valid/partial-top-level-usage.json');
+    data_set($fixture, $path, $usage);
+
+    expect(fn (): ResearchResponse => ResearchResponse::fromArray($fixture))
+        ->toThrow(ValidationException::class);
+})->with([
+    'top-level nonempty list' => ['usage', [10]],
+    'result nonempty list' => ['results.0.usage', [10]],
+    'top-level scalar' => ['usage', 'invalid'],
+    'result scalar' => ['results.0.usage', 'invalid'],
 ]);
 
 it('rejects explicit null for every optional property while allowing omission', function (string $fixtureName, string $path): void {

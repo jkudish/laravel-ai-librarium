@@ -63,6 +63,7 @@ final readonly class ResearchRuntime implements CollectsResearch, ExecutesResear
         ?CaptureSession $capture,
         CarbonImmutable $startedAt,
     ): ResearchResponse {
+        $this->ensureNotTerminal($plan->requestId);
         $activeProfileId = null;
 
         try {
@@ -121,12 +122,29 @@ final readonly class ResearchRuntime implements CollectsResearch, ExecutesResear
 
     public function queue(ResearchPlan $plan): QueuedResearchResponse
     {
+        $this->ensureNotTerminal($plan->requestId);
         $this->storeStatus(
             $plan->requestId,
             new ResearchStatus(ResearchState::Queued, 'Research is queued.', CarbonImmutable::now()),
         );
 
         return new QueuedResearchResponse($plan->requestId, RunResearch::dispatch($plan));
+    }
+
+    private function ensureNotTerminal(string $requestId): void
+    {
+        try {
+            $status = $this->statuses->get($requestId);
+        } catch (Throwable $exception) {
+            // Status is best effort, not a durable execution claim.
+            report($exception);
+
+            return;
+        }
+
+        if (in_array($status?->state, [ResearchState::Completed, ResearchState::Failed], true)) {
+            throw new LogicException('The research request has already reached a terminal state.');
+        }
     }
 
     /**
@@ -290,6 +308,11 @@ final readonly class ResearchRuntime implements CollectsResearch, ExecutesResear
         Profile $profile,
         ?string $fallbackReason,
     ): ResearchResult {
+        if ($result->provider !== $profile->provider
+            && ! $profile->allowProviderRouting) {
+            throw new LogicException("Research Driver [{$profile->driver}] returned an unexpected provider identity for Profile [{$profile->id}].");
+        }
+
         if (! $this->compatibility->acceptsResult($profile, $result)) {
             throw new LogicException("Research Driver [{$profile->driver}] returned a result outside Profile [{$profile->id}] semantics.");
         }
@@ -299,7 +322,7 @@ final readonly class ResearchRuntime implements CollectsResearch, ExecutesResear
             contentFormat: $result->contentFormat,
             content: $result->content,
             requestedProfile: $requestedProfile->id,
-            provider: $profile->provider,
+            provider: $result->provider,
             profile: $profile->id,
             provenance: $result->provenance,
             citations: $result->citations,

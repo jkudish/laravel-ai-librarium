@@ -257,6 +257,16 @@ it('lets the Driver validate bounded options before execution', function (array 
     'invalid known option' => [['temperature' => 9]],
 ]);
 
+it('requires the provider routing policy to be boolean', function (): void {
+    config()->set('librarium.profiles.gemini-grounded.allow_provider_routing', 'yes');
+
+    expect(fn () => Librarium::query('Research this.')->using('gemini-grounded')->preview())
+        ->toThrow(ValidationException::class, 'must be true or false');
+
+    expect(FakeProfileDriver::$constructorCalls)->toBe(0)
+        ->and(app(ExecutesResearch::class)->plans)->toBe([]);
+});
+
 it('allows legitimate token controls in Profile options', function (string $key): void {
     config()->set('librarium.profiles.gemini-grounded.options', [$key => 4000]);
 

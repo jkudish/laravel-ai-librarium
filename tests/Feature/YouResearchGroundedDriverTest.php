@@ -110,7 +110,7 @@ it('rejects invalid local input and incompatible grounded Research semantics bef
     'retrieval method' => [['retrievalMethods' => [RetrievalMethod::ResearchAgent]], 'you_research.invalid_profile'],
 ]);
 
-it('uses and enforces the one request-wide deadline', function (): void {
+it('uses the request-wide deadline without allowing API key redirects', function (): void {
     $requestOptions = null;
     Http::globalMiddleware(function (callable $handler) use (&$requestOptions): Closure {
         return function ($request, array $options) use ($handler, &$requestOptions) {
@@ -126,7 +126,8 @@ it('uses and enforces the one request-wide deadline', function (): void {
     ));
 
     expect($requestOptions['timeout'] ?? null)->toBe(2.345)
-        ->and($requestOptions['connect_timeout'] ?? null)->toBe(2.345);
+        ->and($requestOptions['connect_timeout'] ?? null)->toBe(2.345)
+        ->and($requestOptions['allow_redirects'] ?? null)->toBeFalse();
 
     $deadline = CarbonImmutable::now()->addSecond();
     Http::fake(function () use ($deadline): array {

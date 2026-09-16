@@ -31,6 +31,12 @@ At the pinned TypeScript commit, `gemini-grounded/grounded` defaults to
 `gemini-3.6-flash`. The PHP defaults below are newer reviewed targets. All
 three xAI Profiles already use `grok-4.6` in the pinned TypeScript source.
 
+This is historical inventory, not the current JavaScript shipping count. The
+unreleased JS v2 catalog now contains 39 profiles: the old `tavily/research` and
+`parallel/chat` entries were removed and `parallel/turbo` was added. PHP has 23
+baseline bindings plus six disabled DataForSEO profiles. None of those catalog
+counts establishes live-provider acceptance or a published package channel.
+
 ## Summary
 
 | PHP disposition | Count | Meaning |
@@ -154,6 +160,8 @@ Terminal mapping codes:
 
 - **SDK answer:** final SDK text; citations from every SDK step's `Meta`;
   deduplicated sources; declared Profile plus effective SDK provider/model;
+  provider must match the declared Profile provider by default, while an explicit
+  top-level `'allow_provider_routing' => true` preserves a routed provider;
   accumulated SDK `Usage`; allowlisted request IDs only in `provider_meta`.
 - **HTTP search:** normalized search text; result URLs become sources and
   citations; exact Profile provenance and reported usage; no raw response body.

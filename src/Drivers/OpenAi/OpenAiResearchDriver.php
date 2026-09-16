@@ -345,7 +345,7 @@ final readonly class OpenAiResearchDriver implements Driver
             $response->status() === 403 => new DriverException('openai.authorization', 'OpenAI denied this request.'),
             $response->status() === 404 && $retrieval => new DriverException('openai.response_missing', 'The OpenAI research response is no longer available.', false),
             $response->status() === 429 => new DriverException('openai.rate_limited', 'OpenAI rate limited this request.'),
-            $response->serverError() => new DriverException('openai.unavailable', 'OpenAI is temporarily unavailable.'),
+            $response->serverError() => new DriverException('openai.unavailable', 'OpenAI is temporarily unavailable.', $retrieval),
             default => new DriverException('openai.invalid_request', 'OpenAI rejected this research request.', false),
         };
     }
