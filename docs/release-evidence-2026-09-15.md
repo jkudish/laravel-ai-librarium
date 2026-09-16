@@ -105,7 +105,8 @@ satisfy the gate.
 
 Release-readiness gate `stable-pricing-release`: complete.
 
-## Gates intentionally left open
+## Gate intentionally left open
 
-This report does not complete PlanMode/Agentsy dogfood (#2594) or the accepted
-TypeScript v2 release tag. Those remain independent release gates.
+This report does not complete the accepted TypeScript v2 release tag. That
+remains an independent release gate. PlanMode/Agentsy dogfood (#2594) remains a
+nonblocking follow-up and is not represented as completed evidence here.

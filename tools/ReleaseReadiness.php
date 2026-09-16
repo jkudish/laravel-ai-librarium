@@ -17,7 +17,6 @@ final readonly class ReleaseReadiness
         ['id' => 'php-8.4-lowest-compatibility', 'title' => 'PHP 8.4 lowest-dependency compatibility'],
         ['id' => 'php-8.5-highest-compatibility', 'title' => 'PHP 8.5 highest-dependency compatibility'],
         ['id' => '2593', 'title' => 'SearchAPI and Firecrawl fidelity bake-off'],
-        ['id' => '2594', 'title' => 'PlanMode and Agentsy dogfood'],
         ['id' => '2986', 'title' => 'SearchAPI live canaries'],
         ['id' => '3471', 'title' => 'DataForSEO acceptance'],
         ['id' => 'remaining-live-canaries', 'title' => 'Remaining release-required live canaries'],
