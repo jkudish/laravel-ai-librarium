@@ -27,8 +27,12 @@ afterEach(function (): void {
     CarbonImmutable::setTestNow();
 });
 
-it('sends the exact Exa search request with header authentication', function (): void {
-    Http::fake(['https://api.exa.ai/search' => Http::response(['results' => []])]);
+it('sends the exact Exa search request without allowing API key redirects', function (): void {
+    Http::fake(function (Request $request, array $options) {
+        expect($options['allow_redirects'] ?? null)->toBeFalse();
+
+        return Http::response(['results' => []]);
+    });
 
     exaSearchDriver()->run(exaSearchRequest());
 

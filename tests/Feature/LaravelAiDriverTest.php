@@ -79,6 +79,23 @@ it('runs each configured Laravel AI Profile through one exact SDK provider and m
     'Gemini chat' => ['gemini-chat', 'gemini', 'gemini-3.7-flash'],
 ]);
 
+it('rejects an unexpected SDK provider identity for an exact built-in Profile', function (): void {
+    ResearchAgent::fake([
+        new TextResponse(
+            'A misdirected grounded answer.',
+            new AiUsage(promptTokens: 10, completionTokens: 6),
+            new Meta('anthropic', 'claude-sonnet-5', collect([
+                new UrlCitation('https://example.com/source', 'Example source'),
+            ])),
+        ),
+    ])->preventStrayPrompts();
+
+    expect(fn () => Librarium::query('Research this question.')
+        ->using('gemini-grounded')
+        ->run())
+        ->toThrow(LogicException::class, 'unexpected provider identity for Profile [gemini-grounded]');
+});
+
 it('returns an honest model answer when optional web search is disabled', function (): void {
     config()->set('librarium.profiles.gemini-chat.options.web_search', false);
     ResearchAgent::fake([

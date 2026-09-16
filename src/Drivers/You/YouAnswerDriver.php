@@ -213,6 +213,7 @@ final readonly class YouAnswerDriver implements Driver
 
         try {
             return Http::withHeaders(['X-API-Key' => $credential])
+                ->withoutRedirecting()
                 ->acceptJson()
                 ->connectTimeout(min(self::CONNECT_TIMEOUT_SECONDS, $remaining))
                 ->timeout($remaining)

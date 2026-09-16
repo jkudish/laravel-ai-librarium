@@ -229,7 +229,7 @@ it('maps allowlisted provider terminal failure codes without exposing raw errors
     'invalid request' => ['validation_error', 'perplexity.invalid_request'],
 ]);
 
-it('maps submit HTTP failures safely and sends only once', function (int $status, string $code): void {
+it('classifies submit HTTP failures without permitting fallback after ambiguous background server errors', function (string $profile, int $status, string $code, bool $fallbackAllowed): void {
     Http::fake([
         'https://api.perplexity.ai/v1/agent' => Http::response([
             'error' => ['message' => 'provider-secret', 'token' => 'raw-secret'],
@@ -237,23 +237,25 @@ it('maps submit HTTP failures safely and sends only once', function (int $status
     ]);
 
     try {
-        perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-sonar-pro'));
+        perplexityAgentDriver()->run(perplexityAgentRequest($profile));
         $this->fail('A failed submission must be mapped.');
     } catch (DriverException $exception) {
         expect($exception->errorCode)->toBe($code)
+            ->and($exception->fallbackAllowed)->toBe($fallbackAllowed)
             ->and($exception->getMessage())->not->toContain('provider-secret')
             ->not->toContain('raw-secret');
     }
 
     Http::assertSentCount(1);
 })->with([
-    'authentication' => [401, 'perplexity.authentication'],
-    'billing' => [402, 'perplexity.billing'],
-    'plan' => [403, 'perplexity.plan_required'],
-    'timeout' => [408, 'perplexity.timeout'],
-    'rate limit' => [429, 'perplexity.rate_limited'],
-    'unavailable' => [503, 'perplexity.unavailable'],
-    'invalid request' => [422, 'perplexity.invalid_request'],
+    'background authentication' => ['perplexity-sonar-deep', 401, 'perplexity.authentication', true],
+    'background billing' => ['perplexity-sonar-deep', 402, 'perplexity.billing', true],
+    'background plan' => ['perplexity-sonar-deep', 403, 'perplexity.plan_required', true],
+    'ambiguous background timeout' => ['perplexity-sonar-deep', 408, 'perplexity.timeout', false],
+    'background rate limit' => ['perplexity-sonar-deep', 429, 'perplexity.rate_limited', true],
+    'ambiguous background unavailable submission' => ['perplexity-sonar-deep', 503, 'perplexity.unavailable', false],
+    'inline unavailable submission' => ['perplexity-sonar-pro', 503, 'perplexity.unavailable', true],
+    'background invalid request' => ['perplexity-sonar-deep', 422, 'perplexity.invalid_request', false],
 ]);
 
 it('maps a missing canonical background response without exposing its private ID', function (): void {
@@ -351,7 +353,18 @@ it('rejects malformed or unknown completed output', function (string $path, mixe
     'missing effective model' => ['model', null],
     'invalid effective model' => ['model', 'sonar'],
     'invalid timestamp' => ['completed_at', 'today'],
+    'timestamp above supported maximum' => ['completed_at', 253_402_300_800],
 ]);
+
+it('accepts the maximum supported completion timestamp', function (): void {
+    $response = perplexityCompletedResponse();
+    $response['completed_at'] = 253_402_300_799;
+    Http::fake(['https://api.perplexity.ai/v1/agent' => Http::response($response)]);
+
+    $result = perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-sonar-pro'));
+
+    expect($result->completedAt->getTimestamp())->toBe(253_402_300_799);
+});
 
 it('strictly validates referenced search evidence and keeps only cited results', function (string $path, mixed $value): void {
     $response = perplexityCompletedResponse();

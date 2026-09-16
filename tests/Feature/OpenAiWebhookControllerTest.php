@@ -19,6 +19,21 @@ it('registers the OpenAI webhook route', function (): void {
         ->and($route?->methods())->toContain('POST');
 });
 
+it('resolves the services secret after published configuration has loaded', function (): void {
+    config()->set('librarium.webhooks.openai.secret', null);
+    config()->set('services.openai.webhook_secret', 'whsec_'.base64_encode('test-webhook-secret'));
+    $store = app(WebhookSignalStore::class);
+    $store->bind('openai', 'request-services', 'openai-background', 'resp_services');
+
+    $response = app(OpenAiWebhookController::class)(signedOpenAiWebhook([
+        'type' => 'response.completed',
+        'data' => ['id' => 'resp_services'],
+    ], 'delivery-services'));
+
+    expect($response->getStatusCode())->toBe(204)
+        ->and($store->get('request-services', 'openai-background')?->state)->toBe(ResearchState::Completed);
+});
+
 it('verifies and records completed and failed webhook hints', function (string $type, ResearchState $state): void {
     $store = app(WebhookSignalStore::class);
     $responseId = 'resp_'.str_replace('.', '_', $type);

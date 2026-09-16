@@ -15,9 +15,10 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Personalization;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
+use JsonSerializable;
 use stdClass;
 
-final class ResultProvenance
+final class ResultProvenance implements JsonSerializable
 {
     private ?string $observedAtWire = null;
 
@@ -88,6 +89,12 @@ final class ResultProvenance
         self::validate($value);
 
         return $value;
+    }
+
+    /** @return array<string, mixed> */
+    public function jsonSerialize(): array
+    {
+        return $this->toArray();
     }
 
     /** @param array<array-key, mixed> $value */

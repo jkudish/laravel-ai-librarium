@@ -20,6 +20,8 @@ use Jkudish\LaravelAiLibrarium\Responses\Usage;
 /** @internal */
 final readonly class PerplexityAgentResultMapper
 {
+    private const int MAX_UNIX_TIMESTAMP = 253_402_300_799;
+
     /** @var list<string> */
     private const array IGNORED_OUTPUT_TYPES = [
         'fetch_url_results',
@@ -350,7 +352,7 @@ final readonly class PerplexityAgentResultMapper
 
     private function completedAt(mixed $value): CarbonImmutable
     {
-        if (! is_int($value) || $value < 0) {
+        if (! is_int($value) || $value < 0 || $value > self::MAX_UNIX_TIMESTAMP) {
             throw $this->invalidResponse();
         }
 

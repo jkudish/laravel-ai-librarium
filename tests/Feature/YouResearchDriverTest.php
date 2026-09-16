@@ -77,7 +77,7 @@ it('uses only the durable standard-effort Research endpoint and maps a distinct 
         ->not->toContain('testing-you-key');
 });
 
-it('uses the remaining request-wide deadline for every Research lifecycle call', function (): void {
+it('uses the remaining deadline and disables API key redirects for every Research lifecycle call', function (): void {
     $options = [];
     Http::globalMiddleware(function (callable $handler) use (&$options): Closure {
         return function ($request, array $requestOptions) use ($handler, &$options) {
@@ -96,7 +96,8 @@ it('uses the remaining request-wide deadline for every Research lifecycle call',
     expect($options)->toHaveCount(3);
     foreach ($options as $requestOptions) {
         expect($requestOptions['timeout'] ?? null)->toBe(2.345)
-            ->and($requestOptions['connect_timeout'] ?? null)->toBe(2.345);
+            ->and($requestOptions['connect_timeout'] ?? null)->toBe(2.345)
+            ->and($requestOptions['allow_redirects'] ?? null)->toBeFalse();
     }
 });
 

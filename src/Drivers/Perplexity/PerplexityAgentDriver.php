@@ -179,7 +179,7 @@ final readonly class PerplexityAgentDriver implements Driver
         $this->remainingSeconds($request, 'Perplexity did not accept the request before the research deadline.');
 
         if ($response->failed()) {
-            throw $this->httpFailure($response, false);
+            throw $this->httpFailure($response, false, ! $background);
         }
 
         return $this->json($response);
@@ -321,16 +321,16 @@ final readonly class PerplexityAgentDriver implements Driver
         };
     }
 
-    private function httpFailure(Response $response, bool $retrieval): DriverException
+    private function httpFailure(Response $response, bool $retrieval, bool $serverErrorFallbackAllowed = true): DriverException
     {
         return match (true) {
             $response->status() === 401 => new DriverException('perplexity.authentication', 'Perplexity rejected the configured credential.'),
             $response->status() === 402 => new DriverException('perplexity.billing', 'Perplexity could not bill this request.'),
             $response->status() === 403 => new DriverException('perplexity.plan_required', 'Perplexity denied this request for the configured plan.'),
             $response->status() === 404 && $retrieval => new DriverException('perplexity.response_missing', 'The Perplexity Agent response is no longer available.', false),
-            $response->status() === 408 => new DriverException('perplexity.timeout', 'Perplexity timed out while processing this request.'),
+            $response->status() === 408 => new DriverException('perplexity.timeout', 'Perplexity timed out while processing this request.', $serverErrorFallbackAllowed),
             $response->status() === 429 => new DriverException('perplexity.rate_limited', 'Perplexity rate limited this request.'),
-            $response->serverError() => new DriverException('perplexity.unavailable', 'Perplexity is temporarily unavailable.'),
+            $response->serverError() => new DriverException('perplexity.unavailable', 'Perplexity is temporarily unavailable.', $serverErrorFallbackAllowed),
             default => new DriverException('perplexity.invalid_request', 'Perplexity rejected this Agent request.', false),
         };
     }

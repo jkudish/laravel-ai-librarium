@@ -81,6 +81,22 @@ it('keeps YOU_COM_API_KEY canonical while accepting YDC_API_KEY as a nonbreaking
         ->toBe(config('librarium.profiles.you-research-research.credential'));
 });
 
+it('keeps a top-level false routing policy out of strict HTTP Driver options', function (): void {
+    config()->set('librarium.profiles.you-answer.allow_provider_routing', false);
+    Http::fake(['https://api.you.com/v1/answer' => Http::response(youProfilesAnswerSuccess())]);
+
+    $profile = app(ProfileCatalog::class)->find('you-answer')?->profile;
+    $result = Librarium::query('What changed?')->using('you-answer')->run()->results->sole();
+
+    expect($profile)->not->toBeNull()
+        ->and($profile?->allowProviderRouting)->toBeFalse()
+        ->and($profile?->options)->toBe([])
+        ->and($profile?->toArray()['allow_provider_routing'])->toBeFalse()
+        ->and($result->provider)->toBe('you-answer');
+
+    Http::assertSentCount(1);
+});
+
 it('quotes an exact 5000 micro-USD Answer ceiling and refuses a lower hard budget before HTTP', function (): void {
     Http::fake();
 
