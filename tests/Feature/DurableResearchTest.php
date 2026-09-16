@@ -12,17 +12,24 @@ use Jkudish\LaravelAiLibrarium\Collection\Enums\CaptureCoverage;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\FailureCategory;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\SubmissionState;
+use Jkudish\LaravelAiLibrarium\Contracts\DurableDriver;
 use Jkudish\LaravelAiLibrarium\Contracts\Librarium as LibrariumContract;
 use Jkudish\LaravelAiLibrarium\Contracts\RecoversResearch;
 use Jkudish\LaravelAiLibrarium\Drivers\DataForSeo\DataForSeoCredential;
 use Jkudish\LaravelAiLibrarium\Exceptions\RecoveryException;
+use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\LibrariumManager;
 use Jkudish\LaravelAiLibrarium\ProfileCatalog;
+use Jkudish\LaravelAiLibrarium\Recovery\DurableSubmission;
+use Jkudish\LaravelAiLibrarium\Recovery\RecoveryRequest;
 use Jkudish\LaravelAiLibrarium\Recovery\ResearchHandleSigner;
 use Jkudish\LaravelAiLibrarium\ResearchHandle;
 use Jkudish\LaravelAiLibrarium\ResearchStatusStore;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\ContentFormat;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResponseStatus;
+use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
+use Jkudish\LaravelAiLibrarium\Responses\ResultProvenance;
 use PHPUnit\Framework\Assert as PHPUnit;
 use RuntimeException;
 
@@ -395,6 +402,27 @@ it('rejects altered handle identity reference and signature before HTTP', functi
     'signature' => ['fingerprint', str_repeat('a', 64)],
 ]);
 
+it('rejects an unexpected durable result provider when routing is not allowed', function (): void {
+    $handle = durableProviderIdentityHandle(allowProviderRouting: false);
+
+    expect(fn () => Librarium::retrieve($handle, false))
+        ->toThrow(LogicException::class, 'returned an unexpected provider identity');
+});
+
+it('preserves an unexpected durable result provider when routing is explicitly allowed', function (): void {
+    $handle = durableProviderIdentityHandle(allowProviderRouting: true);
+    $profile = app(ProfileCatalog::class)->find($handle->profile)?->profile
+        ?? throw new RuntimeException('The durable provider identity test Profile is not configured.');
+
+    $result = Librarium::retrieve($handle, false)->response?->results->sole();
+
+    expect($result?->provider)->toBe('routed-provider')
+        ->and($result?->profile)->toBe('durable-provider-identity')
+        ->and($result?->provenance->resultKind)->toBe($profile->resultKind)
+        ->and($result?->provenance->retrievalMethods->all())->toBe($profile->retrievalMethods->all())
+        ->and($result?->provenance->corpora->all())->toBe($profile->corpora->all());
+});
+
 it('rejects changed profile binding or credential after process reconstruction before HTTP', function (string $path, mixed $replacement): void {
     $handle = durableSubmittedHandle();
 
@@ -568,6 +596,61 @@ it('fake submit and retrieve return durable outcomes and record both calls', fun
 function durableSubmittedHandle(): ResearchHandle
 {
     return durableHandle('exa-research', durableExaReference());
+}
+
+function durableProviderIdentityHandle(bool $allowProviderRouting): ResearchHandle
+{
+    $driver = new readonly class('routed-provider') implements DurableDriver
+    {
+        public function __construct(private string $provider) {}
+
+        /** @return array<string, mixed> */
+        public static function profileOptionRules(): array
+        {
+            return [];
+        }
+
+        public function run(DriverRequest $request): ResearchResult
+        {
+            throw new LogicException('The durable provider identity test driver cannot run inline.');
+        }
+
+        public function submitDurable(DriverRequest $request): DurableSubmission
+        {
+            throw new LogicException('The durable provider identity test driver cannot submit.');
+        }
+
+        public function retrieveDurable(RecoveryRequest $request, string $reference): ?ResearchResult
+        {
+            return ResearchResult::make(
+                contentFormat: ContentFormat::Markdown,
+                content: 'Routed durable result.',
+                requestedProfile: $request->requestedProfile->id,
+                provider: $this->provider,
+                profile: $request->profile->id,
+                provenance: new ResultProvenance(
+                    resultKind: $request->profile->resultKind,
+                    retrievalMethods: $request->profile->retrievalMethods,
+                    corpora: $request->profile->corpora,
+                    observedAt: CarbonImmutable::now(),
+                ),
+                citations: collect(),
+                completedAt: CarbonImmutable::now(),
+                model: $request->profile->model,
+            );
+        }
+    };
+    $profile = config('librarium.profiles.exa-research');
+    if (! is_array($profile)) {
+        throw new RuntimeException('The Exa Research test Profile is not configured.');
+    }
+    $profile['driver'] = $driver::class;
+    $profile['provider'] = 'configured-provider';
+    $profile['allow_provider_routing'] = $allowProviderRouting;
+    config()->set('librarium.profiles.durable-provider-identity', $profile);
+    app()->instance($driver::class, $driver);
+
+    return durableHandle('durable-provider-identity', 'durable-provider-reference');
 }
 
 function durableHandle(string $profileId, string $reference): ResearchHandle

@@ -155,6 +155,12 @@ final readonly class DurableResearchRuntime implements RecoversResearch
             throw $this->failure($session, $profile, $exception, Operation::Retrieve);
         }
 
+        if ($result !== null
+            && $result->provider !== $profile->provider
+            && ! $profile->allowProviderRouting) {
+            throw new LogicException("Research Driver [{$profile->driver}] returned an unexpected provider identity for Profile [{$profile->id}].");
+        }
+
         if ($result !== null && ! $this->compatibility->acceptsResult($profile, $result)) {
             throw new LogicException("Research Driver [{$profile->driver}] returned a result outside Profile [{$profile->id}] semantics.");
         }
