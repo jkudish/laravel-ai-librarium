@@ -152,6 +152,7 @@ final readonly class ExaSearchDriver implements DefinesSpendingBound, Driver
 
         try {
             $response = Http::withHeaders(['x-api-key' => (string) $request->profile->credential])
+                ->withoutRedirecting()
                 ->acceptJson()
                 ->asJson()
                 ->connectTimeout(min(self::CONNECT_TIMEOUT_SECONDS, $remaining))

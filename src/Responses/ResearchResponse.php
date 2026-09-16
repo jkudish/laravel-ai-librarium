@@ -11,8 +11,10 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResponseStatus;
+use JsonSerializable;
+use stdClass;
 
-final class ResearchResponse
+final class ResearchResponse implements JsonSerializable
 {
     private ?string $completedAtWire = null;
 
@@ -81,7 +83,7 @@ final class ResearchResponse
             'completed_at' => $this->completedAtWire ?? self::formatTimestamp($this->completedAt),
             'results' => $this->results->map(static fn (ResearchResult $result): array => $result->toArray())->values()->all(),
             'errors' => $this->errors->map(static fn (ResearchError $error): array => $error->toArray())->values()->all(),
-            'usage' => $this->usage?->toArray(),
+            'usage' => $this->usage?->jsonSerialize(),
         ], static fn (mixed $item): bool => $item !== null);
 
         self::validate($value);
@@ -89,13 +91,24 @@ final class ResearchResponse
         return $value;
     }
 
+    /** @return array<string, mixed> */
+    public function jsonSerialize(): array
+    {
+        return $this->toArray();
+    }
+
     /** @param array<array-key, mixed> $value */
     private static function validate(array $value): void
     {
-        $validator = Validator::make($value, [
+        $validationValue = $value;
+        if (($validationValue['usage'] ?? null) instanceof stdClass) {
+            $validationValue['usage'] = get_object_vars($validationValue['usage']);
+        }
+
+        $validator = Validator::make($validationValue, [
             'generator' => ['bail', 'required', 'string', 'min:1', 'max:255', 'regex:/^(?:[a-z0-9][a-z0-9._-]*|@?[a-z0-9][a-z0-9._-]*\\/[a-z0-9][a-z0-9._-]*)$/'],
             'generator_version' => ['bail', 'required', 'string', 'max:255', 'regex:/^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-(?:0|[1-9]\\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9]\\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$/'],
-            'request_id' => ['bail', 'required', 'string', 'min:1', 'max:255', 'regex:/^(?!\\s)(?!.*\\s$)[^\\x00-\\x1f\\x7f]+$/u'],
+            'request_id' => ['bail', 'required', 'string', 'min:1', 'max:255', 'regex:'.OpaqueIdentifier::PATTERN],
             'status' => ['bail', 'required', 'string', Rule::enum(ResponseStatus::class)],
             'completed_at' => ['required', 'string', 'regex:/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$/'],
             'results' => ['present', 'array', 'list'],
@@ -172,13 +185,18 @@ final class ResearchResponse
         return $list;
     }
 
-    /** @param array<array-key, mixed> $value
+    /**
+     * @param  array<array-key, mixed>  $value
      * @return array<array-key, mixed>|null
      */
     private static function nullableArray(array $value, string $key): ?array
     {
         if (! array_key_exists($key, $value) || $value[$key] === null) {
             return null;
+        }
+
+        if ($value[$key] instanceof stdClass) {
+            return get_object_vars($value[$key]);
         }
 
         if (! is_array($value[$key])) {

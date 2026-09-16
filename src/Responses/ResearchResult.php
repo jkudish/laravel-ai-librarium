@@ -10,9 +10,10 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ContentFormat;
+use JsonSerializable;
 use stdClass;
 
-final class ResearchResult
+final class ResearchResult implements JsonSerializable
 {
     /** @var list<string> */
     private const array UNSAFE_WRAPPER_SUFFIXES = [
@@ -116,7 +117,7 @@ final class ResearchResult
             'completed_at' => $this->completedAtWire ?? self::formatTimestamp($this->completedAt),
             'model' => $this->model,
             'fallback_reason' => $this->fallbackReason,
-            'usage' => $this->usage?->toArray(),
+            'usage' => $this->usage?->jsonSerialize(),
             'provider_meta' => $this->providerMeta,
         ], static fn (mixed $item): bool => $item !== null);
 
@@ -125,11 +126,22 @@ final class ResearchResult
         return $value;
     }
 
+    /** @return array<string, mixed> */
+    public function jsonSerialize(): array
+    {
+        return $this->toArray();
+    }
+
     /** @param array<array-key, mixed> $value */
     private static function validate(array $value): void
     {
-        $validator = Validator::make($value, [
-            'id' => ['bail', 'required', 'string', 'min:1', 'max:255', 'regex:/^(?!\\s)(?!.*\\s$)[^\\x00-\\x1f\\x7f]+$/u'],
+        $validationValue = $value;
+        if (($validationValue['usage'] ?? null) instanceof stdClass) {
+            $validationValue['usage'] = get_object_vars($validationValue['usage']);
+        }
+
+        $validator = Validator::make($validationValue, [
+            'id' => ['bail', 'required', 'string', 'min:1', 'max:255', 'regex:'.OpaqueIdentifier::PATTERN],
             'content_format' => ['bail', 'required', 'string', 'in:markdown,text,json'],
             'content' => ['present'],
             'requested_profile' => ['required', 'string', 'min:1'],
@@ -250,13 +262,18 @@ final class ResearchResult
         return self::string($value, $key);
     }
 
-    /** @param array<array-key, mixed> $value
+    /**
+     * @param  array<array-key, mixed>  $value
      * @return array<array-key, mixed>|null
      */
     private static function nullableArray(array $value, string $key): ?array
     {
         if (! array_key_exists($key, $value)) {
             return null;
+        }
+
+        if ($value[$key] instanceof stdClass) {
+            return get_object_vars($value[$key]);
         }
 
         return self::array($value, $key);

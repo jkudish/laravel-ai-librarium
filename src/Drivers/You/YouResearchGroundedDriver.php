@@ -99,6 +99,7 @@ final readonly class YouResearchGroundedDriver implements Driver
 
         try {
             $response = Http::withHeaders(['X-API-Key' => $credential])
+                ->withoutRedirecting()
                 ->acceptJson()
                 ->connectTimeout(min(self::CONNECT_TIMEOUT_SECONDS, $remaining))
                 ->timeout($remaining)

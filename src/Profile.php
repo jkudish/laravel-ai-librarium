@@ -40,6 +40,7 @@ final class Profile implements Arrayable, JsonSerializable
         public readonly ?ModelIdentity $pricingIdentity = null,
         public readonly ?Usage $pricingUsage = null,
         public readonly bool $pricingUsageConservative = false,
+        public readonly bool $allowProviderRouting = false,
     ) {}
 
     public function renderPrompt(string $input): string
@@ -62,6 +63,7 @@ final class Profile implements Arrayable, JsonSerializable
             'retrieval_methods' => $this->retrievalMethods->map(fn (RetrievalMethod $method): string => $method->value)->values()->all(),
             'prompt' => $this->prompt,
             'enabled' => $this->enabled,
+            'allow_provider_routing' => $this->allowProviderRouting,
             'options' => $this->options,
             'pricing' => $this->pricingIdentity === null || $this->pricingUsage === null ? null : [
                 'identity' => $this->pricingIdentity->toArray(),

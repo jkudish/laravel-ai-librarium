@@ -9,8 +9,9 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\SourceKind;
+use JsonSerializable;
 
-final class Source
+final class Source implements JsonSerializable
 {
     private ?string $publishedAtWire = null;
 
@@ -58,13 +59,19 @@ final class Source
         return $value;
     }
 
+    /** @return array<string, mixed> */
+    public function jsonSerialize(): array
+    {
+        return $this->toArray();
+    }
+
     /** @param array<array-key, mixed> $value */
     private static function validate(array $value): void
     {
         $validator = Validator::make($value, [
             'kind' => ['bail', 'required', 'string', Rule::enum(SourceKind::class)],
             'url' => ['string', 'min:1'],
-            'provider_reference' => ['string', 'min:1', 'max:255', 'regex:/^(?!\\s)(?!.*\\s$)[^\\x00-\\x1f\\x7f]+$/u'],
+            'provider_reference' => ['string', 'min:1', 'max:255', 'regex:'.OpaqueIdentifier::PATTERN],
             'title' => ['string', 'min:1'],
             'publisher' => ['string', 'min:1'],
             'published_at' => ['string', 'regex:/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$/'],

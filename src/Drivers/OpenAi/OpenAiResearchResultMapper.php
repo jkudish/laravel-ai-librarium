@@ -10,29 +10,57 @@ use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\ResearchResultMapper;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
+use Jkudish\LaravelAiLibrarium\Responses\Usage as ResearchUsage;
 use Laravel\Ai\Responses\AgentResponse;
 use Laravel\Ai\Responses\Data\Citation;
 use Laravel\Ai\Responses\Data\Meta;
 use Laravel\Ai\Responses\Data\UrlCitation;
-use Laravel\Ai\Responses\Data\Usage;
+use Laravel\Ai\Responses\Data\Usage as AgentUsage;
 
 /** @internal */
 final readonly class OpenAiResearchResultMapper
 {
+    private const int MAX_SAFE_INTEGER = 9_007_199_254_740_991;
+
+    private const int MAX_UNIX_TIMESTAMP = 253_402_300_799;
+
     public function __construct(private ResearchResultMapper $results) {}
 
     /** @param array<array-key, mixed> $response */
     public function map(array $response, DriverRequest $request): ResearchResult
     {
-        return $this->results->map(
-            response: $this->toAgentResponse($response, $request),
+        $usage = $this->usage($response);
+        $result = $this->results->map(
+            response: $this->agentResponse($response, $request, $usage),
             request: $request,
             completedAt: $this->completedAt($response),
+        );
+
+        return new ResearchResult(
+            id: $result->id,
+            contentFormat: $result->contentFormat,
+            content: $result->content,
+            requestedProfile: $result->requestedProfile,
+            provider: $result->provider,
+            profile: $result->profile,
+            provenance: $result->provenance,
+            citations: $result->citations,
+            completedAt: $result->completedAt,
+            model: $result->model,
+            fallbackReason: $result->fallbackReason,
+            usage: $usage,
+            providerMeta: $result->providerMeta,
         );
     }
 
     /** @param array<array-key, mixed> $response */
     public function toAgentResponse(array $response, DriverRequest $request): AgentResponse
+    {
+        return $this->agentResponse($response, $request, $this->usage($response));
+    }
+
+    /** @param array<array-key, mixed> $response */
+    private function agentResponse(array $response, DriverRequest $request, ?ResearchUsage $usage): AgentResponse
     {
         $parts = $this->outputTextParts($response);
         $citations = $this->citations($response);
@@ -47,7 +75,13 @@ final readonly class OpenAiResearchResultMapper
         return new AgentResponse(
             invocationId: $request->requestId,
             text: implode("\n\n", $parts),
-            usage: $this->usage(data_get($response, 'usage')),
+            usage: new AgentUsage(
+                promptTokens: $usage->promptTokens ?? 0,
+                completionTokens: $usage->completionTokens ?? 0,
+                cacheWriteInputTokens: $usage->cacheWriteInputTokens ?? 0,
+                cacheReadInputTokens: $usage->cacheReadInputTokens ?? 0,
+                reasoningTokens: $usage->reasoningTokens ?? 0,
+            ),
             meta: new Meta(
                 provider: $request->profile->provider,
                 model: $this->str(data_get($response, 'model')) ?? $request->profile->model,
@@ -144,21 +178,77 @@ final readonly class OpenAiResearchResultMapper
         return false;
     }
 
-    private function usage(mixed $value): Usage
+    /** @param array<array-key, mixed> $response */
+    private function usage(array $response): ?ResearchUsage
     {
-        if (! is_array($value) || array_is_list($value)) {
-            return new Usage;
+        if (! array_key_exists('usage', $response)) {
+            return null;
         }
 
-        $inputTokens = $this->nonNegativeInt(data_get($value, 'input_tokens')) ?? 0;
-        $cachedTokens = $this->nonNegativeInt(data_get($value, 'input_tokens_details.cached_tokens')) ?? 0;
+        $value = $response['usage'];
+        if (! is_array($value) || array_is_list($value)) {
+            throw $this->invalidUsage();
+        }
 
-        return new Usage(
-            promptTokens: max(0, $inputTokens - $cachedTokens),
-            completionTokens: $this->nonNegativeInt(data_get($value, 'output_tokens')) ?? 0,
-            cacheWriteInputTokens: $this->nonNegativeInt(data_get($value, 'input_tokens_details.cache_write_tokens')) ?? 0,
+        $inputDetails = $this->optionalRecord($value, 'input_tokens_details');
+        $outputDetails = $this->optionalRecord($value, 'output_tokens_details');
+        $inputTokens = $this->optionalNonNegativeInt($value, 'input_tokens');
+        $outputTokens = $this->optionalNonNegativeInt($value, 'output_tokens');
+        $totalTokens = $this->optionalNonNegativeInt($value, 'total_tokens');
+
+        if ($totalTokens !== null && $inputTokens !== null && $outputTokens !== null && $totalTokens !== $inputTokens + $outputTokens) {
+            throw $this->invalidUsage();
+        }
+
+        $cachedTokens = $this->optionalNonNegativeInt($inputDetails, 'cached_tokens');
+
+        return new ResearchUsage(
+            promptTokens: $inputTokens === null ? null : max(0, $inputTokens - ($cachedTokens ?? 0)),
+            completionTokens: $outputTokens,
+            cacheWriteInputTokens: $this->optionalNonNegativeInt($inputDetails, 'cache_write_tokens'),
             cacheReadInputTokens: $cachedTokens,
-            reasoningTokens: $this->nonNegativeInt(data_get($value, 'output_tokens_details.reasoning_tokens')) ?? 0,
+            reasoningTokens: $this->optionalNonNegativeInt($outputDetails, 'reasoning_tokens'),
+        );
+    }
+
+    /**
+     * @param  array<array-key, mixed>  $value
+     * @return array<array-key, mixed>
+     */
+    private function optionalRecord(array $value, string $key): array
+    {
+        if (! array_key_exists($key, $value)) {
+            return [];
+        }
+
+        $record = $value[$key];
+        if (! is_array($record) || array_is_list($record)) {
+            throw $this->invalidUsage();
+        }
+
+        return $record;
+    }
+
+    /** @param array<array-key, mixed> $value */
+    private function optionalNonNegativeInt(array $value, string $key): ?int
+    {
+        if (! array_key_exists($key, $value)) {
+            return null;
+        }
+
+        $number = $value[$key];
+        if (! is_int($number) || $number < 0 || $number > self::MAX_SAFE_INTEGER) {
+            throw $this->invalidUsage();
+        }
+
+        return $number;
+    }
+
+    private function invalidUsage(): DriverException
+    {
+        return new DriverException(
+            'openai.invalid_response',
+            'OpenAI returned invalid usage data.',
         );
     }
 
@@ -171,7 +261,7 @@ final readonly class OpenAiResearchResultMapper
             return CarbonImmutable::now();
         }
 
-        if (is_int($timestamp) && $timestamp >= 0) {
+        if (is_int($timestamp) && $timestamp >= 0 && $timestamp <= self::MAX_UNIX_TIMESTAMP) {
             return CarbonImmutable::createFromTimestampUTC($timestamp);
         }
 

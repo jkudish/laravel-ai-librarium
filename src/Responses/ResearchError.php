@@ -6,8 +6,9 @@ namespace Jkudish\LaravelAiLibrarium\Responses;
 
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
+use JsonSerializable;
 
-final readonly class ResearchError
+final readonly class ResearchError implements JsonSerializable
 {
     public function __construct(public string $code, public string $message, public ?string $profile = null) {}
 
@@ -31,6 +32,12 @@ final readonly class ResearchError
         self::validate($value);
 
         return $value;
+    }
+
+    /** @return array<string, mixed> */
+    public function jsonSerialize(): array
+    {
+        return $this->toArray();
     }
 
     /** @param array<array-key, mixed> $value */

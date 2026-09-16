@@ -9,8 +9,9 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
+use JsonSerializable;
 
-final readonly class Citation
+final readonly class Citation implements JsonSerializable
 {
     public function __construct(
         public string $id,
@@ -57,11 +58,17 @@ final readonly class Citation
         return $value;
     }
 
+    /** @return array<string, mixed> */
+    public function jsonSerialize(): array
+    {
+        return $this->toArray();
+    }
+
     /** @param array<array-key, mixed> $value */
     private static function validate(array $value): void
     {
         $validator = Validator::make($value, [
-            'id' => ['bail', 'required', 'string', 'min:1', 'max:255', 'regex:/^(?!\\s)(?!.*\\s$)[^\\x00-\\x1f\\x7f]+$/u'],
+            'id' => ['bail', 'required', 'string', 'min:1', 'max:255', 'regex:'.OpaqueIdentifier::PATTERN],
             'derivation' => ['bail', 'required', 'string', Rule::enum(CitationDerivation::class)],
             'source' => ['required', 'array'],
             'excerpt' => ['string', 'min:1'],
