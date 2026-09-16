@@ -415,7 +415,7 @@ function collectionResult(DriverRequest $request, string $content): ResearchResu
         contentFormat: ContentFormat::Markdown,
         content: $content,
         requestedProfile: 'driver-placeholder',
-        provider: 'driver-placeholder',
+        provider: $request->profile->provider,
         profile: 'driver-placeholder',
         provenance: new ResultProvenance(
             resultKind: $request->profile->resultKind,
