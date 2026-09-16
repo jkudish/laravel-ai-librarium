@@ -50,7 +50,6 @@ function releaseReadinessManifestFixture(): array
             ['id' => 'php-8.4-lowest-compatibility', 'title' => 'PHP 8.4 lowest-dependency compatibility', 'status' => 'complete', 'evidence' => $evidence('compatibility-lowest')],
             ['id' => 'php-8.5-highest-compatibility', 'title' => 'PHP 8.5 highest-dependency compatibility', 'status' => 'complete', 'evidence' => $evidence('compatibility-highest')],
             ['id' => '2593', 'title' => 'SearchAPI and Firecrawl fidelity bake-off', 'status' => 'complete', 'evidence' => $evidence('2593')],
-            ['id' => '2594', 'title' => 'PlanMode and Agentsy dogfood', 'status' => 'complete', 'evidence' => $evidence('2594')],
             ['id' => '2986', 'title' => 'SearchAPI live canaries', 'status' => 'complete', 'evidence' => $evidence('2986')],
             ['id' => '3471', 'title' => 'DataForSEO acceptance', 'status' => 'complete', 'evidence' => $evidence('3471')],
             ['id' => 'remaining-live-canaries', 'title' => 'Remaining release-required live canaries', 'status' => 'complete', 'evidence' => $evidence('remaining-live-canaries')],
@@ -63,7 +62,6 @@ it('reports every current local and external 1.0 release blocker', function (): 
     expect((new ReleaseReadiness)->blockers())->toBe([
         'CHANGELOG.md retains an Unreleased heading after the 1.0.0 release.',
         'The accepted TypeScript v2 release tag is not recorded.',
-        'Gate [2594] is pending: PlanMode and Agentsy dogfood.',
     ]);
 });
 
@@ -190,7 +188,7 @@ it('rejects missing, replaced, or retitled canonical release gates', function (s
 
     match ($mutation) {
         'missing' => array_pop($manifest['gates']),
-        'replaced' => $manifest['gates'][7] = [
+        'replaced' => $manifest['gates'][6] = [
             'id' => 'proof',
             'title' => 'Proof gate',
             'status' => 'complete',
@@ -199,7 +197,7 @@ it('rejects missing, replaced, or retitled canonical release gates', function (s
                 'sha256' => str_repeat('a', 64),
             ],
         ],
-        'retitled' => $manifest['gates'][7]['title'] = 'Pricing is stable',
+        'retitled' => $manifest['gates'][6]['title'] = 'Pricing is stable',
     };
 
     expect(fn (): array => ReleaseReadiness::evaluate(

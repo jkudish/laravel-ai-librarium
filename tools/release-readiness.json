@@ -36,12 +36,6 @@
             }
         },
         {
-            "id": "2594",
-            "title": "PlanMode and Agentsy dogfood",
-            "status": "pending",
-            "evidence": null
-        },
-        {
             "id": "2986",
             "title": "SearchAPI live canaries",
             "status": "complete",

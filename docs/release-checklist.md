@@ -110,7 +110,7 @@ extensions; they must not be inserted into the frozen 39-row parity claim.
 Before creating the final package candidate:
 
 - finish the SearchAPI/Firecrawl fidelity decision and SearchAPI canaries;
-- finish PlanMode/Agentsy dogfood and DataForSEO acceptance;
+- finish DataForSEO acceptance;
 - complete every remaining release-required canary under
   `live-provider-canaries.md`, each with separate approval and spend controls;
 - publish a stable `laravel-ai-pricing` release, then replace `dev-main` with
@@ -122,6 +122,10 @@ Before creating the final package candidate:
 These are completion gates, not authorization to perform them. A canary approval
 does not authorize a retry or another Profile. Publication and GitHub writes
 require their own explicit authorization.
+
+PlanMode/Agentsy dogfood (#2594) remains a nonblocking follow-up rather than a
+package release gate. Package and consumer compatibility—including the
+application-defined Driver conformance proof above—remain required.
 
 ## Certify the exact candidate
 
