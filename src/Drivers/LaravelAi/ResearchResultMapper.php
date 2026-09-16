@@ -12,6 +12,7 @@ use Jkudish\LaravelAiLibrarium\Recovery\RecoveryRequest;
 use Jkudish\LaravelAiLibrarium\Responses\Citation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ContentFormat;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\SourceKind;
@@ -40,6 +41,7 @@ final readonly class ResearchResultMapper
         $citations = $this->citations($response);
         $isGrounded = $usesWebSearch && $citations->isNotEmpty();
         $completedAt ??= CarbonImmutable::now();
+        $corpora = $isGrounded ? $request->profile->corpora : $this->emptyCorpora();
 
         return ResearchResult::make(
             contentFormat: ContentFormat::Markdown,
@@ -50,7 +52,7 @@ final readonly class ResearchResultMapper
             provenance: new ResultProvenance(
                 resultKind: $isGrounded ? $request->profile->resultKind : ResultKind::ModelAnswer,
                 retrievalMethods: $isGrounded ? $request->profile->retrievalMethods : $this->modelOnlyRetrievalMethods(),
-                corpora: $isGrounded ? $request->profile->corpora : collect(),
+                corpora: $corpora,
                 observedAt: $completedAt,
             ),
             citations: $citations,
@@ -65,6 +67,14 @@ final readonly class ResearchResultMapper
     private function modelOnlyRetrievalMethods(): Collection
     {
         return collect($this->modelOnlyRetrievalMethodValues());
+    }
+
+    /** @return Collection<int, Corpus> */
+    private function emptyCorpora(): Collection
+    {
+        return collect()
+            ->filter(static fn (mixed $value): bool => $value instanceof Corpus)
+            ->values();
     }
 
     /** @return list<RetrievalMethod> */

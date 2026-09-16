@@ -115,8 +115,8 @@ final readonly class ResearchCompiler
                 prompts: $prompts,
                 unavailable: collect($unavailable),
                 warnings: $warnings,
-                pricingQuotes: $pricing['quotes'] ?? collect(),
-                knownCostSubtotals: $pricing['known_subtotals'] ?? collect(),
+                pricingQuotes: $pricing['quotes'] ?? $this->emptyPricingQuotes(),
+                knownCostSubtotals: $pricing['known_subtotals'] ?? $this->emptyKnownCostSubtotals(),
                 pricingStatus: $pricing['status'] ?? CostCompleteness::Unavailable->value,
                 hardCostCeilingAvailable: $pricing['preflight_cost_check_available'] ?? false,
                 maximumEstimatedCost: $pricing['maximum_estimated_cost'] ?? null,
@@ -294,7 +294,7 @@ final readonly class ResearchCompiler
             : ($subtotals === [] ? CostCompleteness::Unavailable->value : CostCompleteness::Partial->value);
 
         if ($maximum !== null) {
-            if (! $preflightCostCheckAvailable || $currency === null) {
+            if (! $preflightCostCheckAvailable) {
                 throw ValidationException::withMessages([
                     'maxCost' => 'A maximum-cost preflight check requires complete, current, single-currency quotes from configured conservative usage estimates for every primary and reachable fallback.',
                 ]);
@@ -318,7 +318,7 @@ final readonly class ResearchCompiler
             'known_subtotals' => $knownSubtotals,
             'status' => $status,
             'preflight_cost_check_available' => $preflightCostCheckAvailable,
-            'maximum_estimated_cost' => $preflightCostCheckAvailable && $currency !== null
+            'maximum_estimated_cost' => $preflightCostCheckAvailable
                 ? (string) $subtotals[$currency]->amount
                 : null,
             'currency' => $preflightCostCheckAvailable ? $currency : null,
@@ -359,6 +359,30 @@ final readonly class ResearchCompiler
             'quote' => $quote,
             'freshness' => $this->freshness($quote, $cutoff),
         ];
+    }
+
+    /**
+     * @return Collection<int, array{
+     *     profile: string,
+     *     role: string,
+     *     reachable_from: list<string>,
+     *     maximum_invocations: int,
+     *     identity: ModelIdentity|null,
+     *     usage: Usage|null,
+     *     conservative: bool,
+     *     quote: CostQuote,
+     *     freshness: string
+     * }>
+     */
+    private function emptyPricingQuotes(): Collection
+    {
+        return new Collection;
+    }
+
+    /** @return Collection<string, covariant (non-empty-string|numeric-string)> */
+    private function emptyKnownCostSubtotals(): Collection
+    {
+        return new Collection;
     }
 
     private function freshness(CostQuote $quote, CarbonImmutable $cutoff): string
