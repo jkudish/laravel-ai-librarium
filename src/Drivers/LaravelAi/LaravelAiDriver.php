@@ -71,7 +71,7 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
         }
 
         return SpendingBound::billableQuantities(
-            new ModelIdentity('anthropic', 'claude-sonnet-5'),
+            new ModelIdentity('anthropic', 'claude-sonnet-5-global'),
             new Usage([
                 'input_tokens' => self::CLAUDE_SONNET_5_CONTEXT_TOKENS,
                 'output_tokens' => $maxOutputTokens,

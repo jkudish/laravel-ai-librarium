@@ -106,6 +106,15 @@ it('resolves Laravel AI credentials after Laravel AI registers later', function 
     'Gemini chat' => ['gemini-chat', 'gemini', 'gemini-3.7-flash'],
 ]);
 
+it('keeps the Claude source model separate from its global-routing billing SKU', function (): void {
+    $profile = config('librarium.profiles.claude-chat');
+
+    expect(data_get($profile, 'provider'))->toBe('anthropic')
+        ->and(data_get($profile, 'model'))->toBe('claude-sonnet-5')
+        ->and(data_get($profile, 'pricing.provider'))->toBe('anthropic')
+        ->and(data_get($profile, 'pricing.model'))->toBe('claude-sonnet-5-global');
+});
+
 it('registers the accepted core HTTP Profiles with resolved credentials', function (
     string $profileId,
     string $driver,

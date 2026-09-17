@@ -269,7 +269,7 @@ return [
             'credential' => config('ai.providers.anthropic.key'),
             'pricing' => [
                 'provider' => 'anthropic',
-                'model' => 'claude-sonnet-5',
+                'model' => 'claude-sonnet-5-global',
                 'usage' => ['input_tokens' => 100_000, 'output_tokens' => 100_000, 'web_searches' => 100],
                 'conservative' => false,
             ],

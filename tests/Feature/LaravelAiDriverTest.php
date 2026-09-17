@@ -167,13 +167,15 @@ it('sends bounded no-search Claude controls through the real SDK and never conti
         ->run();
 
     expect($response->status)->toBe(ResponseStatus::Succeeded)
-        ->and($response->results->sole()->content)->toBe('A paused direct answer.');
+        ->and($response->results->sole()->content)->toBe('A paused direct answer.')
+        ->and($response->results->sole()->model)->toBe('claude-sonnet-5');
     Http::assertSent(function (Request $request): bool {
         $body = $request->data();
 
         return $request->url() === 'https://api.anthropic.com/v1/messages'
             && $body['model'] === 'claude-sonnet-5'
             && $body['max_tokens'] === 64_000
+            && ! array_key_exists('inference_geo', $body)
             && ! array_key_exists('tools', $body)
             && data_get($body, 'messages.0.content.0.text') === 'Answer directly once.';
     });
