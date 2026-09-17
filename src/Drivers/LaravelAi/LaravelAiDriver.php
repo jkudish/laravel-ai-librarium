@@ -10,11 +10,15 @@ use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
+use Jkudish\LaravelAiLibrarium\Contracts\DefinesSpendingBound;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
+use Jkudish\LaravelAiLibrarium\SpendingBound;
+use Jkudish\LaravelAiPricing\ValueObjects\ModelIdentity;
+use Jkudish\LaravelAiPricing\ValueObjects\Usage;
 use Laravel\Ai\Exceptions\AiException;
 use Laravel\Ai\Exceptions\InsufficientCreditsException;
 use Laravel\Ai\Exceptions\ProviderOverloadedException;
@@ -22,8 +26,12 @@ use Laravel\Ai\Exceptions\RateLimitedException;
 use Laravel\Ai\Responses\AgentResponse;
 use Throwable;
 
-final readonly class LaravelAiDriver implements Driver
+final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
 {
+    private const int CLAUDE_SONNET_5_CONTEXT_TOKENS = 1_000_000;
+
+    private const int CLAUDE_SONNET_5_MAX_OUTPUT_TOKENS = 128_000;
+
     /** @var list<string> */
     private const array OPENROUTER_SEARCH_ENGINES = ['exa', 'firecrawl', 'parallel', 'perplexity'];
 
@@ -35,7 +43,40 @@ final readonly class LaravelAiDriver implements Driver
         return [
             'web_search' => ['sometimes', 'boolean'],
             'search_engine' => ['sometimes', 'string', 'in:'.implode(',', self::OPENROUTER_SEARCH_ENGINES)],
+            'max_output_tokens' => ['sometimes', 'integer', 'min:1', 'max:'.self::CLAUDE_SONNET_5_MAX_OUTPUT_TOKENS],
+            'max_steps' => ['sometimes', 'integer', 'min:1'],
+            'max_prompt_bytes' => ['sometimes', 'integer', 'min:1'],
         ];
+    }
+
+    public function spendingBound(DriverRequest $request): SpendingBound
+    {
+        $options = $request->profile->options;
+        $maxOutputTokens = $options['max_output_tokens'] ?? null;
+        $maxSteps = $options['max_steps'] ?? null;
+        $maxPromptBytes = $options['max_prompt_bytes'] ?? null;
+
+        if ($request->profile->provider !== 'anthropic'
+            || $request->profile->model !== 'claude-sonnet-5'
+            || ($options['web_search'] ?? true) !== false
+            || array_key_exists('search_engine', $options)
+            || ! is_int($maxOutputTokens)
+            || $maxOutputTokens < 1
+            || $maxOutputTokens > self::CLAUDE_SONNET_5_MAX_OUTPUT_TOKENS
+            || $maxSteps !== 1
+            || ! is_int($maxPromptBytes)
+            || $maxPromptBytes < 1
+            || strlen($request->prompt) > $maxPromptBytes) {
+            return SpendingBound::unknown();
+        }
+
+        return SpendingBound::billableQuantities(
+            new ModelIdentity('anthropic', 'claude-sonnet-5'),
+            new Usage([
+                'input_tokens' => self::CLAUDE_SONNET_5_CONTEXT_TOKENS,
+                'output_tokens' => $maxOutputTokens,
+            ]),
+        );
     }
 
     public function run(DriverRequest $request): ResearchResult
@@ -51,6 +92,9 @@ final readonly class LaravelAiDriver implements Driver
 
         $usesWebSearch = data_get($request->profile->options, 'web_search', true);
         $searchEngine = data_get($request->profile->options, 'search_engine');
+        $maxOutputTokens = data_get($request->profile->options, 'max_output_tokens');
+        $maxSteps = data_get($request->profile->options, 'max_steps');
+        $maxPromptBytes = data_get($request->profile->options, 'max_prompt_bytes');
         if (! is_bool($usesWebSearch)) {
             throw new DriverException(
                 errorCode: 'laravel_ai.invalid_options',
@@ -63,6 +107,24 @@ final readonly class LaravelAiDriver implements Driver
             throw new DriverException(
                 errorCode: 'laravel_ai.invalid_options',
                 message: 'The Laravel AI Driver received invalid Profile options.',
+                fallbackAllowed: false,
+            );
+        }
+
+        if (($maxOutputTokens !== null && (! is_int($maxOutputTokens) || $maxOutputTokens < 1 || $maxOutputTokens > self::CLAUDE_SONNET_5_MAX_OUTPUT_TOKENS))
+            || ($maxSteps !== null && (! is_int($maxSteps) || $maxSteps < 1))
+            || ($maxPromptBytes !== null && (! is_int($maxPromptBytes) || $maxPromptBytes < 1))) {
+            throw new DriverException(
+                errorCode: 'laravel_ai.invalid_options',
+                message: 'The Laravel AI Driver received invalid Profile options.',
+                fallbackAllowed: false,
+            );
+        }
+
+        if (is_int($maxPromptBytes) && strlen($request->prompt) > $maxPromptBytes) {
+            throw new DriverException(
+                errorCode: 'laravel_ai.prompt_too_long',
+                message: 'The rendered prompt exceeds the configured byte limit.',
                 fallbackAllowed: false,
             );
         }
@@ -96,6 +158,8 @@ final readonly class LaravelAiDriver implements Driver
             usesWebSearch: $usesWebSearch,
             searchEngine: $searchEngine,
             exactOpenRouterRouting: $request->profile->provider === 'openrouter',
+            maxOutputTokens: $maxOutputTokens,
+            maxSteps: $maxSteps,
         );
 
         try {

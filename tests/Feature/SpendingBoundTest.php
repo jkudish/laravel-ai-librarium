@@ -117,10 +117,68 @@ it('returns unknown when no driver proves every billed dimension', function (str
     Http::assertNothingSent();
 })->with([
     'Exa auto without an explicit cap' => 'exa-research',
+    'search-enabled Claude' => 'claude-chat',
+    'Brave Answers retrieved context' => 'brave-answers',
     'model and search-tool dimensions' => 'gemini-grounded',
     'provider-managed research task' => 'parallel-research',
     'partial retrieval ceiling' => 'valyu-search',
     'unproven token conversion' => 'jina-search',
+]);
+
+it('bounds exact no-search Claude input and configured output quantities offline', function (): void {
+    config()->set('librarium.profiles.claude-chat.options', [
+        'web_search' => false,
+        'max_output_tokens' => 64_000,
+        'max_steps' => 1,
+        'max_prompt_bytes' => 4096,
+    ]);
+
+    $bound = Librarium::query('Bound this direct Claude answer.')
+        ->using('claude-chat')
+        ->spendingBound();
+
+    expect($bound->kind)->toBe(SpendingBoundKind::BillableQuantities)
+        ->and($bound->pricingIdentity?->key())->toBe('anthropic:claude-sonnet-5')
+        ->and($bound->quantities?->toArray())->toBe([
+            'input_tokens' => '1000000',
+            'output_tokens' => '64000',
+        ]);
+    Http::assertNothingSent();
+});
+
+it('keeps unsupported Claude configurations unknown', function (Closure $configure): void {
+    config()->set('librarium.profiles.claude-chat.options', [
+        'web_search' => false,
+        'max_output_tokens' => 64_000,
+        'max_steps' => 1,
+        'max_prompt_bytes' => 4096,
+    ]);
+    $configure();
+
+    $bound = Librarium::query('A prompt longer than ten bytes.')
+        ->using('claude-chat')
+        ->spendingBound();
+
+    expect($bound->kind)->toBe(SpendingBoundKind::Unknown);
+    Http::assertNothingSent();
+})->with([
+    'wrong provider' => fn () => config()->set('librarium.profiles.claude-chat.provider', 'openrouter'),
+    'wrong model' => fn () => config()->set('librarium.profiles.claude-chat.model', 'claude-sonnet-4-6'),
+    'search enabled' => fn () => config()->set('librarium.profiles.claude-chat.options.web_search', true),
+    'multiple SDK steps' => fn () => config()->set('librarium.profiles.claude-chat.options.max_steps', 2),
+    'missing SDK step cap' => fn () => config()->set(
+        'librarium.profiles.claude-chat.options',
+        array_diff_key(config('librarium.profiles.claude-chat.options'), ['max_steps' => true]),
+    ),
+    'missing output cap' => fn () => config()->set(
+        'librarium.profiles.claude-chat.options',
+        array_diff_key(config('librarium.profiles.claude-chat.options'), ['max_output_tokens' => true]),
+    ),
+    'missing prompt contract' => fn () => config()->set(
+        'librarium.profiles.claude-chat.options',
+        array_diff_key(config('librarium.profiles.claude-chat.options'), ['max_prompt_bytes' => true]),
+    ),
+    'prompt exceeds contract' => fn () => config()->set('librarium.profiles.claude-chat.options.max_prompt_bytes', 10),
 ]);
 
 it('classifies every shipped Profile as known or deliberately unknown', function (): void {

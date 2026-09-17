@@ -52,6 +52,7 @@ pre-dispatch quantity maximum.
 
 | Profile(s) | Bound |
 | --- | --- |
+| `claude-chat` | `anthropic:claude-sonnet-5` input/output quantities only when `web_search` is `false`, `max_steps` is `1`, `max_output_tokens` is explicitly set from 1 through 128,000, and `max_prompt_bytes` is an explicit positive limit that the rendered prompt satisfies. The input maximum is the model's 1M-token context ceiling; the output maximum is the request's `max_tokens`. Search-enabled requests remain `unknown` because search-result context is billed as input and `max_uses` does not bound its aggregate tokens. |
 | `exa-research` | Native USD ceiling only for `auto` or `max` with an explicit `max_cost_dollars` from 1 through 100. The same value is sent as `budget.maxCostDollars`. No configured cap returns `unknown`; provider defaults are not pinned. Fixed efforts return `unknown` and reject a budget. |
 | Six `dataforseo-*` Profiles | One `requests` unit under the exact Standard or Live pricing identity. Polling and retrieval do not add task units. |
 | `searchapi`, five one-stage surface Profiles | One `successful_search_request`. |
@@ -64,10 +65,17 @@ pre-dispatch quantity maximum.
 | `serpapi` | One successful search request. |
 | `serpbase-search`, `serpbase-news` | One credit. Search with rich results enabled returns `unknown`. |
 
+The shipped `claude-chat` configuration remains search-enabled and therefore
+returns `unknown`. A consumer may configure the documented no-search controls
+to obtain a model-only bound; this is not a bound for web-search-backed Claude.
+`brave-answers` also remains `unknown`: `max_completion_tokens` bounds output,
+but Brave documents only qualitative `search_context_size` values and no hard
+ceiling for every billed input token, including retrieved context.
+
 All other shipped Profiles return `unknown` without driver boilerplate. Their
 model/tool/token limits, provider-managed work, optional surcharges, or
 account-rate semantics do not currently prove all-dimensional bounds. This
-includes Laravel AI model Profiles, Brave Answers, You.com, Perplexity Agent,
+includes other Laravel AI model Profiles, You.com, Perplexity Agent,
 xAI Grok, OpenAI Research, Jina, Gemini Deep Research, Parallel, and Valyu.
 
 ## Ownership

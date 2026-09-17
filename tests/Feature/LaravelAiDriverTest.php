@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Carbon\CarbonImmutable;
 use GuzzleHttp\Psr7\Response as PsrResponse;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\Request;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Validation\ValidationException;
@@ -24,6 +25,8 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResponseStatus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
+use Laravel\Ai\Ai;
+use Laravel\Ai\AiManager;
 use Laravel\Ai\Exceptions\AiException;
 use Laravel\Ai\Exceptions\InsufficientCreditsException;
 use Laravel\Ai\Exceptions\ProviderOverloadedException;
@@ -135,6 +138,68 @@ it('returns an honest model answer when optional web search is disabled', functi
         ->and($result->provenance->corpora)->toBeEmpty()
         ->and($result->provenance->retrievalMethods->all())->toBe([RetrievalMethod::ModelOnly])
         ->and($result->citations)->toBeEmpty();
+});
+
+it('sends bounded no-search Claude controls through the real SDK and never continues pause turn', function (): void {
+    app()->forgetInstance(AiManager::class);
+    Ai::clearResolvedInstance(AiManager::class);
+    config()->set('librarium.profiles.claude-chat.options', [
+        'web_search' => false,
+        'max_output_tokens' => 64_000,
+        'max_steps' => 1,
+        'max_prompt_bytes' => 4096,
+    ]);
+    Http::fake([
+        'https://api.anthropic.com/v1/messages' => Http::response([
+            'id' => 'msg_test',
+            'type' => 'message',
+            'role' => 'assistant',
+            'model' => 'claude-sonnet-5',
+            'content' => [['type' => 'text', 'text' => 'A paused direct answer.']],
+            'stop_reason' => 'pause_turn',
+            'stop_sequence' => null,
+            'usage' => ['input_tokens' => 12, 'output_tokens' => 7],
+        ]),
+    ]);
+
+    $response = Librarium::query('Answer directly once.')
+        ->using('claude-chat')
+        ->run();
+
+    expect($response->status)->toBe(ResponseStatus::Succeeded)
+        ->and($response->results->sole()->content)->toBe('A paused direct answer.');
+    Http::assertSent(function (Request $request): bool {
+        $body = $request->data();
+
+        return $request->url() === 'https://api.anthropic.com/v1/messages'
+            && $body['model'] === 'claude-sonnet-5'
+            && $body['max_tokens'] === 64_000
+            && ! array_key_exists('tools', $body)
+            && data_get($body, 'messages.0.content.0.text') === 'Answer directly once.';
+    });
+    Http::assertSentCount(1);
+});
+
+it('enforces the configured rendered prompt byte contract before SDK execution', function (): void {
+    ResearchAgent::fake()->preventStrayPrompts();
+
+    try {
+        groundedDriver()->run(groundedDriverRequest(
+            provider: 'anthropic',
+            options: [
+                'web_search' => false,
+                'max_output_tokens' => 64_000,
+                'max_steps' => 1,
+                'max_prompt_bytes' => 10,
+            ],
+        ));
+        $this->fail('An oversized rendered prompt should be rejected.');
+    } catch (DriverException $exception) {
+        expect($exception->errorCode)->toBe('laravel_ai.prompt_too_long')
+            ->and($exception->fallbackAllowed)->toBeFalse();
+    }
+
+    ResearchAgent::assertNeverPrompted();
 });
 
 it('rejects required grounding with web search disabled before execution', function (): void {
