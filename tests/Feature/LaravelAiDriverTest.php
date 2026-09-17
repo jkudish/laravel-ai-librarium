@@ -147,7 +147,7 @@ it('sends bounded no-search Claude controls through the real SDK and never conti
         'web_search' => false,
         'max_output_tokens' => 64_000,
         'max_steps' => 1,
-        'max_prompt_bytes' => 4096,
+        'max_prompt_bytes' => strlen('Answer directly once.'),
     ]);
     Http::fake([
         'https://api.anthropic.com/v1/messages' => Http::response([
@@ -180,26 +180,37 @@ it('sends bounded no-search Claude controls through the real SDK and never conti
     Http::assertSentCount(1);
 });
 
-it('enforces the configured rendered prompt byte contract before SDK execution', function (): void {
-    ResearchAgent::fake()->preventStrayPrompts();
+it('accepts the exact rendered prompt byte limit and rejects one byte beyond it', function (): void {
+    $prompt = 'é';
+    ResearchAgent::fake([
+        new TextResponse(
+            'A grounded answer.',
+            new AiUsage(promptTokens: 1, completionTokens: 1),
+            new Meta('gemini', 'gemini-2.5-pro', collect([
+                new UrlCitation('https://example.com/source', 'Example source'),
+            ])),
+        ),
+    ])->preventStrayPrompts();
+
+    $result = groundedDriver()->run(groundedDriverRequest(
+        options: ['max_prompt_bytes' => strlen($prompt)],
+        prompt: $prompt,
+    ));
+
+    expect($result->content)->toBe('A grounded answer.');
 
     try {
         groundedDriver()->run(groundedDriverRequest(
-            provider: 'anthropic',
-            options: [
-                'web_search' => false,
-                'max_output_tokens' => 64_000,
-                'max_steps' => 1,
-                'max_prompt_bytes' => 10,
-            ],
+            options: ['max_prompt_bytes' => strlen($prompt) - 1],
+            prompt: $prompt,
         ));
-        $this->fail('An oversized rendered prompt should be rejected.');
+        $this->fail('A rendered prompt one byte over the limit should be rejected.');
     } catch (DriverException $exception) {
         expect($exception->errorCode)->toBe('laravel_ai.prompt_too_long')
             ->and($exception->fallbackAllowed)->toBeFalse();
     }
 
-    ResearchAgent::assertNeverPrompted();
+    ResearchAgent::assertPrompted(fn (AgentPrompt $agentPrompt): bool => $agentPrompt->prompt === $prompt);
 });
 
 it('rejects required grounding with web search disabled before execution', function (): void {
@@ -459,6 +470,7 @@ function groundedDriverRequest(
     ?string $model = 'gemini-2.5-pro',
     string $provider = 'gemini',
     array $options = [],
+    string $prompt = 'Research Laravel AI.',
 ): DriverRequest {
     $profile = new Profile(
         id: 'gemini-grounded',
@@ -479,7 +491,7 @@ function groundedDriverRequest(
         requestId: 'request-123',
         requestedProfile: $profile,
         profile: $profile,
-        prompt: 'Research Laravel AI.',
+        prompt: $prompt,
         deadline: $deadline ?? CarbonImmutable::now()->addSeconds(42),
         progressCallback: static fn (): null => null,
     );

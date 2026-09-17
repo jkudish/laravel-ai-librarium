@@ -146,6 +146,47 @@ it('bounds exact no-search Claude input and configured output quantities offline
     Http::assertNothingSent();
 });
 
+it('accepts both documented Claude output-token boundaries', function (int $maxOutputTokens): void {
+    config()->set('librarium.profiles.claude-chat.options', [
+        'web_search' => false,
+        'max_output_tokens' => $maxOutputTokens,
+        'max_steps' => 1,
+        'max_prompt_bytes' => 4096,
+    ]);
+
+    $bound = Librarium::query('Bound this direct Claude answer.')
+        ->using('claude-chat')
+        ->spendingBound();
+
+    expect($bound->kind)->toBe(SpendingBoundKind::BillableQuantities)
+        ->and($bound->quantities?->toArray())->toBe([
+            'input_tokens' => '1000000',
+            'output_tokens' => (string) $maxOutputTokens,
+        ]);
+    Http::assertNothingSent();
+})->with([
+    'minimum output cap' => 1,
+    'maximum output cap' => 128_000,
+]);
+
+it('rejects Claude output-token values outside the documented boundaries', function (int $maxOutputTokens): void {
+    config()->set('librarium.profiles.claude-chat.options', [
+        'web_search' => false,
+        'max_output_tokens' => $maxOutputTokens,
+        'max_steps' => 1,
+        'max_prompt_bytes' => 4096,
+    ]);
+
+    expect(fn () => Librarium::query('Do not dispatch invalid controls.')
+        ->using('claude-chat')
+        ->spendingBound())
+        ->toThrow(ValidationException::class);
+    Http::assertNothingSent();
+})->with([
+    'below minimum output cap' => 0,
+    'above maximum output cap' => 128_001,
+]);
+
 it('keeps unsupported Claude configurations unknown', function (Closure $configure): void {
     config()->set('librarium.profiles.claude-chat.options', [
         'web_search' => false,

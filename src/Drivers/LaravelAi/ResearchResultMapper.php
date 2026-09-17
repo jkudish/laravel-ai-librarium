@@ -12,6 +12,7 @@ use Jkudish\LaravelAiLibrarium\Recovery\RecoveryRequest;
 use Jkudish\LaravelAiLibrarium\Responses\Citation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ContentFormat;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\SourceKind;
@@ -50,7 +51,7 @@ final readonly class ResearchResultMapper
             provenance: new ResultProvenance(
                 resultKind: $isGrounded ? $request->profile->resultKind : ResultKind::ModelAnswer,
                 retrievalMethods: $isGrounded ? $request->profile->retrievalMethods : $this->modelOnlyRetrievalMethods(),
-                corpora: $isGrounded ? $request->profile->corpora : collect(),
+                corpora: $isGrounded ? $request->profile->corpora : collect($this->emptyCorpora()),
                 observedAt: $completedAt,
             ),
             citations: $citations,
@@ -59,6 +60,12 @@ final readonly class ResearchResultMapper
             usage: $usage ?? $this->usage($response),
             providerMeta: $this->providerMeta($response),
         );
+    }
+
+    /** @return array<int, Corpus> */
+    private function emptyCorpora(): array
+    {
+        return [];
     }
 
     /** @return Collection<int, RetrievalMethod> */
