@@ -172,16 +172,24 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
         // single default-tier endpoint and its rates are catalog snapshot
         // facts the pricing owner reverifies. The identity names the
         // worst-case billing basis: every completion conservatively billed at
-        // the >272K-prompt override rates with the 1.25x cache-write premium,
-        // which no aggregate model rate satisfies, so rate resolution fails
-        // closed until the registry serves this exact identity. The search
-        // unit is engine-specific because the catalog's model-level
-        // web_search rate is the native passthrough fee, not Exa's per-request
-        // engine fee.
+        // the >272K-prompt override rates, which no aggregate model rate
+        // satisfies, so rate resolution fails closed until the registry
+        // serves this exact identity. The search unit is engine-specific
+        // because the catalog's model-level web_search rate is the native
+        // passthrough fee, not Exa's per-request engine fee.
+        //
+        // Input tokens bill as exclusive partitions — uncached input,
+        // cache-read, and cache-write — and OpenAI automatic caching can
+        // bill cache writes without any opt-in, so the request cannot be
+        // proven cache-write-free. The bound therefore reserves the entire
+        // worst-case input quantity in the most expensive partition
+        // (cache-write at the compounded 1.25x long-context premium, $5/M),
+        // which dominates every possible actual partition mix without
+        // counting any token twice.
         return SpendingBound::billableQuantities(
             new ModelIdentity('openrouter', 'openai/gpt-5.6-terra-272k'),
             new Usage([
-                'input_tokens' => $completions * self::OPENROUTER_OPENAI_GPT_5_6_TERRA_CONTEXT_TOKENS,
+                'cache_write_input_tokens' => $completions * self::OPENROUTER_OPENAI_GPT_5_6_TERRA_CONTEXT_TOKENS,
                 'output_tokens' => $completions * self::OPENROUTER_OPENAI_GPT_5_6_TERRA_MAX_COMPLETION_TOKENS,
                 'exa_search_requests' => $maxToolCalls,
             ]),

@@ -53,7 +53,7 @@ budget steps. The bound therefore fails closed (`unknown`) whenever
 | Unit | Maximum | Basis |
 | --- | --- | --- |
 | `exa_search_requests` | `max_tool_calls` | Every Exa-billed search is a tool call the model makes, so executing searches ≤ budget steps; Instant/Fast/Auto mode costs $0.007 per request. The unit is engine-specific so the catalog's model-level `web_search` rate (the $0.01 native passthrough fee) can never satisfy it. |
-| `input_tokens` | `(max_tool_calls + 1) × 1,050,000` | At most budget + 1 model completions; each processes at most the pinned endpoint's 1,050,000-token context, including injected search content ("All pricing is in addition to standard LLM token costs for processing the search result content"). |
+| `cache_write_input_tokens` | `(max_tool_calls + 1) × 1,050,000` | At most budget + 1 model completions; each processes at most the pinned endpoint's 1,050,000-token context, including injected search content ("All pricing is in addition to standard LLM token costs for processing the search result content"). Input tokens bill as exclusive partitions (uncached input, cache-read, cache-write), and OpenAI automatic caching can bill cache writes without opt-in, so the request cannot be proven cache-write-free; the bound therefore reserves the entire worst-case input quantity in the most expensive partition — cache-write at the compounded 1.25x long-context premium ($5/M) — which dominates every possible actual partition mix without counting any token twice. |
 | `output_tokens` | `(max_tool_calls + 1) × 128,000` | Per-completion output uses the pinned endpoint's `max_completion_tokens` (128,000) because forwarding the request's `max_tokens` to every internal loop completion is not documented. |
 
 Additional-result fees are structurally zero: each Exa request includes up
@@ -61,6 +61,17 @@ to 10 results and then bills $0.001 per additional result, and the bound
 requires an enforced `max_results` of at most 10. `max_results` between 11
 and 25 is a valid request but leaves the additional-result dimension
 unproven (`unknown`); values above 25 are rejected by option validation.
+
+### Actual usage and settlement
+
+Reported usage mirrors the billed partitions: the Laravel AI gateway
+parsers convert the provider's inclusive prompt total into exclusive
+uncached / cache-read / cache-write partitions, and the result mapper also
+carries the engine's search count from `usage.server_tool_use.web_search_requests`
+(OpenRouter's unified usage schema), summed across steps. Settlement
+consumers must price each partition at its own rate — never re-adding an
+inclusive prompt total to the cache partitions — and must fail closed when
+the engine search count is missing rather than treating it as zero.
 
 ### Endpoint routing and billing identity
 
@@ -221,10 +232,10 @@ control.
 - `openrouter:openai/gpt-5.6-terra-272k`: worst-case per-completion rates
   for the OpenAI default-tier endpoints serving this model — the >272K-prompt
   override and the 1.25× cache-write basis — so resolving the bound's
-  `input_tokens`/`output_tokens` quantities cannot silently use cheaper
-  aggregate rates. The catalog's context length, output maximum, endpoint
-  set, and rates are snapshot facts the pricing owner must reverify against
-  the live endpoint catalog before enabling or refreshing any price.
+  `cache_write_input_tokens`/`output_tokens` quantities cannot silently use
+  cheaper aggregate rates. The catalog's context length, output maximum,
+  endpoint set, and rates are snapshot facts the pricing owner must reverify
+  against the live endpoint catalog before enabling or refreshing any price.
 - An `exa_search_requests` unit rate ($0.007 per request in the default Exa
   `auto` mode) distinct from every model catalog's native `web_search` fee;
   the catalog's model-level rate ($0.01/call) must never satisfy it.

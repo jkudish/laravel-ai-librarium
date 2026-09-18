@@ -141,7 +141,30 @@ final readonly class ResearchResultMapper
             cacheWriteInputTokens: $this->integer($response, 'cacheWriteInputTokens'),
             cacheReadInputTokens: $this->integer($response, 'cacheReadInputTokens'),
             reasoningTokens: $this->integer($response, 'reasoningTokens'),
+            serverToolSearchRequests: $this->serverToolSearchRequests($response),
         );
+    }
+
+    /**
+     * The SDK usage value object carries only token metrics, so the engine's
+     * search request count is read from the raw provider responses —
+     * usage.server_tool_use.web_search_requests in OpenRouter's unified
+     * usage schema — and summed across steps the way the SDK sums tokens.
+     * The count stays null when the provider does not report it.
+     */
+    private function serverToolSearchRequests(AgentResponse $response): ?int
+    {
+        $total = null;
+
+        foreach ($this->rawResponses($response) as $raw) {
+            $json = $raw->json();
+            $value = is_array($json) ? data_get($json, 'usage.server_tool_use.web_search_requests') : null;
+            if (is_int($value)) {
+                $total = ($total ?? 0) + $value;
+            }
+        }
+
+        return $total;
     }
 
     private function integer(AgentResponse $response, string $metric): ?int

@@ -43,7 +43,7 @@ it('bounds exact grounded OpenRouter quantities from the documented server-tool 
     expect($bound->kind)->toBe(SpendingBoundKind::BillableQuantities)
         ->and($bound->pricingIdentity?->key())->toBe('openrouter:openai/gpt-5.6-terra-272k')
         ->and($bound->quantities?->toArray())->toBe([
-            'input_tokens' => $inputTokens,
+            'cache_write_input_tokens' => $inputTokens,
             'output_tokens' => $outputTokens,
             'exa_search_requests' => $searchRequests,
         ]);
@@ -92,7 +92,8 @@ it('sends the exact grounded OpenRouter budget, endpoint pin, and Exa controls t
         ->run();
 
     expect($response->status->value)->toBe('succeeded')
-        ->and($response->results->sole()->citations)->toHaveCount(1);
+        ->and($response->results->sole()->citations)->toHaveCount(1)
+        ->and($response->results->sole()->usage?->serverToolSearchRequests)->toBe(4);
     Http::assertSent(function (Request $request): bool {
         $body = $request->data();
 
@@ -116,6 +117,91 @@ it('sends the exact grounded OpenRouter budget, endpoint pin, and Exa controls t
             ]
             && str_contains((string) json_encode($body), 'Bound this grounded OpenRouter answer.');
     });
+    Http::assertSentCount(1);
+});
+
+it('maps asymmetric actual cache partitions and the engine search count through the real SDK', function (): void {
+    config()->set('librarium.profiles.openrouter-chat.options', [
+        'web_search' => true,
+        'search_engine' => 'exa',
+        'max_tool_calls' => 4,
+        'max_results' => 5,
+        'max_steps' => 1,
+        'max_prompt_bytes' => strlen('Bound this grounded OpenRouter answer.'),
+    ]);
+    Http::fake([
+        'https://openrouter.ai/api/v1/chat/completions' => Http::response([
+            'id' => 'gen-grounded-partitions',
+            'model' => 'openai/gpt-5.6-terra',
+            'choices' => [[
+                'message' => [
+                    'role' => 'assistant',
+                    'content' => 'A grounded OpenRouter answer.',
+                ],
+                'finish_reason' => 'stop',
+            ]],
+            'usage' => [
+                'prompt_tokens' => 900,
+                'completion_tokens' => 120,
+                'prompt_tokens_details' => [
+                    'cached_tokens' => 100,
+                    'cache_write_tokens' => 50,
+                ],
+                'server_tool_use' => ['web_search_requests' => 4],
+            ],
+        ]),
+    ]);
+
+    $response = Librarium::query('Bound this grounded OpenRouter answer.')
+        ->using('openrouter-chat')
+        ->run();
+
+    // The SDK gateway normalizes the inclusive provider total into exclusive
+    // partitions — uncached input, cache-read, and cache-write — so every
+    // token is represented exactly once for settlement.
+    expect($response->results->sole()->usage?->toArray())->toBe([
+        'prompt_tokens' => 750,
+        'completion_tokens' => 120,
+        'cache_write_input_tokens' => 50,
+        'cache_read_input_tokens' => 100,
+        'server_tool_search_requests' => 4,
+    ]);
+    Http::assertSentCount(1);
+});
+
+it('keeps the engine search count null when the provider does not report it', function (): void {
+    config()->set('librarium.profiles.openrouter-chat.options', [
+        'web_search' => true,
+        'search_engine' => 'exa',
+        'max_tool_calls' => 4,
+        'max_results' => 5,
+        'max_steps' => 1,
+        'max_prompt_bytes' => strlen('Bound this grounded OpenRouter answer.'),
+    ]);
+    Http::fake([
+        'https://openrouter.ai/api/v1/chat/completions' => Http::response([
+            'id' => 'gen-grounded-nocount',
+            'model' => 'openai/gpt-5.6-terra',
+            'choices' => [[
+                'message' => ['role' => 'assistant', 'content' => 'A grounded OpenRouter answer.'],
+                'finish_reason' => 'stop',
+            ]],
+            'usage' => [
+                'prompt_tokens' => 900,
+                'completion_tokens' => 120,
+            ],
+        ]),
+    ]);
+
+    $response = Librarium::query('Bound this grounded OpenRouter answer.')
+        ->using('openrouter-chat')
+        ->run();
+
+    expect($response->results->sole()->usage?->toArray())->toBe([
+        'prompt_tokens' => 900,
+        'completion_tokens' => 120,
+    ])
+        ->not->toHaveKey('server_tool_search_requests');
     Http::assertSentCount(1);
 });
 
@@ -209,7 +295,7 @@ it('names the engine-specific Exa search unit instead of the aliased model web s
         ->using('openrouter-chat')
         ->spendingBound();
 
-    expect($bound->quantities?->toArray())->toHaveKeys(['input_tokens', 'output_tokens', 'exa_search_requests'])
+    expect($bound->quantities?->toArray())->toHaveKeys(['cache_write_input_tokens', 'output_tokens', 'exa_search_requests'])
         ->and($bound->quantities?->toArray())->not->toHaveKey('web_searches')
         ->and($bound->pricingIdentity?->key())->not->toBe('openrouter:openai/gpt-5.6-terra');
     Http::assertNothingSent();
@@ -354,7 +440,7 @@ it('keeps the OpenRouter bound independent of the optional output-token run cont
 
     expect($bound->kind)->toBe(SpendingBoundKind::BillableQuantities)
         ->and($bound->quantities?->toArray())->toBe([
-            'input_tokens' => '5250000',
+            'cache_write_input_tokens' => '5250000',
             'output_tokens' => '640000',
             'exa_search_requests' => '4',
         ]);
