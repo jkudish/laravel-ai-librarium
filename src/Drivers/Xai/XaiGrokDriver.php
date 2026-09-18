@@ -31,7 +31,18 @@ use Jkudish\LaravelAiLibrarium\Responses\Source;
 use Jkudish\LaravelAiLibrarium\Responses\Usage;
 use stdClass;
 
-/** Runs one inline xAI Responses API request with an exact web, X, or combined search strategy. */
+/**
+ * Runs one inline xAI Responses API request with an exact web, X, or combined search strategy.
+ *
+ * This driver deliberately does not implement `DefinesSpendingBound`: every route it serves
+ * enables a server-side search tool, xAI bills each successful tool invocation ($5 per 1k
+ * `web_search` calls), and no official documentation today bounds the invocation count from
+ * the request side (`max_turns` limits turns, not the parallel tool calls within a turn,
+ * and `max_tool_calls` exists only on the response object). The pre-dispatch bound therefore
+ * fails closed to `unknown`; see `docs/xai-grok-spending-bounds.md` for the sourced
+ * analysis, including the `parallel_tool_calls` investigation and what would change the
+ * verdict. That is "no documented provable ceiling found", not a claim of impossibility.
+ */
 final readonly class XaiGrokDriver implements Driver
 {
     private const string ENDPOINT = 'https://api.x.ai/v1/responses';
