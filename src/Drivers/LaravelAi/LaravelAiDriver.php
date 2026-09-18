@@ -32,8 +32,54 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
 
     private const int CLAUDE_SONNET_5_MAX_OUTPUT_TOKENS = 128_000;
 
+    /**
+     * The OpenAI Responses API rejects max_output_tokens below 16 for every
+     * model, including gpt-5.6-luna.
+     */
+    private const int OPENAI_RESPONSES_MIN_OUTPUT_TOKENS = 16;
+
+    /**
+     * OpenRouter's server-tool budget: "Each tool call the model makes ...
+     * consumes one step; when the budget is exhausted, the model is asked to
+     * produce its final answer." max_tool_calls defaults to 30 and 30 is the
+     * documented maximum, so a budgeted request performs at most 30 tool-call
+     * steps plus one final model completion.
+     */
+    private const int OPENROUTER_SERVER_TOOL_BUDGET_MAXIMUM = 30;
+
+    /**
+     * Context length of the pinned OpenAI endpoint serving
+     * openai/gpt-5.6-terra per OpenRouter's endpoint catalog.
+     */
+    private const int OPENROUTER_OPENAI_GPT_5_6_TERRA_CONTEXT_TOKENS = 1_050_000;
+
+    /**
+     * Per-completion output maximum of the pinned OpenAI endpoint serving
+     * openai/gpt-5.6-terra per OpenRouter's endpoint catalog. Forwarding the
+     * request's max_tokens to every internal loop completion is not
+     * documented, so the bound uses the model maximum per completion.
+     */
+    private const int OPENROUTER_OPENAI_GPT_5_6_TERRA_MAX_COMPLETION_TOKENS = 128_000;
+
+    private const int OPENROUTER_EXA_MAX_RESULTS_WITHOUT_ADDITIONAL_RESULT_FEES = 10;
+
+    private const int OPENROUTER_EXA_MAX_RESULTS_LIMIT = 25;
+
     /** @var list<string> */
     private const array OPENROUTER_SEARCH_ENGINES = ['exa', 'firecrawl', 'parallel', 'perplexity'];
+
+    /** @var list<string> */
+    private const array MAX_SEARCHES_PROVIDERS = ['anthropic', 'openrouter'];
+
+    /** @var list<string> */
+    private const array MAX_TOOL_CALLS_PROVIDERS = ['openai', 'openrouter'];
+
+    /**
+     * The only OpenRouter model whose grounded bound is proven. The endpoint
+     * pin applies to exactly this model so a budget control on any other
+     * OpenRouter model never reroutes it to OpenAI.
+     */
+    private const string OPENROUTER_BOUNDED_MODEL = 'openai/gpt-5.6-terra';
 
     public function __construct(private ResearchResultMapper $mapper) {}
 
@@ -46,20 +92,116 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
             'max_output_tokens' => ['sometimes', 'integer', 'min:1', 'max:'.self::CLAUDE_SONNET_5_MAX_OUTPUT_TOKENS],
             'max_steps' => ['sometimes', 'integer', 'min:1'],
             'max_prompt_bytes' => ['sometimes', 'integer', 'min:1'],
+            'max_searches' => ['sometimes', 'integer', 'min:1'],
+            'max_tool_calls' => ['sometimes', 'integer', 'min:1'],
+            'max_results' => ['sometimes', 'integer', 'min:1', 'max:'.self::OPENROUTER_EXA_MAX_RESULTS_LIMIT],
         ];
     }
 
     public function spendingBound(DriverRequest $request): SpendingBound
     {
         $options = $request->profile->options;
+
+        if ($request->profile->provider === 'openrouter'
+            && $request->profile->model === self::OPENROUTER_BOUNDED_MODEL) {
+            return $this->openRouterGroundedSpendingBound($request, $options);
+        }
+
+        if ($request->profile->provider === 'anthropic'
+            && $request->profile->model === 'claude-sonnet-5'
+            && ($options['web_search'] ?? true) === false) {
+            return $this->noSearchClaudeSpendingBound($request, $options);
+        }
+
+        return SpendingBound::unknown();
+    }
+
+    /**
+     * The one grounded route with a complete official quantity authority:
+     * OpenRouter's server-tool budget bounds the agent loop itself. "Each tool
+     * call the model makes ... consumes one step; when the budget is
+     * exhausted, the model is asked to produce its final answer," and
+     * max_tool_calls defaults to 30 with 30 as the documented maximum, so the
+     * request performs at most budget + 1 model completions regardless of
+     * whether individual searches succeed, error, or are attempted past a
+     * per-tool cap. Every other grounded route stays unknown: Anthropic's
+     * max_uses returns max_uses_exceeded error results to the internal model
+     * (undocumented per-turn iteration cap) and OpenAI's max_tool_calls only
+     * ignores further attempts ("Any further attempts to call a tool by the
+     * model will be ignored"), which does not prove inference stops, so no
+     * multiple of the context window bounds their internal iterations.
+     *
+     * @param  array<string, mixed>  $options
+     */
+    private function openRouterGroundedSpendingBound(DriverRequest $request, array $options): SpendingBound
+    {
+        $maxToolCalls = $options['max_tool_calls'] ?? null;
+        $maxResults = $options['max_results'] ?? null;
+        $maxSteps = $options['max_steps'] ?? null;
+        $maxPromptBytes = $options['max_prompt_bytes'] ?? null;
+
+        if (($options['web_search'] ?? null) !== true
+            || ($options['search_engine'] ?? null) !== 'exa'
+            || array_key_exists('max_searches', $options)
+            || ! is_int($maxToolCalls)
+            || $maxToolCalls < 1
+            || $maxToolCalls > self::OPENROUTER_SERVER_TOOL_BUDGET_MAXIMUM
+            || ! is_int($maxResults)
+            || $maxResults < 1
+            || $maxResults > self::OPENROUTER_EXA_MAX_RESULTS_WITHOUT_ADDITIONAL_RESULT_FEES
+            || $maxSteps !== 1
+            || ! is_int($maxPromptBytes)
+            || $maxPromptBytes < 1
+            || strlen($request->prompt) > $maxPromptBytes) {
+            return SpendingBound::unknown();
+        }
+
+        // A configured max_searches alongside the budget is ambiguous: after
+        // max_uses is reached, further search calls "return an error result
+        // instead of executing," and the docs do not state whether those
+        // failed attempts still consume budget steps, so the loop length
+        // cannot be derived. The check above fails such configurations closed
+        // instead of assuming an interpretation.
+
+        $completions = $maxToolCalls + 1;
+
+        // The request restricts routing to the OpenAI default-tier endpoints
+        // serving this model: base slugs do not match non-default service
+        // tiers, so order "openai" excludes flex-style tiers, and the
+        // openai/flex ignore is explicit redundant defense. The current
+        // single default-tier endpoint and its rates are catalog snapshot
+        // facts the pricing owner reverifies. The identity names the
+        // worst-case billing basis: every completion conservatively billed at
+        // the >272K-prompt override rates with the 1.25x cache-write premium,
+        // which no aggregate model rate satisfies, so rate resolution fails
+        // closed until the registry serves this exact identity. The search
+        // unit is engine-specific because the catalog's model-level
+        // web_search rate is the native passthrough fee, not Exa's per-request
+        // engine fee.
+        return SpendingBound::billableQuantities(
+            new ModelIdentity('openrouter', 'openai/gpt-5.6-terra-272k'),
+            new Usage([
+                'input_tokens' => $completions * self::OPENROUTER_OPENAI_GPT_5_6_TERRA_CONTEXT_TOKENS,
+                'output_tokens' => $completions * self::OPENROUTER_OPENAI_GPT_5_6_TERRA_MAX_COMPLETION_TOKENS,
+                'exa_search_requests' => $maxToolCalls,
+            ]),
+        );
+    }
+
+    /**
+     * The preserved no-search Claude bound: one exact request, no server
+     * tools, so the context window itself caps input and max_tokens caps
+     * output.
+     *
+     * @param  array<string, mixed>  $options
+     */
+    private function noSearchClaudeSpendingBound(DriverRequest $request, array $options): SpendingBound
+    {
         $maxOutputTokens = $options['max_output_tokens'] ?? null;
         $maxSteps = $options['max_steps'] ?? null;
         $maxPromptBytes = $options['max_prompt_bytes'] ?? null;
 
-        if ($request->profile->provider !== 'anthropic'
-            || $request->profile->model !== 'claude-sonnet-5'
-            || ($options['web_search'] ?? true) !== false
-            || array_key_exists('search_engine', $options)
+        if (array_key_exists('search_engine', $options)
             || ! is_int($maxOutputTokens)
             || $maxOutputTokens < 1
             || $maxOutputTokens > self::CLAUDE_SONNET_5_MAX_OUTPUT_TOKENS
@@ -121,6 +263,54 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
             );
         }
 
+        $maxSearches = data_get($request->profile->options, 'max_searches');
+        $maxToolCalls = data_get($request->profile->options, 'max_tool_calls');
+        $maxResults = data_get($request->profile->options, 'max_results');
+
+        if (($maxSearches !== null && (! is_int($maxSearches) || $maxSearches < 1))
+            || ($maxToolCalls !== null && (! is_int($maxToolCalls) || $maxToolCalls < 1))
+            || ($maxResults !== null && (! is_int($maxResults) || $maxResults < 1 || $maxResults > self::OPENROUTER_EXA_MAX_RESULTS_LIMIT))
+            || ($request->profile->provider === 'openai' && $maxOutputTokens !== null && $maxOutputTokens < self::OPENAI_RESPONSES_MIN_OUTPUT_TOKENS)
+            || ($request->profile->provider === 'openrouter' && $maxToolCalls !== null && $maxToolCalls > self::OPENROUTER_SERVER_TOOL_BUDGET_MAXIMUM)) {
+            throw new DriverException(
+                errorCode: 'laravel_ai.invalid_options',
+                message: 'The Laravel AI Driver received invalid Profile options.',
+                fallbackAllowed: false,
+            );
+        }
+
+        if (($maxSearches !== null || $maxToolCalls !== null || $maxResults !== null) && ! $usesWebSearch) {
+            throw new DriverException(
+                errorCode: 'laravel_ai.invalid_options',
+                message: 'Grounded search caps require web search to be enabled.',
+                fallbackAllowed: false,
+            );
+        }
+
+        if ($maxSearches !== null && ! in_array($request->profile->provider, self::MAX_SEARCHES_PROVIDERS, true)) {
+            throw new DriverException(
+                errorCode: 'laravel_ai.invalid_options',
+                message: 'The max_searches control is supported only by Anthropic and OpenRouter Profiles.',
+                fallbackAllowed: false,
+            );
+        }
+
+        if ($maxToolCalls !== null && ! in_array($request->profile->provider, self::MAX_TOOL_CALLS_PROVIDERS, true)) {
+            throw new DriverException(
+                errorCode: 'laravel_ai.invalid_options',
+                message: 'The max_tool_calls control is supported only by OpenAI and OpenRouter Profiles.',
+                fallbackAllowed: false,
+            );
+        }
+
+        if ($maxResults !== null && $request->profile->provider !== 'openrouter') {
+            throw new DriverException(
+                errorCode: 'laravel_ai.invalid_options',
+                message: 'The max_results control is supported only by OpenRouter Profiles.',
+                fallbackAllowed: false,
+            );
+        }
+
         if (is_int($maxPromptBytes) && strlen($request->prompt) > $maxPromptBytes) {
             throw new DriverException(
                 errorCode: 'laravel_ai.prompt_too_long',
@@ -160,6 +350,12 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
             exactOpenRouterRouting: $request->profile->provider === 'openrouter',
             maxOutputTokens: $maxOutputTokens,
             maxSteps: $maxSteps,
+            maxSearches: $maxSearches,
+            maxToolCalls: $maxToolCalls,
+            maxResults: $maxResults,
+            pinsOpenRouterProvider: $request->profile->provider === 'openrouter'
+                && $request->profile->model === self::OPENROUTER_BOUNDED_MODEL
+                && $maxToolCalls !== null,
         );
 
         try {

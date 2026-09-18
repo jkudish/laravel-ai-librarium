@@ -1,0 +1,682 @@
+<?php
+
+declare(strict_types=1);
+
+use Carbon\CarbonImmutable;
+use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Validation\ValidationException;
+use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\LaravelAiDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\ResearchResultMapper;
+use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
+use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
+use Jkudish\LaravelAiLibrarium\Facades\Librarium;
+use Jkudish\LaravelAiLibrarium\Profile;
+use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
+use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
+use Jkudish\LaravelAiLibrarium\SpendingBoundKind;
+use Laravel\Ai\Ai;
+use Laravel\Ai\AiManager;
+
+beforeEach(function (): void {
+    app()->forgetInstance(AiManager::class);
+    Ai::clearResolvedInstance(AiManager::class);
+});
+
+it('bounds exact grounded OpenRouter quantities from the documented server-tool budget', function (int $budget, string $inputTokens, string $outputTokens, string $searchRequests): void {
+    config()->set('librarium.profiles.openrouter-chat.options', [
+        'web_search' => true,
+        'search_engine' => 'exa',
+        'max_tool_calls' => $budget,
+        'max_results' => 5,
+        'max_steps' => 1,
+        'max_prompt_bytes' => 4096,
+    ]);
+
+    $bound = Librarium::query('Bound this grounded OpenRouter answer.')
+        ->using('openrouter-chat')
+        ->spendingBound();
+
+    expect($bound->kind)->toBe(SpendingBoundKind::BillableQuantities)
+        ->and($bound->pricingIdentity?->key())->toBe('openrouter:openai/gpt-5.6-terra-272k')
+        ->and($bound->quantities?->toArray())->toBe([
+            'input_tokens' => $inputTokens,
+            'output_tokens' => $outputTokens,
+            'exa_search_requests' => $searchRequests,
+        ]);
+    Http::assertNothingSent();
+})->with([
+    'minimum budget' => [1, '2100000', '256000', '1'],
+    'moderate budget' => [4, '5250000', '640000', '4'],
+    'maximum documented budget' => [30, '32550000', '3968000', '30'],
+]);
+
+it('sends the exact grounded OpenRouter budget, endpoint pin, and Exa controls through the real SDK', function (): void {
+    config()->set('librarium.profiles.openrouter-chat.options', [
+        'web_search' => true,
+        'search_engine' => 'exa',
+        'max_tool_calls' => 4,
+        'max_results' => 5,
+        'max_steps' => 1,
+        'max_prompt_bytes' => strlen('Bound this grounded OpenRouter answer.'),
+    ]);
+    Http::fake([
+        'https://openrouter.ai/api/v1/chat/completions' => Http::response([
+            'id' => 'gen-grounded',
+            'model' => 'openai/gpt-5.6-terra',
+            'choices' => [[
+                'message' => [
+                    'role' => 'assistant',
+                    'content' => 'A grounded OpenRouter answer.',
+                    'annotations' => [[
+                        'type' => 'url_citation',
+                        'url_citation' => ['url' => 'https://example.com/source', 'title' => 'Example source'],
+                    ]],
+                ],
+                'finish_reason' => 'stop',
+            ]],
+            'usage' => [
+                'prompt_tokens' => 900,
+                'completion_tokens' => 120,
+                'cost' => 0.002,
+                'server_tool_use' => ['web_search_requests' => 4],
+            ],
+        ]),
+    ]);
+
+    $response = Librarium::query('Bound this grounded OpenRouter answer.')
+        ->using('openrouter-chat')
+        ->run();
+
+    expect($response->status->value)->toBe('succeeded')
+        ->and($response->results->sole()->citations)->toHaveCount(1);
+    Http::assertSent(function (Request $request): bool {
+        $body = $request->data();
+
+        return $request->url() === 'https://openrouter.ai/api/v1/chat/completions'
+            && $body['model'] === 'openai/gpt-5.6-terra'
+            && $body['max_tool_calls'] === 4
+            && ! array_key_exists('max_tokens', $body)
+            && $body['tool_choice'] === 'auto'
+            && $body['tools'] === [[
+                'type' => 'openrouter:web_search',
+                'parameters' => [
+                    'engine' => 'exa',
+                    'max_results' => 5,
+                ],
+            ]]
+            && $body['provider'] === [
+                'order' => ['openai'],
+                'ignore' => ['openai/flex'],
+                'require_parameters' => true,
+                'allow_fallbacks' => false,
+            ]
+            && str_contains((string) json_encode($body), 'Bound this grounded OpenRouter answer.');
+    });
+    Http::assertSentCount(1);
+});
+
+it('keeps the pinned OpenRouter endpoint routing off unconfigured requests', function (): void {
+    config()->set('librarium.profiles.openrouter-chat.options', [
+        'web_search' => true,
+        'search_engine' => 'exa',
+        'max_steps' => 1,
+    ]);
+    Http::fake([
+        'https://openrouter.ai/api/v1/chat/completions' => Http::response([
+            'id' => 'gen-unpinned',
+            'model' => 'openai/gpt-5.6-terra',
+            'choices' => [[
+                'message' => ['role' => 'assistant', 'content' => 'Answer.'],
+                'finish_reason' => 'stop',
+            ]],
+            'usage' => ['prompt_tokens' => 10, 'completion_tokens' => 5],
+        ]),
+    ]);
+
+    Librarium::query('Unpinned defaults.')
+        ->using('openrouter-chat')
+        ->run();
+
+    Http::assertSent(function (Request $request): bool {
+        $body = $request->data();
+
+        return $body['provider'] === ['require_parameters' => true, 'allow_fallbacks' => false]
+            && ! array_key_exists('max_tool_calls', $body);
+    });
+});
+
+it('never reroutes a budget on a non-bounded OpenRouter model to the pinned endpoint', function (): void {
+    config()->set('librarium.profiles.openrouter-grounded.options', [
+        'web_search' => true,
+        'search_engine' => 'exa',
+        'max_tool_calls' => 4,
+        'max_steps' => 1,
+    ]);
+    Http::fake([
+        'https://openrouter.ai/api/v1/chat/completions' => Http::response([
+            'id' => 'gen-luna',
+            'model' => 'openai/gpt-5.6-luna',
+            'choices' => [[
+                'message' => [
+                    'role' => 'assistant',
+                    'content' => 'A grounded Luna answer.',
+                    'annotations' => [[
+                        'type' => 'url_citation',
+                        'url_citation' => ['url' => 'https://example.com/source', 'title' => 'Example source'],
+                    ]],
+                ],
+                'finish_reason' => 'stop',
+            ]],
+            'usage' => ['prompt_tokens' => 100, 'completion_tokens' => 20],
+        ]),
+    ]);
+
+    $response = Librarium::query('Budget a non-bounded model.')
+        ->using('openrouter-grounded')
+        ->run();
+
+    $bound = Librarium::query('Budget a non-bounded model.')
+        ->using('openrouter-grounded')
+        ->spendingBound();
+
+    expect($response->status->value)->toBe('succeeded')
+        ->and($bound->kind)->toBe(SpendingBoundKind::Unknown);
+    Http::assertSent(function (Request $request): bool {
+        $body = $request->data();
+
+        return $body['model'] === 'openai/gpt-5.6-luna'
+            && $body['max_tool_calls'] === 4
+            && $body['provider'] === ['require_parameters' => true, 'allow_fallbacks' => false];
+    });
+    Http::assertSentCount(1);
+});
+
+it('names the engine-specific Exa search unit instead of the aliased model web search rate', function (): void {
+    config()->set('librarium.profiles.openrouter-chat.options', [
+        'web_search' => true,
+        'search_engine' => 'exa',
+        'max_tool_calls' => 4,
+        'max_results' => 5,
+        'max_steps' => 1,
+        'max_prompt_bytes' => 4096,
+    ]);
+
+    $bound = Librarium::query('Bound this grounded OpenRouter answer.')
+        ->using('openrouter-chat')
+        ->spendingBound();
+
+    expect($bound->quantities?->toArray())->toHaveKeys(['input_tokens', 'output_tokens', 'exa_search_requests'])
+        ->and($bound->quantities?->toArray())->not->toHaveKey('web_searches')
+        ->and($bound->pricingIdentity?->key())->not->toBe('openrouter:openai/gpt-5.6-terra');
+    Http::assertNothingSent();
+});
+
+it('fails closed when the ambiguous max_uses budget interaction is configured', function (int $maxSearches): void {
+    config()->set('librarium.profiles.openrouter-chat.options', [
+        'web_search' => true,
+        'search_engine' => 'exa',
+        'max_tool_calls' => 30,
+        'max_searches' => $maxSearches,
+        'max_results' => 5,
+        'max_steps' => 1,
+        'max_prompt_bytes' => 4096,
+    ]);
+
+    $bound = Librarium::query('Bound this grounded OpenRouter answer.')
+        ->using('openrouter-chat')
+        ->spendingBound();
+
+    expect($bound->kind)->toBe(SpendingBoundKind::Unknown);
+    Http::assertNothingSent();
+})->with([
+    'a search cap below the budget' => [5],
+    'a search cap above the budget' => [35],
+]);
+
+it('treats the documented server-tool budget maximum as the bounded boundary', function (int $budget, string $kind): void {
+    config()->set('librarium.profiles.openrouter-chat.options', [
+        'web_search' => true,
+        'search_engine' => 'exa',
+        'max_tool_calls' => $budget,
+        'max_results' => 5,
+        'max_steps' => 1,
+        'max_prompt_bytes' => 4096,
+    ]);
+
+    if ($kind === 'rejected') {
+        try {
+            groundedBoundDriver()->run(groundedBoundRequest(
+                provider: 'openrouter',
+                model: 'openai/gpt-5.6-terra',
+                options: config('librarium.profiles.openrouter-chat.options'),
+            ));
+            $this->fail('A budget beyond the documented maximum should be rejected before execution.');
+        } catch (DriverException $exception) {
+            expect($exception->errorCode)->toBe('laravel_ai.invalid_options')
+                ->and($exception->fallbackAllowed)->toBeFalse();
+        }
+        Http::assertNothingSent();
+
+        return;
+    }
+
+    $bound = Librarium::query('Bound this grounded OpenRouter answer.')
+        ->using('openrouter-chat')
+        ->spendingBound();
+
+    expect($bound->kind->value)->toBe($kind);
+    Http::assertNothingSent();
+})->with([
+    'exactly the documented maximum' => [30, 'billable_quantities'],
+    'one beyond the documented maximum' => [31, 'unknown'],
+]);
+
+it('treats the Exa per-request result allowance as the additional-result fee boundary', function (int $maxResults, string $kind): void {
+    config()->set('librarium.profiles.openrouter-chat.options', [
+        'web_search' => true,
+        'search_engine' => 'exa',
+        'max_tool_calls' => 4,
+        'max_results' => $maxResults,
+        'max_steps' => 1,
+        'max_prompt_bytes' => 4096,
+    ]);
+
+    if ($kind === 'rejected') {
+        expect(fn () => Librarium::query('Bound this grounded OpenRouter answer.')
+            ->using('openrouter-chat')
+            ->spendingBound())
+            ->toThrow(ValidationException::class);
+        Http::assertNothingSent();
+
+        return;
+    }
+
+    $bound = Librarium::query('Bound this grounded OpenRouter answer.')
+        ->using('openrouter-chat')
+        ->spendingBound();
+
+    expect($bound->kind->value)->toBe($kind);
+    Http::assertNothingSent();
+})->with([
+    'inside the included allowance' => [10, 'billable_quantities'],
+    'one result beyond the allowance' => [11, 'unknown'],
+    'at the parameter limit' => [25, 'unknown'],
+    'beyond the parameter limit' => [26, 'rejected'],
+]);
+
+it('keeps grounded OpenRouter configurations unknown until the budget contract is complete', function (Closure $configure): void {
+    config()->set('librarium.profiles.openrouter-chat.options', [
+        'web_search' => true,
+        'search_engine' => 'exa',
+        'max_tool_calls' => 4,
+        'max_results' => 5,
+        'max_steps' => 1,
+        'max_prompt_bytes' => 4096,
+    ]);
+    $configure();
+
+    $bound = Librarium::query('Bound this grounded OpenRouter answer.')
+        ->using('openrouter-chat')
+        ->spendingBound();
+
+    expect($bound->kind)->toBe(SpendingBoundKind::Unknown);
+    Http::assertNothingSent();
+})->with([
+    'missing budget' => fn () => removeProfileOption('openrouter-chat', 'max_tool_calls'),
+    'missing result cap' => fn () => removeProfileOption('openrouter-chat', 'max_results'),
+    'missing SDK step cap' => fn () => removeProfileOption('openrouter-chat', 'max_steps'),
+    'multiple SDK steps' => fn () => config()->set('librarium.profiles.openrouter-chat.options.max_steps', 2),
+    'missing prompt contract' => fn () => removeProfileOption('openrouter-chat', 'max_prompt_bytes'),
+    'prompt exceeds contract' => fn () => config()->set('librarium.profiles.openrouter-chat.options.max_prompt_bytes', 10),
+    'implicit web search flag' => fn () => removeProfileOption('openrouter-chat', 'web_search'),
+    'wrong engine' => fn () => config()->set('librarium.profiles.openrouter-chat.options.search_engine', 'parallel'),
+    'wrong model' => fn () => config()->set('librarium.profiles.openrouter-chat.model', 'openai/gpt-5.6-luna'),
+]);
+
+it('keeps the OpenRouter bound independent of the optional output-token run control', function (): void {
+    config()->set('librarium.profiles.openrouter-chat.options', [
+        'web_search' => true,
+        'search_engine' => 'exa',
+        'max_tool_calls' => 4,
+        'max_results' => 5,
+        'max_output_tokens' => 16_000,
+        'max_steps' => 1,
+        'max_prompt_bytes' => 4096,
+    ]);
+
+    $bound = Librarium::query('Bound this grounded OpenRouter answer.')
+        ->using('openrouter-chat')
+        ->spendingBound();
+
+    expect($bound->kind)->toBe(SpendingBoundKind::BillableQuantities)
+        ->and($bound->quantities?->toArray())->toBe([
+            'input_tokens' => '5250000',
+            'output_tokens' => '640000',
+            'exa_search_requests' => '4',
+        ]);
+    Http::assertNothingSent();
+});
+
+it('keeps grounded Claude unknown because max_uses errors continue unbilled internal iterations', function (): void {
+    config()->set('librarium.profiles.claude-chat.options', [
+        'web_search' => true,
+        'max_searches' => 5,
+        'max_output_tokens' => 64_000,
+        'max_steps' => 1,
+        'max_prompt_bytes' => 4096,
+    ]);
+
+    $bound = Librarium::query('Bound this grounded Claude answer.')
+        ->using('claude-chat')
+        ->spendingBound();
+
+    expect($bound->toArray())->toBe(['kind' => 'unknown']);
+    Http::assertNothingSent();
+});
+
+it('still enforces grounded Claude run controls when the provider continues past max_uses', function (): void {
+    config()->set('librarium.profiles.claude-chat.options', [
+        'web_search' => true,
+        'max_searches' => 5,
+        'max_output_tokens' => 64_000,
+        'max_steps' => 1,
+        'max_prompt_bytes' => strlen('Bound this grounded Claude answer.'),
+    ]);
+    Http::fake([
+        'https://api.anthropic.com/v1/messages' => Http::response([
+            'id' => 'msg_max_uses',
+            'type' => 'message',
+            'role' => 'assistant',
+            'model' => 'claude-sonnet-5',
+            'content' => [
+                ['type' => 'server_tool_use', 'id' => 'srvu_1', 'name' => 'web_search', 'input' => ['query' => 'first']],
+                [
+                    'type' => 'web_search_tool_result',
+                    'tool_use_id' => 'srvu_1',
+                    'content' => [['type' => 'web_search_result_error', 'error_code' => 'max_uses_exceeded']],
+                ],
+                ['type' => 'text', 'text' => 'Claude answered after the cap was exceeded.'],
+            ],
+            'stop_reason' => 'end_turn',
+            'stop_sequence' => null,
+            'usage' => [
+                'input_tokens' => 12,
+                'output_tokens' => 7,
+                'server_tool_use' => ['web_search_requests' => 1],
+            ],
+        ]),
+    ]);
+
+    $response = Librarium::query('Bound this grounded Claude answer.')
+        ->using('claude-chat')
+        ->run();
+
+    expect($response->status->value)->toBe('succeeded')
+        ->and($response->results->sole()->content)->toBe('Claude answered after the cap was exceeded.');
+    Http::assertSent(function (Request $request): bool {
+        $body = $request->data();
+
+        return $request->url() === 'https://api.anthropic.com/v1/messages'
+            && $body['model'] === 'claude-sonnet-5'
+            && $body['max_tokens'] === 64_000
+            && $body['tools'] === [[
+                'type' => 'web_search_20250305',
+                'name' => 'web_search',
+                'max_uses' => 5,
+            ]];
+    });
+    Http::assertSentCount(1);
+});
+
+it('keeps grounded OpenAI unknown because ignored tool attempts do not prove inference stops', function (): void {
+    config()->set('librarium.profiles.openai-chat.options', [
+        'web_search' => true,
+        'max_tool_calls' => 3,
+        'max_output_tokens' => 32_768,
+        'max_steps' => 1,
+        'max_prompt_bytes' => 4096,
+    ]);
+
+    $bound = Librarium::query('Bound this grounded OpenAI answer.')
+        ->using('openai-chat')
+        ->spendingBound();
+
+    expect($bound->toArray())->toBe(['kind' => 'unknown']);
+    Http::assertNothingSent();
+});
+
+it('still enforces grounded OpenAI run controls while the bound stays unknown', function (): void {
+    config()->set('librarium.profiles.openai-chat.options', [
+        'web_search' => true,
+        'max_tool_calls' => 3,
+        'max_output_tokens' => 32_768,
+        'max_steps' => 1,
+        'max_prompt_bytes' => strlen('Bound this grounded OpenAI answer.'),
+    ]);
+    Http::fake([
+        'https://api.openai.com/v1/responses' => Http::response([
+            'id' => 'resp_grounded',
+            'status' => 'completed',
+            'model' => 'gpt-5.6-luna',
+            'output' => [[
+                'type' => 'message',
+                'status' => 'completed',
+                'content' => [[
+                    'type' => 'output_text',
+                    'text' => 'A grounded OpenAI answer.',
+                    'annotations' => [[
+                        'type' => 'url_citation',
+                        'url' => 'https://example.com/source',
+                        'title' => 'Example source',
+                    ]],
+                ]],
+            ]],
+            'usage' => ['input_tokens' => 500, 'output_tokens' => 60],
+        ]),
+    ]);
+
+    $response = Librarium::query('Bound this grounded OpenAI answer.')
+        ->using('openai-chat')
+        ->run();
+
+    expect($response->status->value)->toBe('succeeded')
+        ->and($response->results->sole()->citations)->toHaveCount(1);
+    Http::assertSent(function (Request $request): bool {
+        $body = $request->data();
+
+        return $request->url() === 'https://api.openai.com/v1/responses'
+            && $body['model'] === 'gpt-5.6-luna'
+            && $body['max_output_tokens'] === 32_768
+            && $body['max_tool_calls'] === 3
+            && $body['tool_choice'] === 'auto'
+            && $body['tools'] === [['type' => 'web_search']];
+    });
+    Http::assertSentCount(1);
+});
+
+it('rejects OpenAI output-token controls below the documented Responses floor before execution', function (): void {
+    try {
+        groundedBoundDriver()->run(groundedBoundRequest(
+            provider: 'openai',
+            model: 'gpt-5.6-luna',
+            options: ['web_search' => true, 'max_tool_calls' => 3, 'max_output_tokens' => 15],
+        ));
+        $this->fail('An output-token control below the Responses floor should be rejected before execution.');
+    } catch (DriverException $exception) {
+        expect($exception->errorCode)->toBe('laravel_ai.invalid_options')
+            ->and($exception->fallbackAllowed)->toBeFalse();
+    }
+    Http::assertNothingSent();
+});
+
+it('keeps Gemini grounding unknown because Google bills every generated search query without a request cap', function (Closure $configure): void {
+    config()->set('librarium.profiles.gemini-grounded.options', [
+        'max_output_tokens' => 4_096,
+        'max_steps' => 1,
+        'max_prompt_bytes' => 4096,
+    ]);
+    $configure();
+
+    $bound = Librarium::query('Bound this grounded Gemini answer.')
+        ->using('gemini-grounded')
+        ->spendingBound();
+
+    expect($bound->toArray())->toBe(['kind' => 'unknown']);
+    Http::assertNothingSent();
+})->with([
+    'token controls alone' => fn () => null,
+    'explicit web search flag' => fn () => config()->set('librarium.profiles.gemini-grounded.options.web_search', true),
+    'an attempted search cap' => fn () => config()->set('librarium.profiles.gemini-grounded.options.max_searches', 5),
+    'an attempted tool-call budget' => fn () => config()->set('librarium.profiles.gemini-grounded.options.max_tool_calls', 3),
+]);
+
+it('still enforces Gemini token controls on the real outbound request while the bound stays unknown', function (): void {
+    config()->set('librarium.profiles.gemini-grounded.options', [
+        'max_output_tokens' => 4_096,
+        'max_steps' => 1,
+        'max_prompt_bytes' => strlen('Bound this grounded Gemini answer.'),
+    ]);
+    Http::fake([
+        'https://generativelanguage.googleapis.com/*' => Http::response([
+            'candidates' => [[
+                'content' => [
+                    'role' => 'model',
+                    'parts' => [['text' => 'A grounded Gemini answer.']],
+                ],
+                'finishReason' => 'STOP',
+                'groundingMetadata' => [
+                    'groundingChunks' => [['web' => ['uri' => 'https://example.com/source', 'title' => 'Example source']]],
+                    'groundingSupports' => [['groundingChunkIndices' => [0]]],
+                ],
+            ]],
+            'usageMetadata' => ['promptTokenCount' => 40, 'candidatesTokenCount' => 30, 'thoughtsTokenCount' => 10],
+        ]),
+    ]);
+
+    $response = Librarium::query('Bound this grounded Gemini answer.')
+        ->using('gemini-grounded')
+        ->run();
+
+    expect($response->status->value)->toBe('succeeded')
+        ->and($response->results->sole()->citations)->toHaveCount(1);
+    Http::assertSent(function (Request $request): bool {
+        $body = $request->data();
+
+        return $request->url() === 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent'
+            && data_get($body, 'generationConfig.maxOutputTokens') === 4_096
+            && (array) data_get($body, 'tools.0.google_search') === [];
+    });
+    Http::assertSentCount(1);
+});
+
+it('rejects grounded controls the exact provider request cannot honor before execution', function (string $provider, ?string $model, array $options): void {
+    try {
+        groundedBoundDriver()->run(groundedBoundRequest(provider: $provider, model: $model, options: $options));
+        $this->fail('Unsupported grounded controls should be rejected before execution.');
+    } catch (DriverException $exception) {
+        expect($exception->errorCode)->toBe('laravel_ai.invalid_options')
+            ->and($exception->fallbackAllowed)->toBeFalse();
+    }
+    Http::assertNothingSent();
+})->with([
+    'Anthropic-style search cap on OpenAI' => ['openai', 'gpt-5.6-luna', ['web_search' => true, 'max_searches' => 5]],
+    'Anthropic-style search cap on Gemini' => ['gemini', 'gemini-3.6-flash', ['web_search' => true, 'max_searches' => 5]],
+    'OpenAI tool-call cap on Anthropic' => ['anthropic', 'claude-sonnet-5', ['web_search' => true, 'max_tool_calls' => 3]],
+    'OpenAI tool-call cap on Gemini' => ['gemini', 'gemini-3.6-flash', ['web_search' => true, 'max_tool_calls' => 3]],
+    'OpenRouter result cap on Anthropic' => ['anthropic', 'claude-sonnet-5', ['web_search' => true, 'max_results' => 5]],
+    'OpenRouter result cap on OpenAI' => ['openai', 'gpt-5.6-luna', ['web_search' => true, 'max_results' => 5]],
+    'search cap without web search' => ['anthropic', 'claude-sonnet-5', ['web_search' => false, 'max_searches' => 5]],
+    'tool-call budget without web search' => ['openrouter', 'openai/gpt-5.6-terra', ['web_search' => false, 'search_engine' => 'exa', 'max_tool_calls' => 3]],
+    'OpenRouter budget beyond the documented maximum' => ['openrouter', 'openai/gpt-5.6-terra', [
+        'web_search' => true,
+        'search_engine' => 'exa',
+        'max_tool_calls' => 31,
+        'max_results' => 5,
+    ]],
+]);
+
+it('keeps every shipped Laravel AI Profile unbounded under its default configuration', function (string $profile): void {
+    $bound = Librarium::query('Inventory the shipped defaults.')->using($profile)->spendingBound();
+
+    expect($bound->kind)->toBe(SpendingBoundKind::Unknown);
+    Http::assertNothingSent();
+})->with([
+    'claude-chat' => 'claude-chat',
+    'openai-chat' => 'openai-chat',
+    'gemini-grounded' => 'gemini-grounded',
+    'gemini-chat' => 'gemini-chat',
+    'openrouter-chat' => 'openrouter-chat',
+    'openrouter-grounded' => 'openrouter-grounded',
+]);
+
+it('preserves the bounded no-search Claude path beside the withdrawn grounded authority', function (): void {
+    config()->set('librarium.profiles.claude-chat.options', [
+        'web_search' => false,
+        'max_output_tokens' => 64_000,
+        'max_steps' => 1,
+        'max_prompt_bytes' => 4096,
+    ]);
+
+    $bound = Librarium::query('Bound this direct Claude answer.')
+        ->using('claude-chat')
+        ->spendingBound();
+
+    expect($bound->kind)->toBe(SpendingBoundKind::BillableQuantities)
+        ->and($bound->pricingIdentity?->key())->toBe('anthropic:claude-sonnet-5-global')
+        ->and($bound->quantities?->toArray())->toBe([
+            'input_tokens' => '1000000',
+            'output_tokens' => '64000',
+        ]);
+    Http::assertNothingSent();
+});
+
+function groundedBoundDriver(): LaravelAiDriver
+{
+    return new LaravelAiDriver(new ResearchResultMapper);
+}
+
+/**
+ * @param  array<string, mixed>  $options
+ */
+function groundedBoundRequest(
+    ?CarbonImmutable $deadline = null,
+    ?string $model = 'gemini-3.6-flash',
+    string $provider = 'gemini',
+    array $options = [],
+    string $prompt = 'Research Laravel AI.',
+): DriverRequest {
+    $profile = new Profile(
+        id: 'grounded-probe',
+        driver: LaravelAiDriver::class,
+        provider: $provider,
+        model: $model,
+        resultKind: ResultKind::GroundedAnswer,
+        grounding: GroundingPolicy::Required,
+        observation: ObservationMode::ApiOutput,
+        corpora: collect([Corpus::Web]),
+        retrievalMethods: collect([RetrievalMethod::ModelSearchTool]),
+        prompt: '{{ query }}',
+        enabled: true,
+        options: $options,
+    );
+
+    return new DriverRequest(
+        requestId: 'request-123',
+        requestedProfile: $profile,
+        profile: $profile,
+        prompt: $prompt,
+        deadline: $deadline ?? CarbonImmutable::now()->addSeconds(42),
+        progressCallback: static fn (): null => null,
+    );
+}
+
+/** @param array<string, mixed> $options */
+function removeProfileOption(string $profile, string $key): void
+{
+    $options = config("librarium.profiles.{$profile}.options");
+    config()->set("librarium.profiles.{$profile}.options", array_diff_key($options, [$key => true]));
+}
