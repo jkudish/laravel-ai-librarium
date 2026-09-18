@@ -220,18 +220,20 @@ control.
 
 - `openrouter:openai/gpt-5.6-terra-272k`: worst-case per-completion rates
   for the OpenAI default-tier endpoints serving this model — the >272K-prompt
-  override (currently 2× the $2/M input and 1.5× the $12/M output for the
-  full request) and the 1.25× cache-write basis — so resolving the bound's
+  override and the 1.25× cache-write basis — so resolving the bound's
   `input_tokens`/`output_tokens` quantities cannot silently use cheaper
-  aggregate rates. The catalog's context length, output maximum, and rates
-  are snapshot facts the pricing owner must reverify against the live
-  endpoint catalog before enabling any price.
+  aggregate rates. The catalog's context length, output maximum, endpoint
+  set, and rates are snapshot facts the pricing owner must reverify against
+  the live endpoint catalog before enabling or refreshing any price.
 - An `exa_search_requests` unit rate ($0.007 per request in the default Exa
   `auto` mode) distinct from every model catalog's native `web_search` fee;
   the catalog's model-level rate ($0.01/call) must never satisfy it.
 - Optional request-level price ceilings (such as `provider.max_price`) are
-  deliberately not requested or priced here; whether to add them to the
-  bounded configuration is the integration owner's decision.
+  deliberately not part of the bounded request: the reviewed snapshot basis
+  strictly dominates the billable quantities, resolution fails closed on any
+  identity or unit drift, and adding a routing field outside the reviewed
+  request contract would change the exact request this bound describes. The
+  integration owner records that decision with the frozen configuration.
 - If Anthropic, OpenAI, or Google later ship loop-capping controls or
   documented iteration maxima, the withdrawn routes can be revisited with
   their then-current token rates (Anthropic $2/$10 global flat across 1M
