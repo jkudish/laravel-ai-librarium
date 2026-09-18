@@ -150,18 +150,37 @@ final readonly class ResearchResultMapper
      * search request count is read from the raw provider responses —
      * usage.server_tool_use.web_search_requests in OpenRouter's unified
      * usage schema — and summed across steps the way the SDK sums tokens.
-     * The count stays null when the provider does not report it.
+     *
+     * The count is an all-or-nothing measurement: every expected step must
+     * carry a raw provider response reporting a nonnegative integer count.
+     * A missing raw response, a missing or malformed count on any step, or a
+     * sum that cannot be represented exactly makes the metric unavailable,
+     * because a partial sum would silently understate a billed quantity. An
+     * explicit zero on every step stays zero.
      */
     private function serverToolSearchRequests(AgentResponse $response): ?int
     {
-        $total = null;
+        $rawResponses = $this->rawResponses($response);
 
-        foreach ($this->rawResponses($response) as $raw) {
+        if ($rawResponses === []) {
+            return null;
+        }
+
+        $total = 0;
+
+        foreach ($rawResponses as $raw) {
             $json = $raw->json();
             $value = is_array($json) ? data_get($json, 'usage.server_tool_use.web_search_requests') : null;
-            if (is_int($value)) {
-                $total = ($total ?? 0) + $value;
+
+            if (! is_int($value) || $value < 0) {
+                return null;
             }
+
+            if ($value > PHP_INT_MAX - $total) {
+                return null;
+            }
+
+            $total += $value;
         }
 
         return $total;
@@ -205,15 +224,28 @@ final readonly class ResearchResultMapper
         return false;
     }
 
-    /** @return list<Response> */
+    /**
+     * Expected raw provider responses for metering. When the response has
+     * steps, every step is expected to carry a raw response; one that is
+     * missing means the provider payload for that step cannot be inspected,
+     * so no list is returned at all rather than quietly dropping the step.
+     *
+     * @return list<Response>
+     */
     private function rawResponses(AgentResponse $response): array
     {
         if ($response->steps->isNotEmpty()) {
-            return array_values($response->steps
-                ->map(static fn (Step $step): mixed => $step->raw)
-                ->filter(static fn (mixed $raw): bool => $raw instanceof Response)
-                ->values()
-                ->all());
+            $rawResponses = [];
+
+            foreach ($response->steps as $step) {
+                if (! $step->raw instanceof Response) {
+                    return [];
+                }
+
+                $rawResponses[] = $step->raw;
+            }
+
+            return $rawResponses;
         }
 
         return $response->raw instanceof Response ? [$response->raw] : [];

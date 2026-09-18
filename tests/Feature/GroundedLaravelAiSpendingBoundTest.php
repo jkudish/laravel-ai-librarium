@@ -3,7 +3,9 @@
 declare(strict_types=1);
 
 use Carbon\CarbonImmutable;
+use GuzzleHttp\Psr7\Response as PsrResponse;
 use Illuminate\Http\Client\Request;
+use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\LaravelAiDriver;
@@ -20,6 +22,11 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 use Jkudish\LaravelAiLibrarium\SpendingBoundKind;
 use Laravel\Ai\Ai;
 use Laravel\Ai\AiManager;
+use Laravel\Ai\Responses\AgentResponse;
+use Laravel\Ai\Responses\Data\FinishReason;
+use Laravel\Ai\Responses\Data\Meta;
+use Laravel\Ai\Responses\Data\Step;
+use Laravel\Ai\Responses\Data\Usage as AiUsage;
 
 beforeEach(function (): void {
     app()->forgetInstance(AiManager::class);
@@ -203,6 +210,80 @@ it('keeps the engine search count null when the provider does not report it', fu
     ])
         ->not->toHaveKey('server_tool_search_requests');
     Http::assertSentCount(1);
+});
+
+it('sums the engine search count only when every step reports a complete count', function (array $rawSteps, ?int $expected): void {
+    $steps = [];
+    foreach ($rawSteps as $rawStep) {
+        $step = new Step(
+            text: '',
+            toolCalls: [],
+            toolResults: [],
+            finishReason: FinishReason::Stop,
+            usage: new AiUsage(10, 4),
+            meta: new Meta('openrouter', 'openai/gpt-5.6-terra'),
+        );
+        if (is_string($rawStep)) {
+            $step->withRawResponse(new HttpResponse(new PsrResponse(200, ['Content-Type' => 'application/json'], $rawStep)));
+        }
+        $steps[] = $step;
+    }
+
+    $response = (new AgentResponse(
+        'invocation-metered',
+        'A grounded OpenRouter answer.',
+        new AiUsage(10, 4),
+        new Meta('openrouter', 'openai/gpt-5.6-terra'),
+    ))->withSteps(collect($steps));
+
+    $usage = (new ResearchResultMapper)->map($response, groundedBoundRequest(model: 'openai/gpt-5.6-terra', provider: 'openrouter'))->usage;
+
+    expect($usage?->serverToolSearchRequests)->toBe($expected);
+})->with([
+    'all steps present' => [[
+        '{"usage":{"prompt_tokens":10,"server_tool_use":{"web_search_requests":2}}}',
+        '{"usage":{"prompt_tokens":10,"server_tool_use":{"web_search_requests":3}}}',
+    ], 5],
+    'every step reports zero' => [[
+        '{"usage":{"prompt_tokens":10,"server_tool_use":{"web_search_requests":0}}}',
+        '{"usage":{"prompt_tokens":10,"server_tool_use":{"web_search_requests":0}}}',
+    ], 0],
+    'no step reports the count' => [[
+        '{"usage":{"prompt_tokens":10}}',
+        '{"usage":{"prompt_tokens":10}}',
+    ], null],
+    'one step missing the count' => [[
+        '{"usage":{"prompt_tokens":10,"server_tool_use":{"web_search_requests":2}}}',
+        '{"usage":{"prompt_tokens":10}}',
+    ], null],
+    'one step missing its raw response' => [[
+        '{"usage":{"prompt_tokens":10,"server_tool_use":{"web_search_requests":2}}}',
+        null,
+    ], null],
+    'a step reports a malformed count' => [[
+        '{"usage":{"prompt_tokens":10,"server_tool_use":{"web_search_requests":2}}}',
+        '{"usage":{"prompt_tokens":10,"server_tool_use":{"web_search_requests":"3"}}}',
+    ], null],
+    'a step reports a negative count' => [[
+        '{"usage":{"prompt_tokens":10,"server_tool_use":{"web_search_requests":-1}}}',
+    ], null],
+    'the summed count overflows the integer range' => [[
+        '{"usage":{"prompt_tokens":10,"server_tool_use":{"web_search_requests":'.PHP_INT_MAX.'}}}',
+        '{"usage":{"prompt_tokens":10,"server_tool_use":{"web_search_requests":1}}}',
+    ], null],
+]);
+
+it('keeps a single-step engine search count strict through the raw aggregate response', function (): void {
+    $response = (new AgentResponse(
+        'invocation-partial',
+        'A grounded OpenRouter answer.',
+        new AiUsage(10, 4),
+        new Meta('openrouter', 'openai/gpt-5.6-terra'),
+    ))->withRawResponse(new HttpResponse(new PsrResponse(200, ['Content-Type' => 'application/json'], '{"usage":{"prompt_tokens":10,"server_tool_use":{"web_search_requests":"4"}}}')));
+
+    $usage = (new ResearchResultMapper)->map($response, groundedBoundRequest(model: 'openai/gpt-5.6-terra', provider: 'openrouter'))->usage;
+
+    expect($usage?->serverToolSearchRequests)->toBeNull();
 });
 
 it('keeps the pinned OpenRouter endpoint routing off unconfigured requests', function (): void {
