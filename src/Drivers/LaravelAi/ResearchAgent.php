@@ -20,7 +20,19 @@ final readonly class ResearchAgent implements Agent, HasProviderOptions, HasTool
         private bool $usesWebSearch = true,
         private ?string $searchEngine = null,
         private bool $exactOpenRouterRouting = false,
+        private ?int $maxOutputTokens = null,
+        private ?int $maxSteps = null,
     ) {}
+
+    public function maxTokens(): ?int
+    {
+        return $this->maxOutputTokens;
+    }
+
+    public function maxSteps(): ?int
+    {
+        return $this->maxSteps;
+    }
 
     public function instructions(): string
     {

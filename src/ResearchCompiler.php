@@ -105,6 +105,8 @@ final readonly class ResearchCompiler
 
         /** @var Collection<int, string> $warnings */
         $warnings = collect();
+        $pricingQuotes = $pricing === null ? collect($this->emptyPricingQuotes()) : $pricing['quotes'];
+        $knownCostSubtotals = $pricing === null ? collect($this->emptyKnownCostSubtotals()) : $pricing['known_subtotals'];
 
         return new ResearchPlan(
             requestId: $research->requestId,
@@ -115,8 +117,8 @@ final readonly class ResearchCompiler
                 prompts: $prompts,
                 unavailable: collect($unavailable),
                 warnings: $warnings,
-                pricingQuotes: $pricing['quotes'] ?? collect(),
-                knownCostSubtotals: $pricing['known_subtotals'] ?? collect(),
+                pricingQuotes: $pricingQuotes,
+                knownCostSubtotals: $knownCostSubtotals,
                 pricingStatus: $pricing['status'] ?? CostCompleteness::Unavailable->value,
                 hardCostCeilingAvailable: $pricing['preflight_cost_check_available'] ?? false,
                 maximumEstimatedCost: $pricing['maximum_estimated_cost'] ?? null,
@@ -137,6 +139,30 @@ final readonly class ResearchCompiler
                 $key => "The configured {$key} must be an integer greater than the selected timeout of {$timeout} seconds.",
             ]);
         }
+    }
+
+    /**
+     * @return array<int, array{
+     *     profile: string,
+     *     role: string,
+     *     reachable_from: list<string>,
+     *     maximum_invocations: int,
+     *     identity: ModelIdentity|null,
+     *     usage: Usage|null,
+     *     conservative: bool,
+     *     quote: CostQuote,
+     *     freshness: string
+     * }>
+     */
+    private function emptyPricingQuotes(): array
+    {
+        return [];
+    }
+
+    /** @return array<string, covariant (non-empty-string|numeric-string)> */
+    private function emptyKnownCostSubtotals(): array
+    {
+        return [];
     }
 
     /**
@@ -294,7 +320,7 @@ final readonly class ResearchCompiler
             : ($subtotals === [] ? CostCompleteness::Unavailable->value : CostCompleteness::Partial->value);
 
         if ($maximum !== null) {
-            if (! $preflightCostCheckAvailable || $currency === null) {
+            if (! $preflightCostCheckAvailable) {
                 throw ValidationException::withMessages([
                     'maxCost' => 'A maximum-cost preflight check requires complete, current, single-currency quotes from configured conservative usage estimates for every primary and reachable fallback.',
                 ]);
@@ -318,7 +344,7 @@ final readonly class ResearchCompiler
             'known_subtotals' => $knownSubtotals,
             'status' => $status,
             'preflight_cost_check_available' => $preflightCostCheckAvailable,
-            'maximum_estimated_cost' => $preflightCostCheckAvailable && $currency !== null
+            'maximum_estimated_cost' => $preflightCostCheckAvailable
                 ? (string) $subtotals[$currency]->amount
                 : null,
             'currency' => $preflightCostCheckAvailable ? $currency : null,

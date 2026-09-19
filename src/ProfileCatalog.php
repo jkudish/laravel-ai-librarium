@@ -238,7 +238,7 @@ final class ProfileCatalog
             && data_get($options, 'web_search', true) === false) {
             $resultKindValue = ResultKind::ModelAnswer;
             $groundingPolicy = GroundingPolicy::None;
-            $corpusValues = collect();
+            $corpusValues = collect($this->emptyCorpora());
             $retrievalMethodValues = $this->modelOnlyRetrievalMethods();
         }
 
@@ -332,6 +332,12 @@ final class ProfileCatalog
         }
 
         return $this->stringList($members, 'group');
+    }
+
+    /** @return array<int, Corpus> */
+    private function emptyCorpora(): array
+    {
+        return [];
     }
 
     /** @return Collection<int, RetrievalMethod> */

@@ -14,6 +14,7 @@ use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Collection\CaptureSession;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\CaptureCoverage;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
+use Jkudish\LaravelAiLibrarium\Collection\RedactedProviderResponse;
 use Jkudish\LaravelAiLibrarium\Collection\RedactionPolicy;
 use Jkudish\LaravelAiLibrarium\Collection\ResponseRedactor;
 use Jkudish\LaravelAiLibrarium\Contracts\DurableDriver;
@@ -208,10 +209,16 @@ final readonly class DurableResearchRuntime implements RecoversResearch
             coverage: $capture ? $session->coverage() : CaptureCoverage::Unavailable,
             evidence: $capture && $policy !== null
                 ? $this->redactor->redactResponses($session->responses(), $policy)
-                : collect(),
+                : collect($this->emptyEvidence()),
             diagnostics: $session->diagnostics(),
             startedAt: $session->startedAt(),
         );
+    }
+
+    /** @return array<int, RedactedProviderResponse> */
+    private function emptyEvidence(): array
+    {
+        return [];
     }
 
     private function failure(

@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Carbon\CarbonImmutable;
 use GuzzleHttp\Psr7\Response as PsrResponse;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\Request;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Validation\ValidationException;
@@ -24,6 +25,8 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResponseStatus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
+use Laravel\Ai\Ai;
+use Laravel\Ai\AiManager;
 use Laravel\Ai\Exceptions\AiException;
 use Laravel\Ai\Exceptions\InsufficientCreditsException;
 use Laravel\Ai\Exceptions\ProviderOverloadedException;
@@ -135,6 +138,81 @@ it('returns an honest model answer when optional web search is disabled', functi
         ->and($result->provenance->corpora)->toBeEmpty()
         ->and($result->provenance->retrievalMethods->all())->toBe([RetrievalMethod::ModelOnly])
         ->and($result->citations)->toBeEmpty();
+});
+
+it('sends bounded no-search Claude controls through the real SDK and never continues pause turn', function (): void {
+    app()->forgetInstance(AiManager::class);
+    Ai::clearResolvedInstance(AiManager::class);
+    config()->set('librarium.profiles.claude-chat.options', [
+        'web_search' => false,
+        'max_output_tokens' => 64_000,
+        'max_steps' => 1,
+        'max_prompt_bytes' => strlen('Answer directly once.'),
+    ]);
+    Http::fake([
+        'https://api.anthropic.com/v1/messages' => Http::response([
+            'id' => 'msg_test',
+            'type' => 'message',
+            'role' => 'assistant',
+            'model' => 'claude-sonnet-5',
+            'content' => [['type' => 'text', 'text' => 'A paused direct answer.']],
+            'stop_reason' => 'pause_turn',
+            'stop_sequence' => null,
+            'usage' => ['input_tokens' => 12, 'output_tokens' => 7],
+        ]),
+    ]);
+
+    $response = Librarium::query('Answer directly once.')
+        ->using('claude-chat')
+        ->run();
+
+    expect($response->status)->toBe(ResponseStatus::Succeeded)
+        ->and($response->results->sole()->content)->toBe('A paused direct answer.')
+        ->and($response->results->sole()->model)->toBe('claude-sonnet-5');
+    Http::assertSent(function (Request $request): bool {
+        $body = $request->data();
+
+        return $request->url() === 'https://api.anthropic.com/v1/messages'
+            && $body['model'] === 'claude-sonnet-5'
+            && $body['max_tokens'] === 64_000
+            && ! array_key_exists('inference_geo', $body)
+            && ! array_key_exists('tools', $body)
+            && data_get($body, 'messages.0.content.0.text') === 'Answer directly once.';
+    });
+    Http::assertSentCount(1);
+});
+
+it('accepts the exact rendered prompt byte limit and rejects one byte beyond it', function (): void {
+    $prompt = 'é';
+    ResearchAgent::fake([
+        new TextResponse(
+            'A grounded answer.',
+            new AiUsage(promptTokens: 1, completionTokens: 1),
+            new Meta('gemini', 'gemini-2.5-pro', collect([
+                new UrlCitation('https://example.com/source', 'Example source'),
+            ])),
+        ),
+    ])->preventStrayPrompts();
+
+    $result = groundedDriver()->run(groundedDriverRequest(
+        options: ['max_prompt_bytes' => strlen($prompt)],
+        prompt: $prompt,
+    ));
+
+    expect($result->content)->toBe('A grounded answer.');
+
+    try {
+        groundedDriver()->run(groundedDriverRequest(
+            options: ['max_prompt_bytes' => strlen($prompt) - 1],
+            prompt: $prompt,
+        ));
+        $this->fail('A rendered prompt one byte over the limit should be rejected.');
+    } catch (DriverException $exception) {
+        expect($exception->errorCode)->toBe('laravel_ai.prompt_too_long')
+            ->and($exception->fallbackAllowed)->toBeFalse();
+    }
+
+    ResearchAgent::assertPrompted(fn (AgentPrompt $agentPrompt): bool => $agentPrompt->prompt === $prompt);
 });
 
 it('rejects required grounding with web search disabled before execution', function (): void {
@@ -394,6 +472,7 @@ function groundedDriverRequest(
     ?string $model = 'gemini-2.5-pro',
     string $provider = 'gemini',
     array $options = [],
+    string $prompt = 'Research Laravel AI.',
 ): DriverRequest {
     $profile = new Profile(
         id: 'gemini-grounded',
@@ -414,7 +493,7 @@ function groundedDriverRequest(
         requestId: 'request-123',
         requestedProfile: $profile,
         profile: $profile,
-        prompt: 'Research Laravel AI.',
+        prompt: $prompt,
         deadline: $deadline ?? CarbonImmutable::now()->addSeconds(42),
         progressCallback: static fn (): null => null,
     );
