@@ -425,7 +425,7 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
         // catalog lookup consumes at most its timeout, and an exhausted
         // remaining deadline still fails closed through the request timeout.
         if ($pinsOpenRouterProvider) {
-            $this->verifyPinnedModelRevisionBeforeDispatch($request);
+            $this->verifyPinnedModelRevisionBeforeDispatch();
         }
 
         $timeout = $this->remainingSeconds($request);
@@ -507,30 +507,34 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
      * canonical_slug must equal the revision string. A missing, malformed,
      * errored, or drifted answer fails closed with no fallback, so alias
      * movement is rejected before the request is billed rather than after.
-     * The raw catalog response — or the absence of one — is captured for
-     * reconciliation; a captured response only feeds redacted diagnostics
-     * and can never become an accepted result, so a rejected check cannot
-     * replay as accepted. The check races the request by design: the alias
-     * can move between this check and the inference POST, which the
-     * response-side binding covers as defense in depth.
+     *
+     * Catalog traffic is never recorded as provider inference evidence: no
+     * attempt is captured for it, so a failed check leaves the capture
+     * session with zero inference attempts and the collection diagnostic
+     * classifies it NotSent — an explicit statement that nothing was
+     * billably sent, not an evidence-count inference. The distinct
+     * pre-dispatch error codes (model_revision_unverified and
+     * model_revision_drift_before_dispatch) identify the check that failed
+     * without persisting the catalog exchange as a paid result; the drift
+     * code is distinct from the post-inference model_revision_drift so a
+     * settlement consumer never has to guess which phase threw. The check
+     * races the request by design: the alias can move between this check
+     * and the inference POST, which the response-side binding covers as
+     * defense in depth.
      */
-    private function verifyPinnedModelRevisionBeforeDispatch(DriverRequest $request): void
+    private function verifyPinnedModelRevisionBeforeDispatch(): void
     {
         try {
             $response = Http::timeout(self::OPENROUTER_MODEL_CATALOG_TIMEOUT_SECONDS)
                 ->acceptJson()
                 ->get(self::OPENROUTER_MODEL_CATALOG_BASE_URL.self::OPENROUTER_BOUNDED_MODEL);
         } catch (ConnectionException) {
-            $request->captureNoResponse(Operation::Inline);
-
             throw new DriverException(
                 errorCode: 'laravel_ai.model_revision_unverified',
                 message: 'The pinned OpenRouter model revision could not be verified before dispatch.',
                 fallbackAllowed: false,
             );
         }
-
-        $request->captureResponse($response, Operation::Inline);
 
         $canonicalSlug = $response->successful() ? $response->json('data.canonical_slug') : null;
 
@@ -544,7 +548,7 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
 
         if ($canonicalSlug !== self::OPENROUTER_BOUNDED_MODEL_REVISION) {
             throw new DriverException(
-                errorCode: 'laravel_ai.model_revision_drift',
+                errorCode: 'laravel_ai.model_revision_drift_before_dispatch',
                 message: 'The pinned OpenRouter model alias no longer resolves to the reviewed exact revision.',
                 fallbackAllowed: false,
             );
@@ -561,11 +565,20 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
      * and the inference POST — is a loud rejection instead of silent drift
      * from the reviewed spending contract. Neither check is a provider-side
      * immutable pin.
+     *
+     * The inference POST has definitely happened by the time this runs, so
+     * the failure must never classify as NotSent: when the SDK exposes no
+     * raw response to capture, the dispatch is still recorded explicitly as
+     * an unanswered attempt, which settles the diagnostic PossiblyAccepted —
+     * the billable request may have been accepted upstream, so a spent
+     * reservation is never falsely released.
      */
     private function assertPinnedModelRevision(DriverRequest $request, AgentResponse $response): void
     {
         if (data_get($response, 'meta.model') !== self::OPENROUTER_BOUNDED_MODEL_REVISION) {
-            $this->captureResponse($request, $response);
+            if ($this->captureResponse($request, $response) === 0) {
+                $request->captureNoResponse(Operation::Inline);
+            }
 
             throw new DriverException(
                 errorCode: 'laravel_ai.model_revision_drift',
@@ -575,7 +588,13 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
         }
     }
 
-    private function captureResponse(DriverRequest $request, AgentResponse $response): void
+    /**
+     * Captures the raw HTTP responses the SDK gateway attached to the agent
+     * response, and returns how many were captured. A zero return means an
+     * inference definitely happened but no raw exchange is available, which
+     * callers must never let classify as NotSent.
+     */
+    private function captureResponse(DriverRequest $request, AgentResponse $response): int
     {
         $captured = 0;
         $missing = 0;
@@ -597,6 +616,8 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
         if ($captured > 0 && $missing > 0) {
             $request->markCapturePartial();
         }
+
+        return $captured;
     }
 
     private function captureException(DriverRequest $request, Throwable $exception): void

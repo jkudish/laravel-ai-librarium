@@ -9,8 +9,11 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\ValidationException;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\CaptureCoverage;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\SubmissionState;
 use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\LaravelAiDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\ResearchAgent;
 use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\ResearchResultMapper;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
@@ -29,6 +32,7 @@ use Laravel\Ai\Responses\Data\FinishReason;
 use Laravel\Ai\Responses\Data\Meta;
 use Laravel\Ai\Responses\Data\Step;
 use Laravel\Ai\Responses\Data\Usage as AiUsage;
+use Laravel\Ai\Responses\TextResponse;
 
 beforeEach(function (): void {
     app()->forgetInstance(AiManager::class);
@@ -952,7 +956,7 @@ it('fails closed before dispatch when the catalog resolves a different revision'
         ));
         $this->fail('A catalog revision other than the reviewed exact revision should fail closed before dispatch.');
     } catch (DriverException $exception) {
-        expect($exception->errorCode)->toBe('laravel_ai.model_revision_drift')
+        expect($exception->errorCode)->toBe('laravel_ai.model_revision_drift_before_dispatch')
             ->and($exception->fallbackAllowed)->toBeFalse();
     }
 
@@ -1037,7 +1041,7 @@ it('fails closed before dispatch when the catalog is unreachable', function (): 
     Http::assertNotSent(fn (Request $request): bool => $request->url() === 'https://openrouter.ai/api/v1/chat/completions');
 });
 
-it('preserves the raw rejected catalog response for reconciliation without ever accepting it', function (): void {
+it('never persists catalog traffic as provider inference evidence', function (): void {
     config()->set('librarium.profiles.openrouter-chat.options', [
         'web_search' => true,
         'search_engine' => 'exa',
@@ -1077,19 +1081,186 @@ it('preserves the raw rejected catalog response for reconciliation without ever 
         groundedBoundDriver()->run($request);
         $this->fail('The drifted catalog answer should fail closed before dispatch.');
     } catch (DriverException $exception) {
-        expect($exception->errorCode)->toBe('laravel_ai.model_revision_drift')
+        expect($exception->errorCode)->toBe('laravel_ai.model_revision_drift_before_dispatch')
             ->and($exception->fallbackAllowed)->toBeFalse();
     }
 
-    // The rejected raw catalog response is preserved for reconciliation, and
-    // a captured response only feeds redacted diagnostics: the run failed
-    // closed with zero inference requests, so a rejected check can never
-    // replay as an accepted result.
-    expect($captured)->toHaveCount(1)
-        ->and($captured[0][0]->status())->toBe(200)
-        ->and($captured[0][0]->json('data.canonical_slug'))->toBe('openai/gpt-5.6-terra-20261001')
-        ->and($captured[0][1])->toBe(Operation::Inline);
+    // Catalog traffic is never recorded as provider inference evidence: the
+    // preflight rejection records zero attempts, so collection diagnostics
+    // state NotSent by construction — an explicit no-inference fact, not an
+    // evidence-count inference — and the catalog exchange never persists as
+    // a paid result.
+    expect($captured)->toBeEmpty();
     Http::assertNotSent(fn (Request $sent): bool => $sent->url() === 'https://openrouter.ai/api/v1/chat/completions');
+});
+
+it('settles preflight rejections as not sent with no inference evidence', function (array $body, int $status, string $expectedCode): void {
+    config()->set('librarium.profiles.openrouter-chat.options', [
+        'web_search' => true,
+        'search_engine' => 'exa',
+        'search_mode' => 'auto',
+        'max_tool_calls' => 4,
+        'max_results' => 5,
+        'max_steps' => 1,
+        'max_prompt_bytes' => strlen('Bound this grounded OpenRouter answer.'),
+    ]);
+    Http::fake([
+        'https://openrouter.ai/api/v1/model/openai/gpt-5.6-terra' => Http::response($body, $status),
+    ] + [
+        'https://openrouter.ai/api/v1/chat/completions' => Http::response([
+            'id' => 'gen-never-dispatched',
+            'model' => 'openai/gpt-5.6-terra-20261001',
+            'choices' => [[
+                'message' => ['role' => 'assistant', 'content' => 'A drifted revision answer.'],
+                'finish_reason' => 'stop',
+            ]],
+            'usage' => ['prompt_tokens' => 900, 'completion_tokens' => 120],
+        ]),
+    ]);
+
+    $collected = Librarium::query('Bound this grounded OpenRouter answer.')
+        ->using('openrouter-chat')
+        ->collect();
+    $diagnostic = $collected->diagnostics->sole();
+
+    expect($collected->response->status->value)->toBe('failed')
+        ->and($collected->response->errors->sole()->code)->toBe($expectedCode)
+        ->and($diagnostic->code)->toBe($expectedCode)
+        ->and($diagnostic->submissionState)->toBe(SubmissionState::NotSent)
+        ->and($diagnostic->operation)->toBe(Operation::Inline)
+        ->and($collected->coverage)->toBe(CaptureCoverage::Unavailable)
+        ->and($collected->evidence)->toBeEmpty();
+    Http::assertNotSent(fn (Request $request): bool => $request->url() === 'https://openrouter.ai/api/v1/chat/completions');
+})->with([
+    'catalog resolves a different revision' => [
+        ['data' => ['canonical_slug' => 'openai/gpt-5.6-terra-20261001']], 200, 'laravel_ai.model_revision_drift_before_dispatch',
+    ],
+    'catalog server error' => [
+        [], 500, 'laravel_ai.model_revision_unverified',
+    ],
+    'catalog not found' => [
+        [], 404, 'laravel_ai.model_revision_unverified',
+    ],
+]);
+
+it('settles an unreachable catalog as not sent', function (): void {
+    config()->set('librarium.profiles.openrouter-chat.options', [
+        'web_search' => true,
+        'search_engine' => 'exa',
+        'search_mode' => 'auto',
+        'max_tool_calls' => 4,
+        'max_results' => 5,
+        'max_steps' => 1,
+        'max_prompt_bytes' => strlen('Bound this grounded OpenRouter answer.'),
+    ]);
+    Http::fake(function (): never {
+        throw new ConnectionException('The model catalog could not be reached.');
+    });
+
+    $collected = Librarium::query('Bound this grounded OpenRouter answer.')
+        ->using('openrouter-chat')
+        ->collect();
+    $diagnostic = $collected->diagnostics->sole();
+
+    expect($collected->response->errors->sole()->code)->toBe('laravel_ai.model_revision_unverified')
+        ->and($diagnostic->code)->toBe('laravel_ai.model_revision_unverified')
+        ->and($diagnostic->submissionState)->toBe(SubmissionState::NotSent)
+        ->and($collected->coverage)->toBe(CaptureCoverage::Unavailable)
+        ->and($collected->evidence)->toBeEmpty();
+    Http::assertNothingSent();
+});
+
+it('settles response-side drift without raw capture as possibly accepted, never not sent', function (): void {
+    config()->set('librarium.profiles.openrouter-chat.options', [
+        'web_search' => true,
+        'search_engine' => 'exa',
+        'search_mode' => 'auto',
+        'max_tool_calls' => 4,
+        'max_results' => 5,
+        'max_steps' => 1,
+        'max_prompt_bytes' => strlen('Bound this grounded OpenRouter answer.'),
+    ]);
+    Http::fake(catalogFake());
+    ResearchAgent::fake([
+        new TextResponse(
+            'A drifted revision answer.',
+            new AiUsage(promptTokens: 900, completionTokens: 120),
+            new Meta('openrouter', 'openai/gpt-5.6-terra-20261001'),
+        ),
+    ])->preventStrayPrompts();
+
+    $collected = Librarium::query('Bound this grounded OpenRouter answer.')
+        ->using('openrouter-chat')
+        ->collect();
+    $diagnostic = $collected->diagnostics->sole();
+
+    // The preflight passed, so the inference prompt definitely ran before the
+    // drift was rejected. With no raw SDK exchange to capture, the dispatch
+    // is still recorded, so settlement stays PossiblyAccepted — a spent
+    // reservation is never falsely released as NotSent.
+    expect($collected->response->errors->sole()->code)->toBe('laravel_ai.model_revision_drift')
+        ->and($diagnostic->code)->toBe('laravel_ai.model_revision_drift')
+        ->and($diagnostic->submissionState)->toBe(SubmissionState::PossiblyAccepted)
+        ->and($diagnostic->operation)->toBe(Operation::Inline)
+        ->and($collected->coverage)->toBe(CaptureCoverage::NoResponse)
+        ->and($collected->evidence)->toBeEmpty();
+    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://openrouter.ai/api/v1/model/openai/gpt-5.6-terra');
+    Http::assertNotSent(fn (Request $request): bool => $request->url() === 'https://openrouter.ai/api/v1/chat/completions');
+});
+
+it('settles a deadline that expires after the catalog lookup as not sent', function (): void {
+    config()->set('librarium.profiles.openrouter-chat.options', [
+        'web_search' => true,
+        'search_engine' => 'exa',
+        'search_mode' => 'auto',
+        'max_tool_calls' => 4,
+        'max_results' => 5,
+        'max_steps' => 1,
+        'max_prompt_bytes' => strlen('Bound this grounded OpenRouter answer.'),
+    ]);
+    Http::fake([
+        'https://openrouter.ai/api/v1/model/openai/gpt-5.6-terra' => function () {
+            // The shared deadline is now + 1s. Advancing the frozen clock here
+            // expires it strictly after the bounded catalog lookup completed
+            // and strictly before the inference POST, deterministically.
+            CarbonImmutable::setTestNow('2026-09-19T00:00:05Z');
+
+            return Http::response(['data' => ['canonical_slug' => 'openai/gpt-5.6-terra-20260709']]);
+        },
+        'https://openrouter.ai/api/v1/chat/completions' => Http::response([
+            'id' => 'gen-never-dispatched',
+            'model' => 'openai/gpt-5.6-terra-20260709',
+            'choices' => [[
+                'message' => ['role' => 'assistant', 'content' => 'A grounded OpenRouter answer.'],
+                'finish_reason' => 'stop',
+            ]],
+            'usage' => ['prompt_tokens' => 900, 'completion_tokens' => 120],
+        ]),
+    ]);
+
+    try {
+        CarbonImmutable::setTestNow('2026-09-19T00:00:00Z');
+
+        // A one-second shared deadline expires after the bounded catalog
+        // lookup but before the inference POST: the catalog exchange leaves
+        // no inference evidence, so the timeout settles NotSent and nothing
+        // billable ran.
+        $collected = Librarium::query('Bound this grounded OpenRouter answer.')
+            ->using('openrouter-chat')
+            ->timeout(1)
+            ->collect();
+        $diagnostic = $collected->diagnostics->sole();
+
+        expect($collected->response->errors->sole()->code)->toBe('librarium.timeout')
+            ->and($diagnostic->code)->toBe('librarium.timeout')
+            ->and($diagnostic->submissionState)->toBe(SubmissionState::NotSent)
+            ->and($collected->coverage)->toBe(CaptureCoverage::Unavailable)
+            ->and($collected->evidence)->toBeEmpty();
+        Http::assertSent(fn (Request $request): bool => $request->url() === 'https://openrouter.ai/api/v1/model/openai/gpt-5.6-terra');
+        Http::assertNotSent(fn (Request $request): bool => $request->url() === 'https://openrouter.ai/api/v1/chat/completions');
+    } finally {
+        CarbonImmutable::setTestNow();
+    }
 });
 
 it('keeps unpinned and non-bounded OpenRouter routes free of the revision check', function (): void {

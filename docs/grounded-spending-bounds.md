@@ -142,16 +142,23 @@ alias and the revision is bound **two ways, both fail-closed**:
    unreachable answer fails closed before dispatch
    (`laravel_ai.model_revision_unverified`, fallback not allowed); a
    different `canonical_slug` fails closed before dispatch
-   (`laravel_ai.model_revision_drift`, fallback not allowed). The raw
-   catalog response — or the recorded absence of one — is preserved for
-   reconciliation; a captured response only feeds redacted diagnostics and
-   can never become an accepted result, so a rejected check cannot replay
-   as accepted.
+   (`laravel_ai.model_revision_drift_before_dispatch`, fallback not
+   allowed). Catalog traffic is never recorded as provider inference
+   evidence: the check captures no attempt, so every pre-dispatch rejection
+   settles its collection diagnostic `not_sent` by construction — zero
+   inference attempts exist, so no catalog exchange can replay as an
+   accepted (paid) result, and no evidence counting is needed.
 2. **Response-side binding (defense in depth).** OpenRouter reports that
    "the response's `model` field reflects the concrete model that actually
    served the request, not the alias you sent," and the driver rejects the
    result (`laravel_ai.model_revision_drift`, fallback not allowed) unless
-   that field is exactly `openai/gpt-5.6-terra-20260709`.
+   that field is exactly `openai/gpt-5.6-terra-20260709`. The inference
+   POST has definitely happened by then, so this rejection never settles
+   `not_sent`: with a raw captured exchange it settles `accepted` (the
+   billable call ran and is preserved for reconciliation), and with no raw
+   capture the dispatch is explicitly recorded as an unanswered attempt and
+   settles `possibly_accepted` — a spent reservation is never falsely
+   released.
 
 The two checks are complementary because a **check-to-use race is
 unavoidable**: the alias can move between the pre-dispatch catalog check and
@@ -328,10 +335,17 @@ control.
   the request keeps the alias and the binding is two-way fail-closed — a
   pre-dispatch public-catalog check of the alias's `canonical_slug` and a
   served-model response check — so an alias rollover requires re-review
-  here before the bounded route runs again. Neither check is a
-  provider-side immutable pin, and the check-to-use race between the
-  catalog check and the inference POST is covered only by the response
-  check.
+  here before the bounded route runs again. Settlement is
+  phase-distinct: the pre-dispatch codes
+  (`laravel_ai.model_revision_unverified`,
+  `laravel_ai.model_revision_drift_before_dispatch`) always settle
+  `not_sent` because the check records no inference attempt, while the
+  post-inference `laravel_ai.model_revision_drift` settles `accepted`
+  with a raw captured exchange and `possibly_accepted` without one —
+  never `not_sent`. Catalog traffic is never persisted as inference
+  evidence. Neither check is a provider-side immutable pin, and the
+  check-to-use race between the catalog check and the inference POST is
+  covered only by the response check.
 - If Anthropic, OpenAI, or Google later ship loop-capping controls or
   documented iteration maxima, the withdrawn routes can be revisited with
   their then-current token rates (Anthropic $2/$10 global flat across 1M
