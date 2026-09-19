@@ -26,6 +26,11 @@ use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
  * Runs the supported Perplexity Agent API presets to a terminal result.
  *
  * Background response IDs and lifecycle state remain private to this Driver.
+ *
+ * No Profile of this Driver proves a complete pre-dispatch spending bound, so
+ * spendingBound() resolves to unknown through the shared resolver fallback.
+ * See docs/perplexity-spending-bounds.md for the sourced provider limitations
+ * and the alternative control sets a provable bound would require.
  */
 final readonly class PerplexityAgentDriver implements DurableDriver
 {

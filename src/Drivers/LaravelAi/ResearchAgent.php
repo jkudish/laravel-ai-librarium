@@ -16,12 +16,27 @@ final readonly class ResearchAgent implements Agent, HasProviderOptions, HasTool
 {
     use Promptable;
 
+    /**
+     * Routing for the bounded OpenRouter configuration: restrict to the
+     * OpenAI default-tier endpoints serving openai/gpt-5.6-terra. Base slugs
+     * do not match non-default service tiers, so order "openai" already
+     * excludes flex-style tiers; the openai/flex ignore is explicit redundant
+     * defense, not the pin itself.
+     */
+    private const array OPENROUTER_PINNED_PROVIDER_ORDER = ['openai'];
+
+    private const array OPENROUTER_PINNED_PROVIDER_IGNORE = ['openai/flex'];
+
     public function __construct(
         private bool $usesWebSearch = true,
         private ?string $searchEngine = null,
         private bool $exactOpenRouterRouting = false,
         private ?int $maxOutputTokens = null,
         private ?int $maxSteps = null,
+        private ?int $maxSearches = null,
+        private ?int $maxToolCalls = null,
+        private ?int $maxResults = null,
+        private bool $pinsOpenRouterProvider = false,
     ) {}
 
     public function maxTokens(): ?int
@@ -49,8 +64,15 @@ final readonly class ResearchAgent implements Agent, HasProviderOptions, HasTool
         }
 
         $search = new WebSearch;
+        if ($this->maxSearches !== null) {
+            $search->max($this->maxSearches);
+        }
+
         if ($this->searchEngine !== null) {
-            $search->withProviderOptions(['engine' => $this->searchEngine]);
+            $search->withProviderOptions(array_filter([
+                'engine' => $this->searchEngine,
+                'max_results' => $this->maxResults,
+            ], static fn (mixed $value): bool => $value !== null));
         }
 
         return [$search];
@@ -60,15 +82,28 @@ final readonly class ResearchAgent implements Agent, HasProviderOptions, HasTool
     public function providerOptions(Lab|string $provider): array
     {
         $driver = $provider instanceof Lab ? $provider->value : $provider;
-        if (! $this->exactOpenRouterRouting || $driver !== Lab::OpenRouter->value) {
-            return [];
+
+        $options = [];
+
+        if ($this->maxToolCalls !== null
+            && in_array($driver, [Lab::OpenAI->value, Lab::OpenRouter->value], true)) {
+            $options['max_tool_calls'] = $this->maxToolCalls;
         }
 
-        return [
-            'provider' => [
-                'require_parameters' => true,
-                'allow_fallbacks' => false,
-            ],
-        ];
+        if ($this->exactOpenRouterRouting && $driver === Lab::OpenRouter->value) {
+            $routing = [];
+
+            if ($this->pinsOpenRouterProvider) {
+                $routing['order'] = self::OPENROUTER_PINNED_PROVIDER_ORDER;
+                $routing['ignore'] = self::OPENROUTER_PINNED_PROVIDER_IGNORE;
+            }
+
+            $routing['require_parameters'] = true;
+            $routing['allow_fallbacks'] = false;
+
+            $options['provider'] = $routing;
+        }
+
+        return $options;
     }
 }

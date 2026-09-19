@@ -20,7 +20,22 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 use Throwable;
 
-/** Runs one grounded Brave Answers request through Laravel's HTTP client. */
+/**
+ * Runs one grounded Brave Answers request through Laravel's HTTP client.
+ *
+ * This driver deliberately does not implement DefinesSpendingBound: no
+ * documented complete pre-dispatch bound is established for this exact
+ * request. Brave's official pricing bills every answer as searches plus
+ * input and output tokens; the shipped single-search payload serializes no
+ * control that caps all of those dimensions, and adding the provider's
+ * documented controls to this option-free Profile would still leave billed
+ * input without a numeric maximum, while research mode drops this route's
+ * enable_citations grounding and leaves aggregate mixer-iteration billing
+ * undocumented. See docs/brave-answers-spending-bounds.md for the official
+ * quotations and the provider guarantees that would be required first.
+ * Keep classifying this Profile as `unknown` instead of promoting
+ * estimates, qualitative controls, or partial token ceilings to a bound.
+ */
 final readonly class BraveAnswersDriver implements Driver
 {
     private const string ENDPOINT = 'https://api.search.brave.com/res/v1/chat/completions';
