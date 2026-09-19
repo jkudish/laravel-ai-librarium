@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
 use Jkudish\LaravelAiLibrarium\Contracts\DefinesSpendingBound;
@@ -82,13 +83,31 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
     private const string OPENROUTER_BOUNDED_MODEL = 'openai/gpt-5.6-terra';
 
     /**
-     * The exact canonical revision the pinned bounded route must serve. The
-     * request keeps the moving alias — OpenRouter's public catalog does not
-     * serve the dated slug as a requestable model, so sending it would be an
-     * invented control — and OpenRouter reports the concrete serving revision
-     * in the response's model field, which the pinned route checks exactly.
+     * The exact canonical revision the pinned bounded route must serve.
+     * Public evidence does not establish that the dated slug is usable as a
+     * chat request model: the catalog list contains no row for it, the
+     * documented alias-resolving model-lookup route returns 404 for it, and
+     * the chat schema documents no revision semantics for the model field —
+     * yet absence from the catalog is not proof the chat router would reject
+     * it. Sending it would therefore be an invented control, so the request
+     * keeps the moving alias and the revision is bound two ways: fail-closed
+     * against the public catalog's canonical_slug before dispatch, and
+     * fail-closed against the served model OpenRouter reports in the
+     * response. Neither is a provider-side immutable pin.
      */
     private const string OPENROUTER_BOUNDED_MODEL_REVISION = 'openai/gpt-5.6-terra-20260709';
+
+    /**
+     * Base of the public, unauthenticated model-catalog lookup used by the
+     * pre-dispatch revision check. The documented route resolves known slug
+     * aliases and returns the catalog row whose required canonical_slug
+     * names the concrete revision the alias currently resolves to. The
+     * lookup is narrow: one bounded-timeout GET with no credentials, no
+     * retry, and no caching, made only for the pinned bounded route.
+     */
+    private const string OPENROUTER_MODEL_CATALOG_BASE_URL = 'https://openrouter.ai/api/v1/model/';
+
+    private const int OPENROUTER_MODEL_CATALOG_TIMEOUT_SECONDS = 5;
 
     /**
      * The Exa web-search modes OpenRouter documents for the mode parameter.
@@ -190,12 +209,15 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
         // serving this model: base slugs do not match non-default service
         // tiers, so order "openai" excludes flex-style tiers, and the
         // openai/flex ignore is explicit redundant defense. provider.max_price
-        // is additionally emitted as a base-price routing filter over those
-        // endpoints — it restricts which endpoints may serve the request and
-        // fails the request when none qualifies; it is not an all-in spend
-        // cap, and the worst-case quantities below do not shrink because of
-        // it. The current single default-tier endpoint and its rates are
-        // catalog snapshot facts the pricing owner reverifies. The identity
+        // is additionally emitted as a rate routing filter with candidate
+        // base thresholds — the public docs demonstrate comparisons against
+        // base per-M prompt/completion rates and state the request does not
+        // run when no endpoint qualifies; whether the filter also compares
+        // context-override, cache, or tool rates is undocumented, so it is
+        // not an all-in spend cap and the worst-case quantities below do not
+        // shrink because of it. The current single default-tier endpoint
+        // and its rates are catalog snapshot facts the pricing owner
+        // reverifies. The identity
         // names the worst-case billing basis: every completion conservatively
         // billed at the >272K-prompt override rates, which no aggregate
         // model rate satisfies, so rate resolution fails closed until the
@@ -394,10 +416,20 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
             );
         }
 
-        $timeout = $this->remainingSeconds($request);
         $pinsOpenRouterProvider = $request->profile->provider === 'openrouter'
             && $request->profile->model === self::OPENROUTER_BOUNDED_MODEL
             && $maxToolCalls !== null;
+
+        // The pinned bounded route verifies its revision against the public
+        // catalog before any inference request can spend money. The bounded
+        // catalog lookup consumes at most its timeout, and an exhausted
+        // remaining deadline still fails closed through the request timeout.
+        if ($pinsOpenRouterProvider) {
+            $this->verifyPinnedModelRevisionBeforeDispatch($request);
+        }
+
+        $timeout = $this->remainingSeconds($request);
+
         $agent = new ResearchAgent(
             usesWebSearch: $usesWebSearch,
             searchEngine: $searchEngine,
@@ -468,14 +500,67 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
     }
 
     /**
+     * Fail-closed pre-dispatch model-revision check for the pinned bounded
+     * route. Before any inference request can spend money, the public
+     * unauthenticated model-catalog lookup must prove that the moving alias
+     * still resolves to the reviewed exact revision: the catalog row's
+     * canonical_slug must equal the revision string. A missing, malformed,
+     * errored, or drifted answer fails closed with no fallback, so alias
+     * movement is rejected before the request is billed rather than after.
+     * The raw catalog response — or the absence of one — is captured for
+     * reconciliation; a captured response only feeds redacted diagnostics
+     * and can never become an accepted result, so a rejected check cannot
+     * replay as accepted. The check races the request by design: the alias
+     * can move between this check and the inference POST, which the
+     * response-side binding covers as defense in depth.
+     */
+    private function verifyPinnedModelRevisionBeforeDispatch(DriverRequest $request): void
+    {
+        try {
+            $response = Http::timeout(self::OPENROUTER_MODEL_CATALOG_TIMEOUT_SECONDS)
+                ->acceptJson()
+                ->get(self::OPENROUTER_MODEL_CATALOG_BASE_URL.self::OPENROUTER_BOUNDED_MODEL);
+        } catch (ConnectionException) {
+            $request->captureNoResponse(Operation::Inline);
+
+            throw new DriverException(
+                errorCode: 'laravel_ai.model_revision_unverified',
+                message: 'The pinned OpenRouter model revision could not be verified before dispatch.',
+                fallbackAllowed: false,
+            );
+        }
+
+        $request->captureResponse($response, Operation::Inline);
+
+        $canonicalSlug = $response->successful() ? $response->json('data.canonical_slug') : null;
+
+        if (! is_string($canonicalSlug) || $canonicalSlug === '') {
+            throw new DriverException(
+                errorCode: 'laravel_ai.model_revision_unverified',
+                message: 'The pinned OpenRouter model revision could not be verified before dispatch.',
+                fallbackAllowed: false,
+            );
+        }
+
+        if ($canonicalSlug !== self::OPENROUTER_BOUNDED_MODEL_REVISION) {
+            throw new DriverException(
+                errorCode: 'laravel_ai.model_revision_drift',
+                message: 'The pinned OpenRouter model alias no longer resolves to the reviewed exact revision.',
+                fallbackAllowed: false,
+            );
+        }
+    }
+
+    /**
      * Fail-closed response-side model-revision binding for the pinned bounded
-     * route. OpenRouter resolves the requested moving alias to the concrete
-     * revision that served the request and reports it in the response's model
-     * field, so alias movement — or a pinned endpoint serving another
-     * revision — is a loud rejection instead of silent drift from the
-     * reviewed spending contract. The dated revision slug itself is not
-     * provably requestable, so the request keeps the alias and the binding
-     * lives on the response.
+     * route, retained as defense in depth behind the pre-dispatch check.
+     * OpenRouter resolves the requested moving alias to the concrete revision
+     * that served the request and reports it in the response's model field,
+     * so alias movement — or a pinned endpoint serving another revision,
+     * including a check-to-use race between the pre-dispatch catalog check
+     * and the inference POST — is a loud rejection instead of silent drift
+     * from the reviewed spending contract. Neither check is a provider-side
+     * immutable pin.
      */
     private function assertPinnedModelRevision(DriverRequest $request, AgentResponse $response): void
     {

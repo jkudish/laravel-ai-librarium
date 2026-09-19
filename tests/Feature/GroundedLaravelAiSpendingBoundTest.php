@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 use Carbon\CarbonImmutable;
 use GuzzleHttp\Psr7\Response as PsrResponse;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\ValidationException;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
 use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\LaravelAiDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\ResearchResultMapper;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
@@ -73,7 +75,7 @@ it('sends the exact grounded OpenRouter budget, endpoint pin, max_price, Exa mod
         'max_steps' => 1,
         'max_prompt_bytes' => strlen('Bound this grounded OpenRouter answer.'),
     ]);
-    Http::fake([
+    Http::fake(catalogFake() + [
         'https://openrouter.ai/api/v1/chat/completions' => Http::response([
             'id' => 'gen-grounded',
             'model' => 'openai/gpt-5.6-terra-20260709',
@@ -130,7 +132,7 @@ it('sends the exact grounded OpenRouter budget, endpoint pin, max_price, Exa mod
             ]
             && str_contains((string) json_encode($body), 'Bound this grounded OpenRouter answer.');
     });
-    Http::assertSentCount(1);
+    Http::assertSentCount(2);
 });
 
 it('maps asymmetric actual cache partitions and the engine search count through the real SDK', function (): void {
@@ -143,7 +145,7 @@ it('maps asymmetric actual cache partitions and the engine search count through 
         'max_steps' => 1,
         'max_prompt_bytes' => strlen('Bound this grounded OpenRouter answer.'),
     ]);
-    Http::fake([
+    Http::fake(catalogFake() + [
         'https://openrouter.ai/api/v1/chat/completions' => Http::response([
             'id' => 'gen-grounded-partitions',
             'model' => 'openai/gpt-5.6-terra-20260709',
@@ -180,7 +182,7 @@ it('maps asymmetric actual cache partitions and the engine search count through 
         'cache_read_input_tokens' => 100,
         'server_tool_search_requests' => 4,
     ]);
-    Http::assertSentCount(1);
+    Http::assertSentCount(2);
 });
 
 it('keeps the engine search count null when the provider does not report it', function (): void {
@@ -193,7 +195,7 @@ it('keeps the engine search count null when the provider does not report it', fu
         'max_steps' => 1,
         'max_prompt_bytes' => strlen('Bound this grounded OpenRouter answer.'),
     ]);
-    Http::fake([
+    Http::fake(catalogFake() + [
         'https://openrouter.ai/api/v1/chat/completions' => Http::response([
             'id' => 'gen-grounded-nocount',
             'model' => 'openai/gpt-5.6-terra-20260709',
@@ -217,7 +219,7 @@ it('keeps the engine search count null when the provider does not report it', fu
         'completion_tokens' => 120,
     ])
         ->not->toHaveKey('server_tool_search_requests');
-    Http::assertSentCount(1);
+    Http::assertSentCount(2);
 });
 
 it('sums the engine search count only when every step reports a complete count', function (array $rawSteps, ?int $expected): void {
@@ -322,6 +324,8 @@ it('keeps the pinned OpenRouter endpoint routing off unconfigured requests', fun
         return $body['provider'] === ['require_parameters' => true, 'allow_fallbacks' => false]
             && ! array_key_exists('max_tool_calls', $body);
     });
+    Http::assertNotSent(fn (Request $request): bool => $request->url() === 'https://openrouter.ai/api/v1/model/openai/gpt-5.6-terra');
+    Http::assertSentCount(1);
 });
 
 it('never reroutes a budget on a non-bounded OpenRouter model to the pinned endpoint', function (): void {
@@ -815,7 +819,7 @@ it('fails closed when the pinned route serves any model other than the reviewed 
         'max_steps' => 1,
         'max_prompt_bytes' => strlen('Bound this grounded OpenRouter answer.'),
     ]);
-    Http::fake([
+    Http::fake(catalogFake() + [
         'https://openrouter.ai/api/v1/chat/completions' => Http::response([
             'id' => 'gen-grounded-drift',
             'model' => $servedModel,
@@ -840,25 +844,260 @@ it('fails closed when the pinned route serves any model other than the reviewed 
             ->and($exception->fallbackAllowed)->toBeFalse();
     }
 
-    // The check is response-side by necessity: the dated revision is not
-    // provably requestable, so the alias is sent and the binding is proven
-    // against the concrete model OpenRouter reports as having served it.
+    // The pre-dispatch catalog check passed, so the inference request was
+    // dispatched with the moving alias; the response-side check then caught
+    // the drift. This is the defense-in-depth half of the binding: the alias
+    // can move between the catalog check and the inference POST, and this
+    // check is what rejects that race at response time.
     Http::assertSent(function (Request $request): bool {
-        return $request->data()['model'] === 'openai/gpt-5.6-terra'
+        return $request->url() === 'https://openrouter.ai/api/v1/chat/completions'
+            && $request->data()['model'] === 'openai/gpt-5.6-terra'
             && $request->data()['provider']['max_price'] === ['prompt' => '2', 'completion' => '12'];
     });
-    Http::assertSentCount(1);
+    Http::assertSentCount(2);
 })->with([
     'a newer dated revision' => ['openai/gpt-5.6-terra-20261001'],
     'the moving alias echoed back' => ['openai/gpt-5.6-terra'],
     'a sibling model' => ['openai/gpt-5.6-terra-pro-20260709'],
 ]);
 
+it('checks the pinned revision against the public catalog before dispatching the inference request', function (): void {
+    config()->set('librarium.profiles.openrouter-chat.options', [
+        'web_search' => true,
+        'search_engine' => 'exa',
+        'search_mode' => 'auto',
+        'max_tool_calls' => 4,
+        'max_results' => 5,
+        'max_steps' => 1,
+        'max_prompt_bytes' => strlen('Bound this grounded OpenRouter answer.'),
+    ]);
+    Http::fake(catalogFake() + [
+        'https://openrouter.ai/api/v1/chat/completions' => Http::response([
+            'id' => 'gen-grounded-preflight',
+            'model' => 'openai/gpt-5.6-terra-20260709',
+            'choices' => [[
+                'message' => [
+                    'role' => 'assistant',
+                    'content' => 'A grounded OpenRouter answer.',
+                    'annotations' => [[
+                        'type' => 'url_citation',
+                        'url_citation' => ['url' => 'https://example.com/source', 'title' => 'Example source'],
+                    ]],
+                ],
+                'finish_reason' => 'stop',
+            ]],
+            'usage' => [
+                'prompt_tokens' => 900,
+                'completion_tokens' => 120,
+                'server_tool_use' => ['web_search_requests' => 4],
+            ],
+        ]),
+    ]);
+
+    $response = Librarium::query('Bound this grounded OpenRouter answer.')
+        ->using('openrouter-chat')
+        ->run();
+
+    expect($response->status->value)->toBe('succeeded');
+    Http::assertSent(function (Request $request): bool {
+        return $request->method() === 'GET'
+            && $request->url() === 'https://openrouter.ai/api/v1/model/openai/gpt-5.6-terra'
+            && ! $request->hasHeader('Authorization');
+    });
+    Http::assertSent(function (Request $request): bool {
+        return $request->url() === 'https://openrouter.ai/api/v1/chat/completions'
+            && $request->data()['model'] === 'openai/gpt-5.6-terra';
+    });
+    Http::assertSentCount(2);
+
+    // The catalog check must precede the billable inference POST, so ordering
+    // is part of the contract: rejection happens before any spend can occur.
+    $recorded = Http::recorded();
+    expect($recorded[0][0]->url())->toBe('https://openrouter.ai/api/v1/model/openai/gpt-5.6-terra')
+        ->and($recorded[0][0]->method())->toBe('GET')
+        ->and($recorded[1][0]->url())->toBe('https://openrouter.ai/api/v1/chat/completions');
+});
+
+it('fails closed before dispatch when the catalog resolves a different revision', function (): void {
+    config()->set('librarium.profiles.openrouter-chat.options', [
+        'web_search' => true,
+        'search_engine' => 'exa',
+        'search_mode' => 'auto',
+        'max_tool_calls' => 4,
+        'max_results' => 5,
+        'max_steps' => 1,
+        'max_prompt_bytes' => strlen('Bound this grounded OpenRouter answer.'),
+    ]);
+    Http::fake([
+        'https://openrouter.ai/api/v1/model/openai/gpt-5.6-terra' => Http::response([
+            'data' => ['canonical_slug' => 'openai/gpt-5.6-terra-20261001'],
+        ]),
+        'https://openrouter.ai/api/v1/chat/completions' => Http::response([
+            'id' => 'gen-never-dispatched',
+            'model' => 'openai/gpt-5.6-terra-20261001',
+            'choices' => [[
+                'message' => ['role' => 'assistant', 'content' => 'A drifted revision answer.'],
+                'finish_reason' => 'stop',
+            ]],
+            'usage' => ['prompt_tokens' => 900, 'completion_tokens' => 120],
+        ]),
+    ]);
+
+    try {
+        groundedBoundDriver()->run(groundedBoundRequest(
+            provider: 'openrouter',
+            model: 'openai/gpt-5.6-terra',
+            prompt: 'Bound this grounded OpenRouter answer.',
+            options: config('librarium.profiles.openrouter-chat.options'),
+        ));
+        $this->fail('A catalog revision other than the reviewed exact revision should fail closed before dispatch.');
+    } catch (DriverException $exception) {
+        expect($exception->errorCode)->toBe('laravel_ai.model_revision_drift')
+            ->and($exception->fallbackAllowed)->toBeFalse();
+    }
+
+    Http::assertNotSent(fn (Request $request): bool => $request->url() === 'https://openrouter.ai/api/v1/chat/completions');
+    Http::assertSentCount(1);
+});
+
+it('fails closed before dispatch when the catalog cannot prove the revision', function (array|string $body, int $status): void {
+    config()->set('librarium.profiles.openrouter-chat.options', [
+        'web_search' => true,
+        'search_engine' => 'exa',
+        'search_mode' => 'auto',
+        'max_tool_calls' => 4,
+        'max_results' => 5,
+        'max_steps' => 1,
+        'max_prompt_bytes' => strlen('Bound this grounded OpenRouter answer.'),
+    ]);
+    Http::fake([
+        'https://openrouter.ai/api/v1/model/openai/gpt-5.6-terra' => Http::response($body, $status),
+        'https://openrouter.ai/api/v1/chat/completions' => Http::response([
+            'id' => 'gen-never-dispatched',
+            'model' => 'openai/gpt-5.6-terra-20260709',
+            'choices' => [[
+                'message' => ['role' => 'assistant', 'content' => 'A grounded OpenRouter answer.'],
+                'finish_reason' => 'stop',
+            ]],
+            'usage' => ['prompt_tokens' => 900, 'completion_tokens' => 120],
+        ]),
+    ]);
+
+    try {
+        groundedBoundDriver()->run(groundedBoundRequest(
+            provider: 'openrouter',
+            model: 'openai/gpt-5.6-terra',
+            prompt: 'Bound this grounded OpenRouter answer.',
+            options: config('librarium.profiles.openrouter-chat.options'),
+        ));
+        $this->fail('An unverifiable catalog answer should fail closed before dispatch.');
+    } catch (DriverException $exception) {
+        expect($exception->errorCode)->toBe('laravel_ai.model_revision_unverified')
+            ->and($exception->fallbackAllowed)->toBeFalse();
+    }
+
+    Http::assertNotSent(fn (Request $request): bool => $request->url() === 'https://openrouter.ai/api/v1/chat/completions');
+    Http::assertSentCount(1);
+})->with([
+    'server error' => [[], 500],
+    'not found' => [[], 404],
+    'non-json body' => ['upstream maintenance', 200],
+    'missing data object' => [['error' => ['message' => 'boom']], 200],
+    'missing canonical slug' => [['data' => ['id' => 'openai/gpt-5.6-terra']], 200],
+    'non-string canonical slug' => [['data' => ['canonical_slug' => ['openai/gpt-5.6-terra-20261001']]], 200],
+]);
+
+it('fails closed before dispatch when the catalog is unreachable', function (): void {
+    config()->set('librarium.profiles.openrouter-chat.options', [
+        'web_search' => true,
+        'search_engine' => 'exa',
+        'search_mode' => 'auto',
+        'max_tool_calls' => 4,
+        'max_results' => 5,
+        'max_steps' => 1,
+        'max_prompt_bytes' => strlen('Bound this grounded OpenRouter answer.'),
+    ]);
+    Http::fake(function (): never {
+        throw new ConnectionException('The model catalog could not be reached.');
+    });
+
+    try {
+        groundedBoundDriver()->run(groundedBoundRequest(
+            provider: 'openrouter',
+            model: 'openai/gpt-5.6-terra',
+            prompt: 'Bound this grounded OpenRouter answer.',
+            options: config('librarium.profiles.openrouter-chat.options'),
+        ));
+        $this->fail('An unreachable catalog should fail closed before dispatch.');
+    } catch (DriverException $exception) {
+        expect($exception->errorCode)->toBe('laravel_ai.model_revision_unverified')
+            ->and($exception->fallbackAllowed)->toBeFalse();
+    }
+
+    Http::assertNotSent(fn (Request $request): bool => $request->url() === 'https://openrouter.ai/api/v1/chat/completions');
+});
+
+it('preserves the raw rejected catalog response for reconciliation without ever accepting it', function (): void {
+    config()->set('librarium.profiles.openrouter-chat.options', [
+        'web_search' => true,
+        'search_engine' => 'exa',
+        'search_mode' => 'auto',
+        'max_tool_calls' => 4,
+        'max_results' => 5,
+        'max_steps' => 1,
+        'max_prompt_bytes' => strlen('Bound this grounded OpenRouter answer.'),
+    ]);
+    Http::fake([
+        'https://openrouter.ai/api/v1/model/openai/gpt-5.6-terra' => Http::response([
+            'data' => ['canonical_slug' => 'openai/gpt-5.6-terra-20261001'],
+        ]),
+        'https://openrouter.ai/api/v1/chat/completions' => Http::response([
+            'id' => 'gen-never-dispatched',
+            'model' => 'openai/gpt-5.6-terra-20261001',
+            'choices' => [[
+                'message' => ['role' => 'assistant', 'content' => 'A drifted revision answer.'],
+                'finish_reason' => 'stop',
+            ]],
+            'usage' => ['prompt_tokens' => 900, 'completion_tokens' => 120],
+        ]),
+    ]);
+
+    $captured = [];
+    $request = groundedBoundRequest(
+        provider: 'openrouter',
+        model: 'openai/gpt-5.6-terra',
+        prompt: 'Bound this grounded OpenRouter answer.',
+        options: config('librarium.profiles.openrouter-chat.options'),
+        responseCallback: function (HttpResponse $response, Operation $operation) use (&$captured): void {
+            $captured[] = [$response, $operation];
+        },
+    );
+
+    try {
+        groundedBoundDriver()->run($request);
+        $this->fail('The drifted catalog answer should fail closed before dispatch.');
+    } catch (DriverException $exception) {
+        expect($exception->errorCode)->toBe('laravel_ai.model_revision_drift')
+            ->and($exception->fallbackAllowed)->toBeFalse();
+    }
+
+    // The rejected raw catalog response is preserved for reconciliation, and
+    // a captured response only feeds redacted diagnostics: the run failed
+    // closed with zero inference requests, so a rejected check can never
+    // replay as an accepted result.
+    expect($captured)->toHaveCount(1)
+        ->and($captured[0][0]->status())->toBe(200)
+        ->and($captured[0][0]->json('data.canonical_slug'))->toBe('openai/gpt-5.6-terra-20261001')
+        ->and($captured[0][1])->toBe(Operation::Inline);
+    Http::assertNotSent(fn (Request $sent): bool => $sent->url() === 'https://openrouter.ai/api/v1/chat/completions');
+});
+
 it('keeps unpinned and non-bounded OpenRouter routes free of the revision check', function (): void {
     // Covered by the unpinned default-routing and Luna tests above; this test
     // pins the contract explicitly: without the full bounded pin (provider +
-    // exact model + budget), the served model is not revision-checked and the
-    // request keeps its default routing without max_price.
+    // exact model + budget), neither revision check runs — no catalog GET is
+    // made before dispatch and the served model is not revision-checked —
+    // and the request keeps its default routing without max_price.
     config()->set('librarium.profiles.openrouter-grounded.options', [
         'web_search' => true,
         'search_engine' => 'exa',
@@ -897,6 +1136,7 @@ it('keeps unpinned and non-bounded OpenRouter routes free of the revision check'
         return $provider === ['require_parameters' => true, 'allow_fallbacks' => false]
             && ! array_key_exists('max_price', $provider);
     });
+    Http::assertNotSent(fn (Request $request): bool => $request->url() === 'https://openrouter.ai/api/v1/model/openai/gpt-5.6-terra');
     Http::assertSentCount(1);
 });
 
@@ -941,6 +1181,18 @@ function groundedBoundDriver(): LaravelAiDriver
 }
 
 /**
+ * Public-catalog fake entry proving the bounded alias still resolves to the
+ * reviewed exact revision, so the pre-dispatch check passes and the pinned
+ * inference request is dispatched.
+ */
+function catalogFake(): array
+{
+    return ['https://openrouter.ai/api/v1/model/openai/gpt-5.6-terra' => Http::response([
+        'data' => ['canonical_slug' => 'openai/gpt-5.6-terra-20260709'],
+    ])];
+}
+
+/**
  * @param  array<string, mixed>  $options
  */
 function groundedBoundRequest(
@@ -949,6 +1201,7 @@ function groundedBoundRequest(
     string $provider = 'gemini',
     array $options = [],
     string $prompt = 'Research Laravel AI.',
+    ?Closure $responseCallback = null,
 ): DriverRequest {
     $profile = new Profile(
         id: 'grounded-probe',
@@ -972,6 +1225,7 @@ function groundedBoundRequest(
         prompt: $prompt,
         deadline: $deadline ?? CarbonImmutable::now()->addSeconds(42),
         progressCallback: static fn (): null => null,
+        responseCallback: $responseCallback,
     );
 }
 

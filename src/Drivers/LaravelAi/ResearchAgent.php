@@ -28,11 +28,13 @@ final readonly class ResearchAgent implements Agent, HasProviderOptions, HasTool
     private const array OPENROUTER_PINNED_PROVIDER_IGNORE = ['openai/flex'];
 
     /**
-     * Base-price ceiling for the pinned bounded OpenRouter route, in USD per
-     * million tokens. OpenRouter's OpenAPI schema types these as strings, and
-     * the filter matches endpoints whose base prompt/completion price is at
-     * or below the ceiling, failing the request when no endpoint qualifies.
-     * This is a base-price routing filter, not an all-in spend cap.
+     * Rate-filter ceiling for the pinned bounded OpenRouter route, in USD per
+     * million tokens. OpenRouter's OpenAPI schema types these as strings. The
+     * public docs demonstrate that the filter compares against base per-M
+     * prompt/completion rates and state that the request does not run when no
+     * endpoint qualifies; whether it also compares context-override, cache,
+     * or tool rates is undocumented. It is a rate routing filter, not an
+     * all-in spend cap.
      */
     private const array OPENROUTER_PINNED_PROVIDER_MAX_PRICE = ['prompt' => '2', 'completion' => '12'];
 

@@ -105,20 +105,21 @@ state and its rates are pricing snapshot facts the pricing owner must
 reverify — OpenRouter may serve additional default-tier endpoints later.
 
 `max_price` (`"prompt": "2"`, `"completion": "12"`, USD per million tokens,
-typed as strings per OpenRouter's OpenAPI schema) filters the remaining
-routes to endpoints whose base prompt/completion price is at or below the
-ceiling, and "will prevent your request from running if the price is not
-available." It is a **base-price routing filter, not an all-in spend cap**:
-it does not cap total tokens, requests, or total spend, and it does not
-shrink the bound's worst-case quantities. Existing source-snapshot pricing
-does not cap future costs — endpoint prices can change after the snapshot is
-taken, and a changed price either fails the filter closed (price above the
-ceiling) or continues to bill at the new lower price within the same
-worst-case quantities. max_price coverage of cache/tool/tier price overrides
-is undocumented — the docs describe base prompt/completion filtering only,
-so overrides such as the 272K long-context rates, the cache-write premium,
-and per-tool fees are not proven to be filtered by it, which is exactly why
-the bound still reserves those worst-case bases.
+typed as strings per OpenRouter's OpenAPI schema) is emitted as a **rate
+routing filter with candidate base thresholds**: the docs demonstrate
+comparisons against base per-M prompt/completion rates, and it "will prevent
+your request from running if the price is not available." It is **not an
+all-in spend cap**: it does not cap total tokens, requests, or total spend,
+and it does not shrink the bound's worst-case quantities. Existing
+source-snapshot pricing does not cap future costs — endpoint prices can
+change after the snapshot is taken, and a changed price either fails the
+filter closed (price above the ceiling) or continues to bill at the new
+lower price within the same worst-case quantities. max_price coverage of
+cache/tool/tier price overrides is undocumented — the docs describe base
+prompt/completion filtering only, so overrides such as the 272K
+long-context rates, the cache-write premium, and per-tool fees are not
+proven to be filtered by it, which is exactly why the bound still reserves
+those worst-case bases.
 
 ### Model-revision binding
 
@@ -127,17 +128,41 @@ canonical dated revision `openai/gpt-5.6-terra-20260709`. The dated slug is
 **not sent as the request model**: the public catalog's model-resolution
 routes return no entry for it (a 404 is documented to mean "treat as an
 unavailable model"), and the chat schema documents no revision semantics for
-the `model` field, so requesting it would be an invented control. The
-binding is therefore enforced fail-closed on the response: OpenRouter
-reports that "the response's `model` field reflects the concrete model that
-actually served the request, not the alias you sent," and the driver rejects
-the result (`laravel_ai.model_revision_drift`, fallback not allowed) unless
-that field is exactly `openai/gpt-5.6-terra-20260709`. If the alias moves to
-a newer revision, or a routed endpoint serves a different one, the bounded
-route fails loudly instead of silently drifting from the reviewed spending
-contract; re-enabling requires updating the reviewed revision. The revision
-check applies only to the pinned bounded route — unpinned and non-bounded
-OpenRouter requests are never rejected for their served model.
+the `model` field, so requesting it would be an invented control. Absence
+from the catalog is not proof the chat router would reject the dated slug,
+but it is equally not proof it would serve it, so the request keeps the
+alias and the revision is bound **two ways, both fail-closed**:
+
+1. **Pre-dispatch catalog check.** Before any inference request can spend
+   money, the driver performs one public, unauthenticated, timeout-bounded
+   GET of OpenRouter's alias-resolving model-lookup route
+   (`/api/v1/model/openai/gpt-5.6-terra`, no credentials, no retry, no
+   caching) and requires the returned row's `canonical_slug` to equal
+   `openai/gpt-5.6-terra-20260709`. A missing, malformed, errored, or
+   unreachable answer fails closed before dispatch
+   (`laravel_ai.model_revision_unverified`, fallback not allowed); a
+   different `canonical_slug` fails closed before dispatch
+   (`laravel_ai.model_revision_drift`, fallback not allowed). The raw
+   catalog response — or the recorded absence of one — is preserved for
+   reconciliation; a captured response only feeds redacted diagnostics and
+   can never become an accepted result, so a rejected check cannot replay
+   as accepted.
+2. **Response-side binding (defense in depth).** OpenRouter reports that
+   "the response's `model` field reflects the concrete model that actually
+   served the request, not the alias you sent," and the driver rejects the
+   result (`laravel_ai.model_revision_drift`, fallback not allowed) unless
+   that field is exactly `openai/gpt-5.6-terra-20260709`.
+
+The two checks are complementary because a **check-to-use race is
+unavoidable**: the alias can move between the pre-dispatch catalog check and
+the inference POST, and only the response-side binding can catch that at
+response time. Neither check is a provider-side immutable pin. If the alias
+moves to a newer revision, or a routed endpoint serves a different one, the
+bounded route fails loudly instead of silently drifting from the reviewed
+spending contract; re-enabling requires updating the reviewed revision. The
+revision checks apply only to the pinned bounded route — unpinned and
+non-bounded OpenRouter requests perform no catalog check and are never
+rejected for their served model.
 
 The pin applies only to the exact bounded model; a budget control on any
 other OpenRouter model keeps the pre-existing routing block and is never
@@ -164,14 +189,18 @@ standard LLM token costs for processing the search result content"),
 [Provider
 routing](https://openrouter.ai/docs/guides/routing/provider-selection)
 (`order` with exact endpoint slugs, `ignore`, `allow_fallbacks`,
-`require_parameters`, and `max_price` — base-price route filtering that
-"will prevent your request from running if the price is not available";
-the OpenAPI schema types `max_price.prompt`/`max_price.completion` as
+`require_parameters`, and `max_price` — rate routing with candidate base
+thresholds that "will prevent your request from running if the price is not
+available"; the OpenAPI schema types `max_price.prompt`/`max_price.completion` as
 strings), [Latest Model
 Resolution](https://openrouter.ai/docs/guides/routing/routers/latest-resolution)
 ("the response's `model` field reflects the concrete model that actually
 served the request, not the alias you sent" — the authority for the
-response-side revision binding), and the public endpoint catalog for
+response-side revision binding), [Get a model by its
+slug](https://openrouter.ai/docs/api/api-reference/models/get-a-model-by-its-slug)
+(the public unauthenticated alias-resolving lookup used by the pre-dispatch
+revision check; `canonical_slug` is the revision authority), and the public
+endpoint catalog for
 `openai/gpt-5.6-terra` (standard `openai` endpoint: context 1,050,000,
 `max_completion_tokens` 128,000, $2/$12 with the 272K override; `openai/flex`
 variant at $1/$6 excluded by pinning; alias `canonical_slug`
@@ -287,18 +316,22 @@ control.
   `auto` mode) distinct from every model catalog's native `web_search` fee;
   the catalog's model-level rate ($0.01/call) must never satisfy it.
 - The bounded request now carries `provider.max_price` (`prompt: "2"`,
-  `completion: "12"`, USD per million tokens) as a base-price routing
-  filter, and the exact request contract includes it: the route only serves
-  endpoints whose base price is at or below the ceiling and the request
-  fails when none qualifies. Record its limits with the frozen
+  `completion: "12"`, USD per million tokens) as a rate routing filter with
+  candidate base thresholds, and the exact request contract includes it:
+  the docs demonstrate base prompt/completion comparisons and the request
+  fails when no endpoint qualifies. Record its limits with the frozen
   configuration: existing source-snapshot pricing does not cap future
   costs, and max_price coverage of cache/tool/tier price overrides is
   undocumented, so the worst-case quantity bases above are unchanged by it.
 - The reviewed exact revision for the model-revision binding is
   `openai/gpt-5.6-terra-20260709` (the alias's current `canonical_slug`);
-  the request keeps the alias and the binding fails the pinned route closed
-  on any served-model drift, so an alias rollover requires re-review here
-  before the bounded route runs again.
+  the request keeps the alias and the binding is two-way fail-closed — a
+  pre-dispatch public-catalog check of the alias's `canonical_slug` and a
+  served-model response check — so an alias rollover requires re-review
+  here before the bounded route runs again. Neither check is a
+  provider-side immutable pin, and the check-to-use race between the
+  catalog check and the inference POST is covered only by the response
+  check.
 - If Anthropic, OpenAI, or Google later ship loop-capping controls or
   documented iteration maxima, the withdrawn routes can be revisited with
   their then-current token rates (Anthropic $2/$10 global flat across 1M
