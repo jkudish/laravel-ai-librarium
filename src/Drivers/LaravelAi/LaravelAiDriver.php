@@ -81,6 +81,25 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
      */
     private const string OPENROUTER_BOUNDED_MODEL = 'openai/gpt-5.6-terra';
 
+    /**
+     * The exact canonical revision the pinned bounded route must serve. The
+     * request keeps the moving alias — OpenRouter's public catalog does not
+     * serve the dated slug as a requestable model, so sending it would be an
+     * invented control — and OpenRouter reports the concrete serving revision
+     * in the response's model field, which the pinned route checks exactly.
+     */
+    private const string OPENROUTER_BOUNDED_MODEL_REVISION = 'openai/gpt-5.6-terra-20260709';
+
+    /**
+     * The Exa web-search modes OpenRouter documents for the mode parameter.
+     * The bounded request pins "auto", the documented default, so the bound's
+     * per-request Exa fee basis stays the reviewed one; other modes price
+     * differently and fail the bound closed.
+     *
+     * @var list<string>
+     */
+    private const array OPENROUTER_EXA_SEARCH_MODES = ['instant', 'fast', 'auto', 'deep-lite', 'deep', 'deep-reasoning'];
+
     public function __construct(private ResearchResultMapper $mapper) {}
 
     /** @return array<string, mixed> */
@@ -89,6 +108,7 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
         return [
             'web_search' => ['sometimes', 'boolean'],
             'search_engine' => ['sometimes', 'string', 'in:'.implode(',', self::OPENROUTER_SEARCH_ENGINES)],
+            'search_mode' => ['sometimes', 'string', 'in:'.implode(',', self::OPENROUTER_EXA_SEARCH_MODES)],
             'max_output_tokens' => ['sometimes', 'integer', 'min:1', 'max:'.self::CLAUDE_SONNET_5_MAX_OUTPUT_TOKENS],
             'max_steps' => ['sometimes', 'integer', 'min:1'],
             'max_prompt_bytes' => ['sometimes', 'integer', 'min:1'],
@@ -142,6 +162,7 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
 
         if (($options['web_search'] ?? null) !== true
             || ($options['search_engine'] ?? null) !== 'exa'
+            || ($options['search_mode'] ?? null) !== 'auto'
             || array_key_exists('max_searches', $options)
             || ! is_int($maxToolCalls)
             || $maxToolCalls < 1
@@ -168,15 +189,19 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
         // The request restricts routing to the OpenAI default-tier endpoints
         // serving this model: base slugs do not match non-default service
         // tiers, so order "openai" excludes flex-style tiers, and the
-        // openai/flex ignore is explicit redundant defense. The current
-        // single default-tier endpoint and its rates are catalog snapshot
-        // facts the pricing owner reverifies. The identity names the
-        // worst-case billing basis: every completion conservatively billed at
-        // the >272K-prompt override rates, which no aggregate model rate
-        // satisfies, so rate resolution fails closed until the registry
-        // serves this exact identity. The search unit is engine-specific
-        // because the catalog's model-level web_search rate is the native
-        // passthrough fee, not Exa's per-request engine fee.
+        // openai/flex ignore is explicit redundant defense. provider.max_price
+        // is additionally emitted as a base-price routing filter over those
+        // endpoints — it restricts which endpoints may serve the request and
+        // fails the request when none qualifies; it is not an all-in spend
+        // cap, and the worst-case quantities below do not shrink because of
+        // it. The current single default-tier endpoint and its rates are
+        // catalog snapshot facts the pricing owner reverifies. The identity
+        // names the worst-case billing basis: every completion conservatively
+        // billed at the >272K-prompt override rates, which no aggregate
+        // model rate satisfies, so rate resolution fails closed until the
+        // registry serves this exact identity. The search unit is
+        // engine-specific because the catalog's model-level web_search rate
+        // is the native passthrough fee, not Exa's per-request engine fee.
         //
         // Input tokens bill as exclusive partitions — uncached input,
         // cache-read, and cache-write — and OpenAI automatic caching can
@@ -242,6 +267,7 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
 
         $usesWebSearch = data_get($request->profile->options, 'web_search', true);
         $searchEngine = data_get($request->profile->options, 'search_engine');
+        $searchMode = data_get($request->profile->options, 'search_mode');
         $maxOutputTokens = data_get($request->profile->options, 'max_output_tokens');
         $maxSteps = data_get($request->profile->options, 'max_steps');
         $maxPromptBytes = data_get($request->profile->options, 'max_prompt_bytes');
@@ -253,7 +279,8 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
             );
         }
 
-        if ($searchEngine !== null && ! is_string($searchEngine)) {
+        if (($searchEngine !== null && ! is_string($searchEngine))
+            || ($searchMode !== null && ! is_string($searchMode))) {
             throw new DriverException(
                 errorCode: 'laravel_ai.invalid_options',
                 message: 'The Laravel AI Driver received invalid Profile options.',
@@ -287,7 +314,7 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
             );
         }
 
-        if (($maxSearches !== null || $maxToolCalls !== null || $maxResults !== null) && ! $usesWebSearch) {
+        if (($maxSearches !== null || $maxToolCalls !== null || $maxResults !== null || $searchMode !== null) && ! $usesWebSearch) {
             throw new DriverException(
                 errorCode: 'laravel_ai.invalid_options',
                 message: 'Grounded search caps require web search to be enabled.',
@@ -315,6 +342,22 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
             throw new DriverException(
                 errorCode: 'laravel_ai.invalid_options',
                 message: 'The max_results control is supported only by OpenRouter Profiles.',
+                fallbackAllowed: false,
+            );
+        }
+
+        if ($searchMode !== null && $request->profile->provider !== 'openrouter') {
+            throw new DriverException(
+                errorCode: 'laravel_ai.invalid_options',
+                message: 'The search_mode control is supported only by OpenRouter Profiles.',
+                fallbackAllowed: false,
+            );
+        }
+
+        if ($searchMode !== null && $searchEngine !== 'exa') {
+            throw new DriverException(
+                errorCode: 'laravel_ai.invalid_options',
+                message: 'The search_mode control applies only to the Exa search engine.',
                 fallbackAllowed: false,
             );
         }
@@ -352,18 +395,20 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
         }
 
         $timeout = $this->remainingSeconds($request);
+        $pinsOpenRouterProvider = $request->profile->provider === 'openrouter'
+            && $request->profile->model === self::OPENROUTER_BOUNDED_MODEL
+            && $maxToolCalls !== null;
         $agent = new ResearchAgent(
             usesWebSearch: $usesWebSearch,
             searchEngine: $searchEngine,
+            searchMode: $searchMode,
             exactOpenRouterRouting: $request->profile->provider === 'openrouter',
             maxOutputTokens: $maxOutputTokens,
             maxSteps: $maxSteps,
             maxSearches: $maxSearches,
             maxToolCalls: $maxToolCalls,
             maxResults: $maxResults,
-            pinsOpenRouterProvider: $request->profile->provider === 'openrouter'
-                && $request->profile->model === self::OPENROUTER_BOUNDED_MODEL
-                && $maxToolCalls !== null,
+            pinsOpenRouterProvider: $pinsOpenRouterProvider,
         );
 
         try {
@@ -405,6 +450,10 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
             throw new DriverException('laravel_ai.provider', 'The AI provider could not complete the research request.');
         }
 
+        if ($pinsOpenRouterProvider) {
+            $this->assertPinnedModelRevision($request, $response);
+        }
+
         $this->captureResponse($request, $response);
         $result = $this->mapper->map($response, $request, $usesWebSearch);
 
@@ -416,6 +465,29 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
         }
 
         return $result;
+    }
+
+    /**
+     * Fail-closed response-side model-revision binding for the pinned bounded
+     * route. OpenRouter resolves the requested moving alias to the concrete
+     * revision that served the request and reports it in the response's model
+     * field, so alias movement — or a pinned endpoint serving another
+     * revision — is a loud rejection instead of silent drift from the
+     * reviewed spending contract. The dated revision slug itself is not
+     * provably requestable, so the request keeps the alias and the binding
+     * lives on the response.
+     */
+    private function assertPinnedModelRevision(DriverRequest $request, AgentResponse $response): void
+    {
+        if (data_get($response, 'meta.model') !== self::OPENROUTER_BOUNDED_MODEL_REVISION) {
+            $this->captureResponse($request, $response);
+
+            throw new DriverException(
+                errorCode: 'laravel_ai.model_revision_drift',
+                message: 'The pinned OpenRouter model served a revision other than the reviewed exact revision.',
+                fallbackAllowed: false,
+            );
+        }
     }
 
     private function captureResponse(DriverRequest $request, AgentResponse $response): void

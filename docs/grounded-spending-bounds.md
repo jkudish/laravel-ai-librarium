@@ -23,10 +23,13 @@ is unchanged.
 ## `openrouter-chat` — OpenRouter `openai/gpt-5.6-terra`, Exa engine: bounded
 
 Required options: `web_search` is exactly `true`, `search_engine` is exactly
-`exa`, `max_tool_calls` (1 through 30), `max_results` (1 through 10),
-`max_steps` is exactly `1`, and `max_prompt_bytes` (positive, satisfied by
-the rendered prompt). `max_output_tokens` is optional and does not affect the
-bound. Configuring `max_searches` makes the bound `unknown` (see below).
+`exa`, `search_mode` is exactly `auto` (sent explicitly as the Exa `mode`
+tool parameter; any other documented mode — or omitting it — leaves the bound
+`unknown` because the deeper modes price differently), `max_tool_calls`
+(1 through 30), `max_results` (1 through 10), `max_steps` is exactly `1`,
+and `max_prompt_bytes` (positive, satisfied by the rendered prompt).
+`max_output_tokens` is optional and does not affect the bound. Configuring
+`max_searches` makes the bound `unknown` (see below).
 
 ### Why the loop length is provable here and nowhere else
 
@@ -52,7 +55,7 @@ budget steps. The bound therefore fails closed (`unknown`) whenever
 
 | Unit | Maximum | Basis |
 | --- | --- | --- |
-| `exa_search_requests` | `max_tool_calls` | Every Exa-billed search is a tool call the model makes, so executing searches ≤ budget steps; Instant/Fast/Auto mode costs $0.007 per request. The unit is engine-specific so the catalog's model-level `web_search` rate (the $0.01 native passthrough fee) can never satisfy it. |
+| `exa_search_requests` | `max_tool_calls` | Every Exa-billed search is a tool call the model makes, so executing searches ≤ budget steps; the request pins Exa `mode: "auto"`, and Instant/Fast/Auto mode costs $0.007 per request (deep-lite/deep $0.012, deep-reasoning $0.015 — those modes fail the bound closed). The unit is engine-specific so the catalog's model-level `web_search` rate (the $0.01 native passthrough fee) can never satisfy it. |
 | `cache_write_input_tokens` | `(max_tool_calls + 1) × 1,050,000` | At most budget + 1 model completions; each processes at most the pinned endpoint's 1,050,000-token context, including injected search content ("All pricing is in addition to standard LLM token costs for processing the search result content"). Input tokens bill as exclusive partitions (uncached input, cache-read, cache-write), and OpenAI automatic caching can bill cache writes without opt-in, so the request cannot be proven cache-write-free; the bound therefore reserves the entire worst-case input quantity in the most expensive partition — cache-write at the compounded 1.25x long-context premium ($5/M) — which dominates every possible actual partition mix without counting any token twice. |
 | `output_tokens` | `(max_tool_calls + 1) × 128,000` | Per-completion output uses the pinned endpoint's `max_completion_tokens` (128,000) because forwarding the request's `max_tokens` to every internal loop completion is not documented. |
 
@@ -82,6 +85,7 @@ the bounded request adds routing controls for the exact bounded model only:
 "provider": {
   "order": ["openai"],
   "ignore": ["openai/flex"],
+  "max_price": {"prompt": "2", "completion": "12"},
   "require_parameters": true,
   "allow_fallbacks": false
 }
@@ -99,6 +103,41 @@ immutable single-endpoint pin: today the catalog lists exactly one such
 endpoint ($2/$12 per M tokens with the 272K override), and that one-endpoint
 state and its rates are pricing snapshot facts the pricing owner must
 reverify — OpenRouter may serve additional default-tier endpoints later.
+
+`max_price` (`"prompt": "2"`, `"completion": "12"`, USD per million tokens,
+typed as strings per OpenRouter's OpenAPI schema) filters the remaining
+routes to endpoints whose base prompt/completion price is at or below the
+ceiling, and "will prevent your request from running if the price is not
+available." It is a **base-price routing filter, not an all-in spend cap**:
+it does not cap total tokens, requests, or total spend, and it does not
+shrink the bound's worst-case quantities. Existing source-snapshot pricing
+does not cap future costs — endpoint prices can change after the snapshot is
+taken, and a changed price either fails the filter closed (price above the
+ceiling) or continues to bill at the new lower price within the same
+worst-case quantities. max_price coverage of cache/tool/tier price overrides
+is undocumented — the docs describe base prompt/completion filtering only,
+so overrides such as the 272K long-context rates, the cache-write premium,
+and per-tool fees are not proven to be filtered by it, which is exactly why
+the bound still reserves those worst-case bases.
+
+### Model-revision binding
+
+`openai/gpt-5.6-terra` is a moving alias whose public catalog entry names the
+canonical dated revision `openai/gpt-5.6-terra-20260709`. The dated slug is
+**not sent as the request model**: the public catalog's model-resolution
+routes return no entry for it (a 404 is documented to mean "treat as an
+unavailable model"), and the chat schema documents no revision semantics for
+the `model` field, so requesting it would be an invented control. The
+binding is therefore enforced fail-closed on the response: OpenRouter
+reports that "the response's `model` field reflects the concrete model that
+actually served the request, not the alias you sent," and the driver rejects
+the result (`laravel_ai.model_revision_drift`, fallback not allowed) unless
+that field is exactly `openai/gpt-5.6-terra-20260709`. If the alias moves to
+a newer revision, or a routed endpoint serves a different one, the bounded
+route fails loudly instead of silently drifting from the reviewed spending
+contract; re-enabling requires updating the reviewed revision. The revision
+check applies only to the pinned bounded route — unpinned and non-bounded
+OpenRouter requests are never rejected for their served model.
 
 The pin applies only to the exact bounded model; a budget control on any
 other OpenRouter model keeps the pre-existing routing block and is never
@@ -125,10 +164,18 @@ standard LLM token costs for processing the search result content"),
 [Provider
 routing](https://openrouter.ai/docs/guides/routing/provider-selection)
 (`order` with exact endpoint slugs, `ignore`, `allow_fallbacks`,
-`require_parameters`), and the public endpoint catalog for
+`require_parameters`, and `max_price` — base-price route filtering that
+"will prevent your request from running if the price is not available";
+the OpenAPI schema types `max_price.prompt`/`max_price.completion` as
+strings), [Latest Model
+Resolution](https://openrouter.ai/docs/guides/routing/routers/latest-resolution)
+("the response's `model` field reflects the concrete model that actually
+served the request, not the alias you sent" — the authority for the
+response-side revision binding), and the public endpoint catalog for
 `openai/gpt-5.6-terra` (standard `openai` endpoint: context 1,050,000,
 `max_completion_tokens` 128,000, $2/$12 with the 272K override; `openai/flex`
-variant at $1/$6 excluded by pinning).
+variant at $1/$6 excluded by pinning; alias `canonical_slug`
+`openai/gpt-5.6-terra-20260709`).
 
 ## `claude-chat` — Anthropic `claude-sonnet-5`, web search enabled: `unknown`
 
@@ -236,15 +283,22 @@ control.
   cheaper aggregate rates. The catalog's context length, output maximum,
   endpoint set, and rates are snapshot facts the pricing owner must reverify
   against the live endpoint catalog before enabling or refreshing any price.
-- An `exa_search_requests` unit rate ($0.007 per request in the default Exa
+- An `exa_search_requests` unit rate ($0.007 per request in the pinned Exa
   `auto` mode) distinct from every model catalog's native `web_search` fee;
   the catalog's model-level rate ($0.01/call) must never satisfy it.
-- Optional request-level price ceilings (such as `provider.max_price`) are
-  deliberately not part of the bounded request: the reviewed snapshot basis
-  strictly dominates the billable quantities, resolution fails closed on any
-  identity or unit drift, and adding a routing field outside the reviewed
-  request contract would change the exact request this bound describes. The
-  integration owner records that decision with the frozen configuration.
+- The bounded request now carries `provider.max_price` (`prompt: "2"`,
+  `completion: "12"`, USD per million tokens) as a base-price routing
+  filter, and the exact request contract includes it: the route only serves
+  endpoints whose base price is at or below the ceiling and the request
+  fails when none qualifies. Record its limits with the frozen
+  configuration: existing source-snapshot pricing does not cap future
+  costs, and max_price coverage of cache/tool/tier price overrides is
+  undocumented, so the worst-case quantity bases above are unchanged by it.
+- The reviewed exact revision for the model-revision binding is
+  `openai/gpt-5.6-terra-20260709` (the alias's current `canonical_slug`);
+  the request keeps the alias and the binding fails the pinned route closed
+  on any served-model drift, so an alias rollover requires re-review here
+  before the bounded route runs again.
 - If Anthropic, OpenAI, or Google later ship loop-capping controls or
   documented iteration maxima, the withdrawn routes can be revisited with
   their then-current token rates (Anthropic $2/$10 global flat across 1M

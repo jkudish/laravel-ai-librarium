@@ -37,6 +37,7 @@ it('bounds exact grounded OpenRouter quantities from the documented server-tool 
     config()->set('librarium.profiles.openrouter-chat.options', [
         'web_search' => true,
         'search_engine' => 'exa',
+        'search_mode' => 'auto',
         'max_tool_calls' => $budget,
         'max_results' => 5,
         'max_steps' => 1,
@@ -58,13 +59,15 @@ it('bounds exact grounded OpenRouter quantities from the documented server-tool 
 })->with([
     'minimum budget' => [1, '2100000', '256000', '1'],
     'moderate budget' => [4, '5250000', '640000', '4'],
+    'canary budget' => [5, '6300000', '768000', '5'],
     'maximum documented budget' => [30, '32550000', '3968000', '30'],
 ]);
 
-it('sends the exact grounded OpenRouter budget, endpoint pin, and Exa controls through the real SDK', function (): void {
+it('sends the exact grounded OpenRouter budget, endpoint pin, max_price, Exa mode, and revision controls through the real SDK', function (): void {
     config()->set('librarium.profiles.openrouter-chat.options', [
         'web_search' => true,
         'search_engine' => 'exa',
+        'search_mode' => 'auto',
         'max_tool_calls' => 4,
         'max_results' => 5,
         'max_steps' => 1,
@@ -73,7 +76,7 @@ it('sends the exact grounded OpenRouter budget, endpoint pin, and Exa controls t
     Http::fake([
         'https://openrouter.ai/api/v1/chat/completions' => Http::response([
             'id' => 'gen-grounded',
-            'model' => 'openai/gpt-5.6-terra',
+            'model' => 'openai/gpt-5.6-terra-20260709',
             'choices' => [[
                 'message' => [
                     'role' => 'assistant',
@@ -100,6 +103,7 @@ it('sends the exact grounded OpenRouter budget, endpoint pin, and Exa controls t
 
     expect($response->status->value)->toBe('succeeded')
         ->and($response->results->sole()->citations)->toHaveCount(1)
+        ->and($response->results->sole()->model)->toBe('openai/gpt-5.6-terra-20260709')
         ->and($response->results->sole()->usage?->serverToolSearchRequests)->toBe(4);
     Http::assertSent(function (Request $request): bool {
         $body = $request->data();
@@ -113,12 +117,14 @@ it('sends the exact grounded OpenRouter budget, endpoint pin, and Exa controls t
                 'type' => 'openrouter:web_search',
                 'parameters' => [
                     'engine' => 'exa',
+                    'mode' => 'auto',
                     'max_results' => 5,
                 ],
             ]]
             && $body['provider'] === [
                 'order' => ['openai'],
                 'ignore' => ['openai/flex'],
+                'max_price' => ['prompt' => '2', 'completion' => '12'],
                 'require_parameters' => true,
                 'allow_fallbacks' => false,
             ]
@@ -131,6 +137,7 @@ it('maps asymmetric actual cache partitions and the engine search count through 
     config()->set('librarium.profiles.openrouter-chat.options', [
         'web_search' => true,
         'search_engine' => 'exa',
+        'search_mode' => 'auto',
         'max_tool_calls' => 4,
         'max_results' => 5,
         'max_steps' => 1,
@@ -139,7 +146,7 @@ it('maps asymmetric actual cache partitions and the engine search count through 
     Http::fake([
         'https://openrouter.ai/api/v1/chat/completions' => Http::response([
             'id' => 'gen-grounded-partitions',
-            'model' => 'openai/gpt-5.6-terra',
+            'model' => 'openai/gpt-5.6-terra-20260709',
             'choices' => [[
                 'message' => [
                     'role' => 'assistant',
@@ -180,6 +187,7 @@ it('keeps the engine search count null when the provider does not report it', fu
     config()->set('librarium.profiles.openrouter-chat.options', [
         'web_search' => true,
         'search_engine' => 'exa',
+        'search_mode' => 'auto',
         'max_tool_calls' => 4,
         'max_results' => 5,
         'max_steps' => 1,
@@ -188,7 +196,7 @@ it('keeps the engine search count null when the provider does not report it', fu
     Http::fake([
         'https://openrouter.ai/api/v1/chat/completions' => Http::response([
             'id' => 'gen-grounded-nocount',
-            'model' => 'openai/gpt-5.6-terra',
+            'model' => 'openai/gpt-5.6-terra-20260709',
             'choices' => [[
                 'message' => ['role' => 'assistant', 'content' => 'A grounded OpenRouter answer.'],
                 'finish_reason' => 'stop',
@@ -366,6 +374,7 @@ it('names the engine-specific Exa search unit instead of the aliased model web s
     config()->set('librarium.profiles.openrouter-chat.options', [
         'web_search' => true,
         'search_engine' => 'exa',
+        'search_mode' => 'auto',
         'max_tool_calls' => 4,
         'max_results' => 5,
         'max_steps' => 1,
@@ -408,6 +417,7 @@ it('treats the documented server-tool budget maximum as the bounded boundary', f
     config()->set('librarium.profiles.openrouter-chat.options', [
         'web_search' => true,
         'search_engine' => 'exa',
+        'search_mode' => 'auto',
         'max_tool_calls' => $budget,
         'max_results' => 5,
         'max_steps' => 1,
@@ -446,6 +456,7 @@ it('treats the Exa per-request result allowance as the additional-result fee bou
     config()->set('librarium.profiles.openrouter-chat.options', [
         'web_search' => true,
         'search_engine' => 'exa',
+        'search_mode' => 'auto',
         'max_tool_calls' => 4,
         'max_results' => $maxResults,
         'max_steps' => 1,
@@ -479,6 +490,7 @@ it('keeps grounded OpenRouter configurations unknown until the budget contract i
     config()->set('librarium.profiles.openrouter-chat.options', [
         'web_search' => true,
         'search_engine' => 'exa',
+        'search_mode' => 'auto',
         'max_tool_calls' => 4,
         'max_results' => 5,
         'max_steps' => 1,
@@ -501,6 +513,9 @@ it('keeps grounded OpenRouter configurations unknown until the budget contract i
     'prompt exceeds contract' => fn () => config()->set('librarium.profiles.openrouter-chat.options.max_prompt_bytes', 10),
     'implicit web search flag' => fn () => removeProfileOption('openrouter-chat', 'web_search'),
     'wrong engine' => fn () => config()->set('librarium.profiles.openrouter-chat.options.search_engine', 'parallel'),
+    'missing explicit Exa search mode' => fn () => removeProfileOption('openrouter-chat', 'search_mode'),
+    'fast Exa search mode' => fn () => config()->set('librarium.profiles.openrouter-chat.options.search_mode', 'fast'),
+    'deep Exa search mode' => fn () => config()->set('librarium.profiles.openrouter-chat.options.search_mode', 'deep'),
     'wrong model' => fn () => config()->set('librarium.profiles.openrouter-chat.model', 'openai/gpt-5.6-luna'),
 ]);
 
@@ -508,6 +523,7 @@ it('keeps the OpenRouter bound independent of the optional output-token run cont
     config()->set('librarium.profiles.openrouter-chat.options', [
         'web_search' => true,
         'search_engine' => 'exa',
+        'search_mode' => 'auto',
         'max_tool_calls' => 4,
         'max_results' => 5,
         'max_output_tokens' => 16_000,
@@ -758,13 +774,131 @@ it('rejects grounded controls the exact provider request cannot honor before exe
     'OpenRouter result cap on OpenAI' => ['openai', 'gpt-5.6-luna', ['web_search' => true, 'max_results' => 5]],
     'search cap without web search' => ['anthropic', 'claude-sonnet-5', ['web_search' => false, 'max_searches' => 5]],
     'tool-call budget without web search' => ['openrouter', 'openai/gpt-5.6-terra', ['web_search' => false, 'search_engine' => 'exa', 'max_tool_calls' => 3]],
+    'search mode without web search' => ['openrouter', 'openai/gpt-5.6-terra', ['web_search' => false, 'search_engine' => 'exa', 'search_mode' => 'auto']],
+    'Exa search mode on Gemini' => ['gemini', 'gemini-3.6-flash', ['web_search' => true, 'search_mode' => 'auto']],
+    'Exa search mode on Anthropic' => ['anthropic', 'claude-sonnet-5', ['web_search' => true, 'search_mode' => 'auto']],
+    'Exa search mode with the Perplexity engine' => ['openrouter', 'openai/gpt-5.6-terra', ['web_search' => true, 'search_engine' => 'perplexity', 'search_mode' => 'auto']],
     'OpenRouter budget beyond the documented maximum' => ['openrouter', 'openai/gpt-5.6-terra', [
         'web_search' => true,
         'search_engine' => 'exa',
+        'search_mode' => 'auto',
         'max_tool_calls' => 31,
         'max_results' => 5,
     ]],
 ]);
+
+it('rejects an undocumented Exa search mode value before execution', function (): void {
+    config()->set('librarium.profiles.openrouter-chat.options', [
+        'web_search' => true,
+        'search_engine' => 'exa',
+        'search_mode' => 'turbo',
+        'max_tool_calls' => 4,
+        'max_results' => 5,
+        'max_steps' => 1,
+        'max_prompt_bytes' => 4096,
+    ]);
+
+    expect(fn () => Librarium::query('Bound this grounded OpenRouter answer.')
+        ->using('openrouter-chat')
+        ->spendingBound())
+        ->toThrow(ValidationException::class);
+    Http::assertNothingSent();
+});
+
+it('fails closed when the pinned route serves any model other than the reviewed exact revision', function (string $servedModel): void {
+    config()->set('librarium.profiles.openrouter-chat.options', [
+        'web_search' => true,
+        'search_engine' => 'exa',
+        'search_mode' => 'auto',
+        'max_tool_calls' => 4,
+        'max_results' => 5,
+        'max_steps' => 1,
+        'max_prompt_bytes' => strlen('Bound this grounded OpenRouter answer.'),
+    ]);
+    Http::fake([
+        'https://openrouter.ai/api/v1/chat/completions' => Http::response([
+            'id' => 'gen-grounded-drift',
+            'model' => $servedModel,
+            'choices' => [[
+                'message' => ['role' => 'assistant', 'content' => 'A drifted revision answer.'],
+                'finish_reason' => 'stop',
+            ]],
+            'usage' => ['prompt_tokens' => 900, 'completion_tokens' => 120],
+        ]),
+    ]);
+
+    try {
+        groundedBoundDriver()->run(groundedBoundRequest(
+            provider: 'openrouter',
+            model: 'openai/gpt-5.6-terra',
+            prompt: 'Bound this grounded OpenRouter answer.',
+            options: config('librarium.profiles.openrouter-chat.options'),
+        ));
+        $this->fail('A served model other than the reviewed exact revision should fail closed.');
+    } catch (DriverException $exception) {
+        expect($exception->errorCode)->toBe('laravel_ai.model_revision_drift')
+            ->and($exception->fallbackAllowed)->toBeFalse();
+    }
+
+    // The check is response-side by necessity: the dated revision is not
+    // provably requestable, so the alias is sent and the binding is proven
+    // against the concrete model OpenRouter reports as having served it.
+    Http::assertSent(function (Request $request): bool {
+        return $request->data()['model'] === 'openai/gpt-5.6-terra'
+            && $request->data()['provider']['max_price'] === ['prompt' => '2', 'completion' => '12'];
+    });
+    Http::assertSentCount(1);
+})->with([
+    'a newer dated revision' => ['openai/gpt-5.6-terra-20261001'],
+    'the moving alias echoed back' => ['openai/gpt-5.6-terra'],
+    'a sibling model' => ['openai/gpt-5.6-terra-pro-20260709'],
+]);
+
+it('keeps unpinned and non-bounded OpenRouter routes free of the revision check', function (): void {
+    // Covered by the unpinned default-routing and Luna tests above; this test
+    // pins the contract explicitly: without the full bounded pin (provider +
+    // exact model + budget), the served model is not revision-checked and the
+    // request keeps its default routing without max_price.
+    config()->set('librarium.profiles.openrouter-grounded.options', [
+        'web_search' => true,
+        'search_engine' => 'exa',
+        'search_mode' => 'auto',
+        'max_tool_calls' => 4,
+        'max_steps' => 1,
+    ]);
+    Http::fake([
+        'https://openrouter.ai/api/v1/chat/completions' => Http::response([
+            'id' => 'gen-luna-unchecked',
+            'model' => 'openai/gpt-5.6-luna',
+            'choices' => [[
+                'message' => [
+                    'role' => 'assistant',
+                    'content' => 'A Luna answer.',
+                    'annotations' => [[
+                        'type' => 'url_citation',
+                        'url_citation' => ['url' => 'https://example.com/source', 'title' => 'Example source'],
+                    ]],
+                ],
+                'finish_reason' => 'stop',
+            ]],
+            'usage' => ['prompt_tokens' => 100, 'completion_tokens' => 20],
+        ]),
+    ]);
+
+    $response = Librarium::query('Answer on a non-bounded model.')
+        ->using('openrouter-grounded')
+        ->run();
+
+    expect($response->status->value)->toBe('succeeded')
+        ->and($response->results->sole()->model)->toBe('openai/gpt-5.6-luna');
+    Http::assertSent(function (Request $request): bool {
+        $provider = $request->data()['provider'];
+
+        return $provider === ['require_parameters' => true, 'allow_fallbacks' => false]
+            && ! array_key_exists('max_price', $provider);
+    });
+    Http::assertSentCount(1);
+});
 
 it('keeps every shipped Laravel AI Profile unbounded under its default configuration', function (string $profile): void {
     $bound = Librarium::query('Inventory the shipped defaults.')->using($profile)->spendingBound();

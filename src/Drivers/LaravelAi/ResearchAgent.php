@@ -27,9 +27,19 @@ final readonly class ResearchAgent implements Agent, HasProviderOptions, HasTool
 
     private const array OPENROUTER_PINNED_PROVIDER_IGNORE = ['openai/flex'];
 
+    /**
+     * Base-price ceiling for the pinned bounded OpenRouter route, in USD per
+     * million tokens. OpenRouter's OpenAPI schema types these as strings, and
+     * the filter matches endpoints whose base prompt/completion price is at
+     * or below the ceiling, failing the request when no endpoint qualifies.
+     * This is a base-price routing filter, not an all-in spend cap.
+     */
+    private const array OPENROUTER_PINNED_PROVIDER_MAX_PRICE = ['prompt' => '2', 'completion' => '12'];
+
     public function __construct(
         private bool $usesWebSearch = true,
         private ?string $searchEngine = null,
+        private ?string $searchMode = null,
         private bool $exactOpenRouterRouting = false,
         private ?int $maxOutputTokens = null,
         private ?int $maxSteps = null,
@@ -71,6 +81,7 @@ final readonly class ResearchAgent implements Agent, HasProviderOptions, HasTool
         if ($this->searchEngine !== null) {
             $search->withProviderOptions(array_filter([
                 'engine' => $this->searchEngine,
+                'mode' => $this->searchMode,
                 'max_results' => $this->maxResults,
             ], static fn (mixed $value): bool => $value !== null));
         }
@@ -96,6 +107,7 @@ final readonly class ResearchAgent implements Agent, HasProviderOptions, HasTool
             if ($this->pinsOpenRouterProvider) {
                 $routing['order'] = self::OPENROUTER_PINNED_PROVIDER_ORDER;
                 $routing['ignore'] = self::OPENROUTER_PINNED_PROVIDER_IGNORE;
+                $routing['max_price'] = self::OPENROUTER_PINNED_PROVIDER_MAX_PRICE;
             }
 
             $routing['require_parameters'] = true;
