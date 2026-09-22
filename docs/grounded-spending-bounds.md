@@ -139,12 +139,14 @@ alias and the revision is bound **two ways, both fail-closed**:
    (`/api/v1/model/openai/gpt-5.6-terra`, no credentials, no retry, no
    caching) and requires the returned row's `canonical_slug` to equal
    `openai/gpt-5.6-terra-20260709`. A positive shared-deadline check precedes
-   the GET, and the lookup timeout is capped to the integer-second minimum of
-   its 5 s bound and the remaining request budget (the HTTP timeout API
-   accepts whole seconds, so a sub-second remainder still configures a 1 s
-   timeout); the cap bounds only the configured timeout and no hard upstream
-   cancellation at the exact deadline is claimed, but a shorter remaining
-   duration is never ignored. A missing, malformed, errored, or unreachable
+   the GET, and the lookup timeout is capped to the minimum of its 5 s bound
+   and the integer remaining request budget; the integer granularity comes
+   from the driver's own `remainingSeconds()` helper (`max(1, ceil(remaining))`)
+   — it is current helper policy, not a framework limitation, since
+   `PendingRequest::timeout()` accepts fractional seconds. The cap bounds only
+   the configured timeout and no hard upstream cancellation at the exact
+   deadline is claimed, but a shorter remaining duration is never ignored. A
+   missing, malformed, errored, or unreachable
    answer fails closed before dispatch
    (`laravel_ai.model_revision_unverified`, fallback not allowed); a
    different `canonical_slug` fails closed before dispatch

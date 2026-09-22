@@ -518,7 +518,8 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
      * errored, or drifted answer fails closed with no fallback, so alias
      * movement is rejected before the request is billed rather than after.
      * The lookup runs only behind a positive shared-deadline check and with
-     * its HTTP timeout capped to the integer-second remaining budget.
+     * its HTTP timeout capped to the remaining budget (integer granularity
+     * by current helper policy, not a framework limitation).
      *
      * Catalog traffic is never recorded as provider inference evidence: no
      * attempt is captured for it, so a failed check leaves the capture
@@ -537,12 +538,13 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
     private function verifyPinnedModelRevisionBeforeDispatch(DriverRequest $request): void
     {
         // A positive shared-deadline check precedes the GET, and the lookup
-        // timeout is capped to the integer-second minimum of its 5 s bound
-        // and the remaining request budget, so a shorter remaining duration
-        // is never ignored. The Laravel HTTP timeout API accepts whole
-        // seconds — a sub-second remainder still configures a 1 s timeout —
-        // and this bounds only the configured timeout: no hard upstream
-        // cancellation at the exact deadline is claimed.
+        // timeout is capped to the minimum of its 5 s bound and the integer
+        // remaining budget from remainingSeconds(), so a shorter remaining
+        // duration is never ignored. The integer granularity is current
+        // helper policy (max(1, ceil(remaining))), not a framework
+        // limitation — PendingRequest::timeout() accepts fractional
+        // seconds — and this bounds only the configured timeout: no hard
+        // upstream cancellation at the exact deadline is claimed.
         $timeout = min(
             self::OPENROUTER_MODEL_CATALOG_TIMEOUT_SECONDS,
             $this->remainingSeconds($request),
