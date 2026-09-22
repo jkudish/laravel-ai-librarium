@@ -421,11 +421,12 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
             && $maxToolCalls !== null;
 
         // The pinned bounded route verifies its revision against the public
-        // catalog before any inference request can spend money. The bounded
-        // catalog lookup consumes at most its timeout, and an exhausted
-        // remaining deadline still fails closed through the request timeout.
+        // catalog before any inference request can spend money. A positive
+        // shared-deadline check precedes the lookup, and the lookup timeout
+        // is capped to the remaining request budget, so a fixed 5 s lookup
+        // can never ignore a shorter remaining duration.
         if ($pinsOpenRouterProvider) {
-            $this->verifyPinnedModelRevisionBeforeDispatch();
+            $this->verifyPinnedModelRevisionBeforeDispatch($request);
         }
 
         $timeout = $this->remainingSeconds($request);
@@ -486,7 +487,16 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
             $this->assertPinnedModelRevision($request, $response);
         }
 
-        $this->captureResponse($request, $response);
+        if ($this->captureResponse($request, $response) === 0) {
+            // The inference POST has definitely happened by this point, so a
+            // fully-conforming response whose SDK exposes no raw exchange
+            // must still never settle NotSent: the dispatch is explicitly
+            // recorded as an unanswered attempt, so any later failure —
+            // mapping, the grounding check, or the runtime's post-response
+            // deadline check — settles PossiblyAccepted instead of falsely
+            // releasing a spent reservation.
+            $request->captureNoResponse(Operation::Inline);
+        }
         $result = $this->mapper->map($response, $request, $usesWebSearch);
 
         if ($request->profile->grounding === GroundingPolicy::Required && $result->citations->isEmpty()) {
@@ -507,6 +517,8 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
      * canonical_slug must equal the revision string. A missing, malformed,
      * errored, or drifted answer fails closed with no fallback, so alias
      * movement is rejected before the request is billed rather than after.
+     * The lookup runs only behind a positive shared-deadline check and with
+     * its HTTP timeout capped to the integer-second remaining budget.
      *
      * Catalog traffic is never recorded as provider inference evidence: no
      * attempt is captured for it, so a failed check leaves the capture
@@ -522,10 +534,22 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
      * and the inference POST, which the response-side binding covers as
      * defense in depth.
      */
-    private function verifyPinnedModelRevisionBeforeDispatch(): void
+    private function verifyPinnedModelRevisionBeforeDispatch(DriverRequest $request): void
     {
+        // A positive shared-deadline check precedes the GET, and the lookup
+        // timeout is capped to the integer-second minimum of its 5 s bound
+        // and the remaining request budget, so a shorter remaining duration
+        // is never ignored. The Laravel HTTP timeout API accepts whole
+        // seconds — a sub-second remainder still configures a 1 s timeout —
+        // and this bounds only the configured timeout: no hard upstream
+        // cancellation at the exact deadline is claimed.
+        $timeout = min(
+            self::OPENROUTER_MODEL_CATALOG_TIMEOUT_SECONDS,
+            $this->remainingSeconds($request),
+        );
+
         try {
-            $response = Http::timeout(self::OPENROUTER_MODEL_CATALOG_TIMEOUT_SECONDS)
+            $response = Http::timeout($timeout)
                 ->acceptJson()
                 ->get(self::OPENROUTER_MODEL_CATALOG_BASE_URL.self::OPENROUTER_BOUNDED_MODEL);
         } catch (ConnectionException) {

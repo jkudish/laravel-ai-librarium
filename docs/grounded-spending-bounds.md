@@ -138,8 +138,14 @@ alias and the revision is bound **two ways, both fail-closed**:
    GET of OpenRouter's alias-resolving model-lookup route
    (`/api/v1/model/openai/gpt-5.6-terra`, no credentials, no retry, no
    caching) and requires the returned row's `canonical_slug` to equal
-   `openai/gpt-5.6-terra-20260709`. A missing, malformed, errored, or
-   unreachable answer fails closed before dispatch
+   `openai/gpt-5.6-terra-20260709`. A positive shared-deadline check precedes
+   the GET, and the lookup timeout is capped to the integer-second minimum of
+   its 5 s bound and the remaining request budget (the HTTP timeout API
+   accepts whole seconds, so a sub-second remainder still configures a 1 s
+   timeout); the cap bounds only the configured timeout and no hard upstream
+   cancellation at the exact deadline is claimed, but a shorter remaining
+   duration is never ignored. A missing, malformed, errored, or unreachable
+   answer fails closed before dispatch
    (`laravel_ai.model_revision_unverified`, fallback not allowed); a
    different `canonical_slug` fails closed before dispatch
    (`laravel_ai.model_revision_drift_before_dispatch`, fallback not
@@ -158,7 +164,13 @@ alias and the revision is bound **two ways, both fail-closed**:
    billable call ran and is preserved for reconciliation), and with no raw
    capture the dispatch is explicitly recorded as an unanswered attempt and
    settles `possibly_accepted` — a spent reservation is never falsely
-   released.
+   released. The same post-prompt guarantee covers every later failure with
+   no raw capture: whenever the SDK returns a conforming response whose
+   raw exchange is unavailable, the driver records the unanswered dispatch
+   before mapping, so a runtime deadline reached after the response
+   (`librarium.timeout`) and a required-grounding rejection
+   (`laravel_ai.ungrounded_response`) also settle `possibly_accepted`,
+   never `not_sent`.
 
 The two checks are complementary because a **check-to-use race is
 unavoidable**: the alias can move between the pre-dispatch catalog check and
@@ -342,10 +354,13 @@ control.
   `not_sent` because the check records no inference attempt, while the
   post-inference `laravel_ai.model_revision_drift` settles `accepted`
   with a raw captured exchange and `possibly_accepted` without one —
-  never `not_sent`. Catalog traffic is never persisted as inference
-  evidence. Neither check is a provider-side immutable pin, and the
-  check-to-use race between the catalog check and the inference POST is
-  covered only by the response check.
+  never `not_sent`. The same rule holds for any post-prompt failure
+  without a raw capture (`librarium.timeout` reached after the response,
+  `laravel_ai.ungrounded_response`): the unanswered dispatch is recorded,
+  so they settle `possibly_accepted`. Catalog traffic is never persisted
+  as inference evidence. Neither check is a provider-side immutable pin,
+  and the check-to-use race between the catalog check and the inference
+  POST is covered only by the response check.
 - If Anthropic, OpenAI, or Google later ship loop-capping controls or
   documented iteration maxima, the withdrawn routes can be revisited with
   their then-current token rates (Anthropic $2/$10 global flat across 1M

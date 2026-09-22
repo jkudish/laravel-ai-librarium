@@ -1263,6 +1263,113 @@ it('settles a deadline that expires after the catalog lookup as not sent', funct
     }
 });
 
+it('settles a runtime timeout after a conforming no-raw response as possibly accepted, never not sent', function (): void {
+    config()->set('librarium.profiles.openrouter-chat.options', [
+        'web_search' => true,
+        'search_engine' => 'exa',
+        'search_mode' => 'auto',
+        'max_tool_calls' => 4,
+        'max_results' => 5,
+        'max_steps' => 1,
+        'max_prompt_bytes' => strlen('Bound this grounded OpenRouter answer.'),
+    ]);
+    Http::fake(catalogFake());
+    CarbonImmutable::setTestNow('2026-09-22T00:00:00Z');
+
+    ResearchAgent::fake(function (): TextResponse {
+        // The dispatch itself pushes the frozen clock past the shared 2s
+        // deadline; the SDK then returns a fully conforming dated response
+        // with no raw exchange to capture.
+        CarbonImmutable::setTestNow('2026-09-22T00:00:03Z');
+
+        return new TextResponse(
+            'A grounded OpenRouter answer.',
+            new AiUsage(promptTokens: 900, completionTokens: 120),
+            new Meta('openrouter', 'openai/gpt-5.6-terra-20260709'),
+        );
+    })->preventStrayPrompts();
+
+    try {
+        $collected = Librarium::query('Bound this grounded OpenRouter answer.')
+            ->using('openrouter-chat')
+            ->timeout(2)
+            ->collect();
+        $diagnostic = $collected->diagnostics->sole();
+
+        // The inference dispatch definitely happened before the runtime's
+        // post-response deadline check rejected the result. With no raw SDK
+        // exchange, the dispatch is still recorded as an unanswered attempt,
+        // so the timeout settles PossiblyAccepted — a spent reservation is
+        // never released as NotSent.
+        expect($collected->response->errors->sole()->code)->toBe('librarium.timeout')
+            ->and($diagnostic->code)->toBe('librarium.timeout')
+            ->and($diagnostic->submissionState)->toBe(SubmissionState::PossiblyAccepted)
+            ->and($diagnostic->operation)->toBe(Operation::Inline)
+            ->and($collected->coverage)->toBe(CaptureCoverage::NoResponse)
+            ->and($collected->evidence)->toBeEmpty();
+        Http::assertSent(fn (Request $request): bool => $request->url() === 'https://openrouter.ai/api/v1/model/openai/gpt-5.6-terra');
+        Http::assertNotSent(fn (Request $request): bool => $request->url() === 'https://openrouter.ai/api/v1/chat/completions');
+    } finally {
+        CarbonImmutable::setTestNow();
+    }
+});
+
+it('settles an ungrounded required-grounding response without raw capture as possibly accepted, never not sent', function (): void {
+    ResearchAgent::fake([
+        new TextResponse(
+            'An answer without provider-reported evidence.',
+            new AiUsage(promptTokens: 900, completionTokens: 120),
+            new Meta('openrouter', 'openai/gpt-5.6-luna'),
+        ),
+    ])->preventStrayPrompts();
+
+    $collected = Librarium::query('Answer without provider-reported evidence.')
+        ->using('openrouter-grounded')
+        ->collect();
+    $diagnostic = $collected->diagnostics->sole();
+
+    // The inference dispatch ran before the grounding check rejected the
+    // mapped result, and the SDK exposed no raw exchange: the recorded
+    // unanswered attempt keeps the settlement PossiblyAccepted instead of
+    // falsely releasing a spent reservation as NotSent.
+    expect($collected->response->errors->sole()->code)->toBe('laravel_ai.ungrounded_response')
+        ->and($diagnostic->code)->toBe('laravel_ai.ungrounded_response')
+        ->and($diagnostic->submissionState)->toBe(SubmissionState::PossiblyAccepted)
+        ->and($collected->coverage)->toBe(CaptureCoverage::NoResponse)
+        ->and($collected->evidence)->toBeEmpty();
+});
+
+it('fails the preflight closed before the catalog lookup when the shared deadline is exhausted', function (): void {
+    config()->set('librarium.profiles.openrouter-chat.options', [
+        'web_search' => true,
+        'search_engine' => 'exa',
+        'search_mode' => 'auto',
+        'max_tool_calls' => 4,
+        'max_results' => 5,
+        'max_steps' => 1,
+        'max_prompt_bytes' => strlen('Bound this grounded OpenRouter answer.'),
+    ]);
+    Http::fake(catalogFake());
+    ResearchAgent::fake()->preventStrayPrompts();
+
+    try {
+        groundedBoundDriver()->run(groundedBoundRequest(
+            deadline: CarbonImmutable::now()->subSecond(),
+            provider: 'openrouter',
+            model: 'openai/gpt-5.6-terra',
+            prompt: 'Bound this grounded OpenRouter answer.',
+            options: config('librarium.profiles.openrouter-chat.options'),
+        ));
+        $this->fail('An exhausted shared deadline should fail closed before the catalog lookup.');
+    } catch (DriverException $exception) {
+        expect($exception->errorCode)->toBe('librarium.timeout')
+            ->and($exception->fallbackAllowed)->toBeFalse();
+    }
+
+    Http::assertNothingSent();
+    ResearchAgent::assertNeverPrompted();
+});
+
 it('keeps unpinned and non-bounded OpenRouter routes free of the revision check', function (): void {
     // Covered by the unpinned default-routing and Luna tests above; this test
     // pins the contract explicitly: without the full bounded pin (provider +
