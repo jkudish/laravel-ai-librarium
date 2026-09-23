@@ -18,8 +18,9 @@ final readonly class Usage
      * fields (Anthropic), and the agent loop sums each partition across
      * steps, so every input token is represented exactly once.
      * server_tool_search_requests carries the engine's server-tool search
-     * count (usage.server_tool_use.web_search_requests in OpenRouter's
-     * unified usage schema) and stays null when unreported.
+     * count (current usage.server_tool_use_details.web_search_requests, with
+     * legacy usage.server_tool_use.web_search_requests compatibility) and
+     * stays null when unreported.
      */
     public function __construct(
         public ?int $promptTokens = null,

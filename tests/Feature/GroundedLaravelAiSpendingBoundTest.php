@@ -69,7 +69,7 @@ it('bounds exact grounded OpenRouter quantities from the documented server-tool 
     'maximum documented budget' => [30, '32550000', '3968000', '30'],
 ]);
 
-it('sends the exact grounded OpenRouter budget, endpoint pin, max_price, Exa mode, and revision controls through the real SDK', function (): void {
+it('sends the grounded OpenRouter budget, endpoint pin, max_price, Exa mode, and revision controls through the real SDK', function (string $reportedModel): void {
     config()->set('librarium.profiles.openrouter-chat.options', [
         'web_search' => true,
         'search_engine' => 'exa',
@@ -82,7 +82,7 @@ it('sends the exact grounded OpenRouter budget, endpoint pin, max_price, Exa mod
     Http::fake(catalogFake() + [
         'https://openrouter.ai/api/v1/chat/completions' => Http::response([
             'id' => 'gen-grounded',
-            'model' => 'openai/gpt-5.6-terra-20260709',
+            'model' => $reportedModel,
             'choices' => [[
                 'message' => [
                     'role' => 'assistant',
@@ -98,7 +98,7 @@ it('sends the exact grounded OpenRouter budget, endpoint pin, max_price, Exa mod
                 'prompt_tokens' => 900,
                 'completion_tokens' => 120,
                 'cost' => 0.002,
-                'server_tool_use' => ['web_search_requests' => 4],
+                'server_tool_use_details' => ['web_search_requests' => 4],
             ],
         ]),
     ]);
@@ -109,7 +109,7 @@ it('sends the exact grounded OpenRouter budget, endpoint pin, max_price, Exa mod
 
     expect($response->status->value)->toBe('succeeded')
         ->and($response->results->sole()->citations)->toHaveCount(1)
-        ->and($response->results->sole()->model)->toBe('openai/gpt-5.6-terra-20260709')
+        ->and($response->results->sole()->model)->toBe($reportedModel)
         ->and($response->results->sole()->usage?->serverToolSearchRequests)->toBe(4);
     Http::assertSent(function (Request $request): bool {
         $body = $request->data();
@@ -138,7 +138,10 @@ it('sends the exact grounded OpenRouter budget, endpoint pin, max_price, Exa mod
             && str_contains((string) json_encode($body), 'Bound this grounded OpenRouter answer.');
     });
     Http::assertSentCount(2);
-});
+})->with([
+    'requested alias reported by OpenRouter' => ['openai/gpt-5.6-terra'],
+    'reviewed dated revision reported by OpenRouter' => ['openai/gpt-5.6-terra-20260709'],
+]);
 
 it('maps asymmetric actual cache partitions and the engine search count through the real SDK', function (): void {
     config()->set('librarium.profiles.openrouter-chat.options', [
@@ -227,6 +230,45 @@ it('keeps the engine search count null when the provider does not report it', fu
     Http::assertSentCount(2);
 });
 
+it('maps complete OpenRouter reported charges without inventing an actual cost', function (array $bodies, ?string $expected, bool $useSteps, string $provider): void {
+    $response = new AgentResponse('cost-metering', 'Answer', new AiUsage(10, 4), new Meta($provider, 'fixture'));
+    $raw = static fn (string $body): HttpResponse => new HttpResponse(new PsrResponse(200, ['Content-Type' => 'application/json'], $body));
+    if ($useSteps) {
+        $response->withSteps(collect($bodies)->map(function (?string $body) use ($raw, $provider): Step {
+            $step = new Step('', [], [], FinishReason::Stop, new AiUsage(10, 4), new Meta($provider, 'fixture'));
+            if ($body !== null) {
+                $step->withRawResponse($raw($body));
+            }
+
+            return $step;
+        }));
+        // The aggregate response must not be counted again or mask a missing step.
+        $response->withRawResponse($raw('{"usage":{"cost":99}}'));
+    } else {
+        $response->withRawResponse($raw($bodies[0]));
+    }
+
+    $usage = (new ResearchResultMapper)->map($response, groundedBoundRequest(model: 'openai/gpt-6-luna', provider: $provider))->usage;
+
+    expect($usage?->actualCost)->toBe($expected)
+        ->and($usage?->currency)->toBe($expected === null ? null : 'USD')
+        ->and($usage?->estimatedCost)->toBeNull();
+    $usage?->toArray();
+})->with([
+    'live-shaped numeric charge' => [['{"usage":{"cost":0.007342925}}'], '0.007342925', false, 'openrouter'],
+    'explicit free request' => [['{"usage":{"cost":0}}'], '0', false, 'openrouter'],
+    'integer zeros survive fractional normalization' => [['{"usage":{"cost":"100.00000000000000000000"}}'], '100', false, 'openrouter'],
+    'scientific notation' => [['{"usage":{"cost":2.5e-7}}'], '0.00000025', false, 'openrouter'],
+    'decimal multi-step sum ignores aggregate' => [['{"usage":{"cost":0.1}}', '{"usage":{"cost":"0.200000000000000001"}}'], '0.300000000000000001', true, 'openrouter'],
+    'missing cost' => [['{"usage":{}}'], null, false, 'openrouter'],
+    'missing step cost' => [['{"usage":{"cost":0.1}}', '{"usage":{}}'], null, true, 'openrouter'],
+    'missing step response' => [['{"usage":{"cost":0.1}}', null], null, true, 'openrouter'],
+    'negative charge' => [['{"usage":{"cost":-0.1}}'], null, false, 'openrouter'],
+    'malformed charge' => [['{"usage":{"cost":true}}'], null, false, 'openrouter'],
+    'unrepresentable precision' => [['{"usage":{"cost":"0.0000000000000000001"}}'], null, false, 'openrouter'],
+    'another provider same field' => [['{"usage":{"cost":0.1}}'], null, false, 'anthropic'],
+]);
+
 it('sums the engine search count only when every step reports a complete count', function (array $rawSteps, ?int $expected): void {
     $steps = [];
     foreach ($rawSteps as $rawStep) {
@@ -255,13 +297,24 @@ it('sums the engine search count only when every step reports a complete count',
 
     expect($usage?->serverToolSearchRequests)->toBe($expected);
 })->with([
-    'all steps present' => [[
+    'current fields on every step' => [[
+        '{"usage":{"prompt_tokens":10,"server_tool_use_details":{"web_search_requests":2}}}',
+        '{"usage":{"prompt_tokens":10,"server_tool_use_details":{"web_search_requests":3}}}',
+    ], 5],
+    'legacy fields on every step' => [[
         '{"usage":{"prompt_tokens":10,"server_tool_use":{"web_search_requests":2}}}',
         '{"usage":{"prompt_tokens":10,"server_tool_use":{"web_search_requests":3}}}',
     ], 5],
+    'current field wins without double counting when both are present' => [[
+        '{"usage":{"prompt_tokens":10,"server_tool_use_details":{"web_search_requests":2},"server_tool_use":{"web_search_requests":20}}}',
+        '{"usage":{"prompt_tokens":10,"server_tool_use_details":{"web_search_requests":3},"server_tool_use":{"web_search_requests":30}}}',
+    ], 5],
+    'malformed current field is not masked by legacy' => [[
+        '{"usage":{"prompt_tokens":10,"server_tool_use_details":{"web_search_requests":"2"},"server_tool_use":{"web_search_requests":20}}}',
+    ], null],
     'every step reports zero' => [[
-        '{"usage":{"prompt_tokens":10,"server_tool_use":{"web_search_requests":0}}}',
-        '{"usage":{"prompt_tokens":10,"server_tool_use":{"web_search_requests":0}}}',
+        '{"usage":{"prompt_tokens":10,"server_tool_use_details":{"web_search_requests":0}}}',
+        '{"usage":{"prompt_tokens":10,"server_tool_use_details":{"web_search_requests":0}}}',
     ], 0],
     'no step reports the count' => [[
         '{"usage":{"prompt_tokens":10}}',
@@ -814,7 +867,7 @@ it('rejects an undocumented Exa search mode value before execution', function ()
     Http::assertNothingSent();
 });
 
-it('fails closed when the pinned route serves any model other than the reviewed exact revision', function (string $servedModel): void {
+it('fails closed when the pinned route reports neither the requested alias nor the reviewed revision', function (?string $servedModel): void {
     config()->set('librarium.profiles.openrouter-chat.options', [
         'web_search' => true,
         'search_engine' => 'exa',
@@ -824,16 +877,21 @@ it('fails closed when the pinned route serves any model other than the reviewed 
         'max_steps' => 1,
         'max_prompt_bytes' => strlen('Bound this grounded OpenRouter answer.'),
     ]);
+    $completion = [
+        'id' => 'gen-grounded-drift',
+        'choices' => [[
+            'message' => ['role' => 'assistant', 'content' => 'A drifted revision answer.'],
+            'finish_reason' => 'stop',
+        ]],
+        'usage' => ['prompt_tokens' => 900, 'completion_tokens' => 120],
+    ];
+
+    if ($servedModel !== null) {
+        $completion['model'] = $servedModel;
+    }
+
     Http::fake(catalogFake() + [
-        'https://openrouter.ai/api/v1/chat/completions' => Http::response([
-            'id' => 'gen-grounded-drift',
-            'model' => $servedModel,
-            'choices' => [[
-                'message' => ['role' => 'assistant', 'content' => 'A drifted revision answer.'],
-                'finish_reason' => 'stop',
-            ]],
-            'usage' => ['prompt_tokens' => 900, 'completion_tokens' => 120],
-        ]),
+        'https://openrouter.ai/api/v1/chat/completions' => Http::response($completion),
     ]);
 
     try {
@@ -843,17 +901,16 @@ it('fails closed when the pinned route serves any model other than the reviewed 
             prompt: 'Bound this grounded OpenRouter answer.',
             options: config('librarium.profiles.openrouter-chat.options'),
         ));
-        $this->fail('A served model other than the reviewed exact revision should fail closed.');
+        $this->fail('A served model other than the requested alias or reviewed revision should fail closed.');
     } catch (DriverException $exception) {
         expect($exception->errorCode)->toBe('laravel_ai.model_revision_drift')
             ->and($exception->fallbackAllowed)->toBeFalse();
     }
 
     // The pre-dispatch catalog check passed, so the inference request was
-    // dispatched with the moving alias; the response-side check then caught
-    // the drift. This is the defense-in-depth half of the binding: the alias
-    // can move between the catalog check and the inference POST, and this
-    // check is what rejects that race at response time.
+    // dispatched with the moving alias. The response-side compatibility
+    // check then rejected an explicitly unexpected identity. An echoed alias
+    // is accepted and cannot prove which revision served the request.
     Http::assertSent(function (Request $request): bool {
         return $request->url() === 'https://openrouter.ai/api/v1/chat/completions'
             && $request->data()['model'] === 'openai/gpt-5.6-terra'
@@ -862,8 +919,9 @@ it('fails closed when the pinned route serves any model other than the reviewed 
     Http::assertSentCount(2);
 })->with([
     'a newer dated revision' => ['openai/gpt-5.6-terra-20261001'],
-    'the moving alias echoed back' => ['openai/gpt-5.6-terra'],
     'a sibling model' => ['openai/gpt-5.6-terra-pro-20260709'],
+    'an unknown model' => ['openai/unknown'],
+    'a missing model' => [null],
 ]);
 
 it('checks the pinned revision against the public catalog before dispatching the inference request', function (): void {
