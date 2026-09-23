@@ -290,6 +290,16 @@ at its own rate — never re-adding an inclusive prompt total to the cache
 partitions — and must fail closed when the engine search count is missing or
 malformed rather than treating it as zero.
 
+For OpenRouter, the mapper also carries `usage.cost` as `actual_cost` in USD
+using the pricing package's provider-cost adapter. This is OpenRouter's
+[reported account charge](https://openrouter.ai/docs/guides/guides/usage-accounting),
+not a token-rate estimate or the BYOK `upstream_inference_cost`. Every step
+must report a valid nonnegative cost; steps are summed with decimal arithmetic
+without counting the aggregate response again. Zero is a reported charge,
+not missing data. Missing/malformed costs or precision beyond the interchange
+contract's 18 fractional digits leave actual cost unavailable; consumers may
+retain a separately labeled snapshot estimate, never relabel it as actual.
+
 ### Endpoint routing and billing identity
 
 `allow_fallbacks: false` alone still permits initial endpoint selection, so

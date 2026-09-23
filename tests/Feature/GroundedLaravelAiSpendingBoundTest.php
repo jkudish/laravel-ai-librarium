@@ -230,6 +230,44 @@ it('keeps the engine search count null when the provider does not report it', fu
     Http::assertSentCount(2);
 });
 
+it('maps complete OpenRouter reported charges without inventing an actual cost', function (array $bodies, ?string $expected, bool $useSteps, string $provider): void {
+    $response = new AgentResponse('cost-metering', 'Answer', new AiUsage(10, 4), new Meta($provider, 'fixture'));
+    $raw = static fn (string $body): HttpResponse => new HttpResponse(new PsrResponse(200, ['Content-Type' => 'application/json'], $body));
+    if ($useSteps) {
+        $response->withSteps(collect($bodies)->map(function (?string $body) use ($raw, $provider): Step {
+            $step = new Step('', [], [], FinishReason::Stop, new AiUsage(10, 4), new Meta($provider, 'fixture'));
+            if ($body !== null) {
+                $step->withRawResponse($raw($body));
+            }
+
+            return $step;
+        }));
+        // The aggregate response must not be counted again or mask a missing step.
+        $response->withRawResponse($raw('{"usage":{"cost":99}}'));
+    } else {
+        $response->withRawResponse($raw($bodies[0]));
+    }
+
+    $usage = (new ResearchResultMapper)->map($response, groundedBoundRequest(model: 'openai/gpt-6-luna', provider: $provider))->usage;
+
+    expect($usage?->actualCost)->toBe($expected)
+        ->and($usage?->currency)->toBe($expected === null ? null : 'USD')
+        ->and($usage?->estimatedCost)->toBeNull();
+    $usage?->toArray();
+})->with([
+    'live-shaped numeric charge' => [['{"usage":{"cost":0.007342925}}'], '0.007342925', false, 'openrouter'],
+    'explicit free request' => [['{"usage":{"cost":0}}'], '0', false, 'openrouter'],
+    'scientific notation' => [['{"usage":{"cost":2.5e-7}}'], '0.00000025', false, 'openrouter'],
+    'decimal multi-step sum ignores aggregate' => [['{"usage":{"cost":0.1}}', '{"usage":{"cost":"0.200000000000000001"}}'], '0.300000000000000001', true, 'openrouter'],
+    'missing cost' => [['{"usage":{}}'], null, false, 'openrouter'],
+    'missing step cost' => [['{"usage":{"cost":0.1}}', '{"usage":{}}'], null, true, 'openrouter'],
+    'missing step response' => [['{"usage":{"cost":0.1}}', null], null, true, 'openrouter'],
+    'negative charge' => [['{"usage":{"cost":-0.1}}'], null, false, 'openrouter'],
+    'malformed charge' => [['{"usage":{"cost":true}}'], null, false, 'openrouter'],
+    'unrepresentable precision' => [['{"usage":{"cost":"0.0000000000000000001"}}'], null, false, 'openrouter'],
+    'another provider same field' => [['{"usage":{"cost":0.1}}'], null, false, 'anthropic'],
+]);
+
 it('sums the engine search count only when every step reports a complete count', function (array $rawSteps, ?int $expected): void {
     $steps = [];
     foreach ($rawSteps as $rawStep) {

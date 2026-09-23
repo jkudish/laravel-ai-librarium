@@ -20,6 +20,7 @@ use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 use Jkudish\LaravelAiLibrarium\Responses\ResultProvenance;
 use Jkudish\LaravelAiLibrarium\Responses\Source;
 use Jkudish\LaravelAiLibrarium\Responses\Usage;
+use Jkudish\LaravelAiPricing\Adapters\LaravelAiProviderCostExtractor;
 use Laravel\Ai\Responses\AgentResponse;
 use Laravel\Ai\Responses\Data\Step;
 use Laravel\Ai\Responses\Data\UrlCitation;
@@ -57,7 +58,7 @@ final readonly class ResearchResultMapper
             citations: $citations,
             completedAt: $completedAt,
             model: is_string($model) && $model !== '' ? $model : $request->profile->model,
-            usage: $usage ?? $this->usage($response),
+            usage: $usage ?? $this->usage($response, $request->profile->provider ?? ''),
             providerMeta: $this->providerMeta($response),
         );
     }
@@ -133,8 +134,16 @@ final readonly class ResearchResultMapper
         return 'characters:'.(is_int($start) ? $start : '?').'-'.(is_int($end) ? $end : '?');
     }
 
-    private function usage(AgentResponse $response): Usage
+    private function usage(AgentResponse $response, string $provider): Usage
     {
+        // The pricing adapter owns OpenRouter's usage.cost -> USD mapping and
+        // all-step completeness. It sums decimal amounts, never token quotes
+        // or the aggregate response on top of its steps. Do not round a charge
+        // to fit the interchange contract's maximum 18 fractional digits.
+        $cost = (new LaravelAiProviderCostExtractor)->extract($response, $provider);
+        $amount = $cost?->amount->strippedOfTrailingZeros();
+        $actualCost = $amount !== null && $amount->getScale() <= 18 ? (string) $amount : null;
+
         return new Usage(
             promptTokens: $this->integer($response, 'promptTokens'),
             completionTokens: $this->integer($response, 'completionTokens'),
@@ -142,6 +151,8 @@ final readonly class ResearchResultMapper
             cacheReadInputTokens: $this->integer($response, 'cacheReadInputTokens'),
             reasoningTokens: $this->integer($response, 'reasoningTokens'),
             serverToolSearchRequests: $this->serverToolSearchRequests($response),
+            actualCost: $actualCost,
+            currency: $actualCost !== null ? $cost->currency : null,
         );
     }
 
