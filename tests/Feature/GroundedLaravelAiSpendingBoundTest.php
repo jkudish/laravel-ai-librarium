@@ -134,6 +134,7 @@ it('sends the exact grounded OpenRouter budget, endpoint pin, max_price, Exa mod
                 'require_parameters' => true,
                 'allow_fallbacks' => false,
             ]
+            && ! array_key_exists('reasoning', $body)
             && str_contains((string) json_encode($body), 'Bound this grounded OpenRouter answer.');
     });
     Http::assertSentCount(2);

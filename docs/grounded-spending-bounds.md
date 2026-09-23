@@ -4,8 +4,12 @@ This page documents the pre-dispatch `spendingBound()` results for the four
 exact grounded Laravel AI Profiles — `claude-chat` (Anthropic
 `claude-sonnet-5`), `openai-chat` (OpenAI `gpt-5.6-luna`),
 `gemini-grounded` (Gemini `gemini-3.6-flash`), and `openrouter-chat`
-(OpenRouter `openai/gpt-5.6-terra` with the Exa engine). The result contract,
-ownership, and revalidation rules are defined in
+(OpenRouter with the Exa engine — the shipped Profile default stays on the
+historical `openai/gpt-5.6-terra` route below; the reviewed
+`openai/gpt-6-luna` canary route is a per-model driver route the Platform
+canary selects through an explicit derived model override). The result
+contract, ownership, and revalidation rules are
+defined in
 [Exact-request spending bounds](spending-bounds.md).
 
 Grounded requests bill more dimensions than model-only requests: the model's
@@ -20,7 +24,204 @@ that are never advertised as spending authority. The shipped default Profile
 options remain `unknown` everywhere, and the existing no-search Claude bound
 is unchanged.
 
-## `openrouter-chat` — OpenRouter `openai/gpt-5.6-terra`, Exa engine: bounded
+## `openrouter-chat` — OpenRouter `openai/gpt-6-luna` (canary via explicit model override), Exa engine: bounded
+
+The current reviewed canary is **regular** `openai/gpt-6-luna` (not Luna
+Pro), selected on `openrouter-chat` through an explicit model override —
+the shipped Profile default remains `openai/gpt-5.6-terra` — with every
+safeguard of the
+historical route preserved: the same option gate, the same server-tool
+budget authority, the same two fail-closed revision bindings, the same
+no-catalog-evidence settlement semantics, the same preflight deadline
+capping, and the same no-raw `possibly_accepted` guarantees. The route is a
+per-model entry in the driver's bounded-model facts — adding a bounded route
+requires a reviewed entry with official-source facts; no generic framework
+infers one.
+
+Required options: `web_search` is exactly `true`, `search_engine` is exactly
+`exa`, `search_mode` is exactly `auto` (sent explicitly as the Exa `mode`
+tool parameter; any other documented mode leaves the bound `unknown` because
+the deeper modes price differently), `max_tool_calls` (1 through 30),
+`max_results` (1 through 10), `max_steps` is exactly `1`, and
+`max_prompt_bytes` (positive, satisfied by the rendered prompt).
+`max_output_tokens` is optional and does not affect the bound. Configuring
+`max_searches` makes the bound `unknown` — the `max_uses` ambiguity is
+identical to the Terra route's and is documented in the historical section
+below. The loop-length authority (OpenRouter's request-wide server-tool
+budget) is also identical: at most `max_tool_calls` steps plus one final
+completion, with `max_tool_calls` sent as a top-level field and budgets
+above 30 rejected before execution.
+
+### The bound
+
+| Unit | Maximum | Basis |
+| --- | --- | --- |
+| `exa_search_requests` | `max_tool_calls` | Every Exa-billed search is a tool call the model makes, so executing searches ≤ budget steps; the request pins Exa `mode: "auto"` ($0.007 per request; deeper modes fail the bound closed). The unit is engine-specific so the catalog's model-level `web_search` passthrough rate can never satisfy it. |
+| `cache_write_input_tokens` | `(max_tool_calls + 1) × 1,050,000` | At most budget + 1 model completions; each processes at most the pinned endpoint's 1,050,000-token context, including injected search content. Input tokens bill as exclusive partitions (uncached input, cache-read, cache-write), and OpenAI automatic caching can bill cache writes without opt-in, so the request cannot be proven cache-write-free; the bound therefore reserves the entire worst-case input quantity in the most expensive partition — cache-write under the ≥272K long-context override rate ($0.25/M for Luna) — which dominates every possible actual partition mix without counting any token twice. |
+| `output_tokens` | `(max_tool_calls + 1) × 128,000` | Per-completion output uses the pinned endpoint's `max_completion_tokens` (128,000) because forwarding the request's `max_tokens` to every internal loop completion is not documented. |
+
+Additional-result fees are structurally zero for the same reason as Terra:
+each Exa request includes up to 10 results and then bills $0.001 per
+additional result, and the bound requires an enforced `max_results` of at
+most 10.
+
+For the reviewed canary budget (`max_tool_calls` 5) the quantities are
+exactly 6,300,000 `cache_write_input_tokens`, 768,000 `output_tokens`, and 5
+`exa_search_requests`, which the pricing snapshot v7 (assembly timestamp
+`2026-09-23T00:10:40Z`) quotes at $2.186 ($1.575 cache-write + $0.576
+output + $0.035 Exa). Snapshot v7 changed the snapshot fingerprint
+globally; historically persisted snapshots are never rewritten. The Terra
+B5 quote ($45.359) is unchanged under the same snapshot.
+
+### Endpoint routing and billing identity
+
+`allow_fallbacks: false` alone still permits initial endpoint selection, so
+the bounded request adds routing controls for the exact bounded model only:
+
+```json
+"provider": {
+  "order": ["openai"],
+  "ignore": ["openai/flex", "openai/fast"],
+  "max_price": {"prompt": "0.1", "completion": "0.5"},
+  "require_parameters": true,
+  "allow_fallbacks": false
+}
+```
+
+Base slugs match all default-tier endpoints of that provider, and service
+tier endpoints (`openai/fast`, `google-vertex/flex`-style) are **not**
+matched by base slugs, so `order: ["openai"]` restricts the request to
+OpenAI's default-tier endpoints serving `openai/gpt-6-luna`; the ignore list
+naming `openai/flex` and `openai/fast` is explicit redundant defense, not
+the pin itself. This is a tier restriction, not an immutable single-endpoint
+pin — today's catalog lists exactly one such default OpenAI endpoint, and
+that one-endpoint state and its rates are pricing snapshot facts the pricing
+owner must reverify.
+
+`max_price` (`"prompt": "0.1"`, `"completion": "0.5"` — the endpoint's base
+per-M rates from the catalog's dated Luna endpoints, USD per million tokens,
+typed as strings per OpenRouter's OpenAPI schema) is emitted as a **rate
+routing filter with candidate base thresholds**: the docs demonstrate
+comparisons against base per-M prompt/completion rates, and it "will prevent
+your request from running if the price is not available." It is **not an
+all-in spend cap**: it does not cap total tokens, requests, or total spend,
+and it does not shrink the bound's worst-case quantities. Existing
+source-snapshot pricing does not cap future costs — endpoint prices can
+change after the snapshot is taken, and a changed price either fails the
+filter closed (price above the ceiling) or continues to bill at the new
+lower price within the same worst-case quantities. max_price coverage of
+cache/tool/tier price overrides is undocumented — the docs describe base
+prompt/completion filtering only, so overrides such as the ≥272K
+long-context rates, the cache-write premium, and per-tool fees are not
+proven to be filtered by it, which is exactly why the bound still reserves
+those worst-case bases.
+
+Pricing identity: `openrouter:openai/gpt-6-luna-272k`. The identity names
+the worst-case billing basis rather than the base model rates: every
+completion is conservatively billed at the ≥272K long-context override rates
+($0.2 input / $0.75 output per M, cache-read $0.02, cache-write $0.25),
+because the input quantity necessarily exceeds 272K tokens per completion in
+the worst case. No aggregate model identity can safely satisfy this, so rate
+resolution fails closed until the pricing registry serves this exact
+identity.
+
+### Reasoning controls (route-fixed, not a Profile option)
+
+The Luna bounded route sends reviewed reasoning controls at the top level of
+the chat-completions body:
+
+```json
+"reasoning": {"effort": "max", "exclude": true}
+```
+
+- **Route-fixed.** `max` is one of this model's catalog-listed
+  `supported_efforts` (max/xhigh/high/medium/low/none) and is a property of
+  the bounded route itself, emitted by the driver whenever the Luna pin
+  applies (provider `openrouter` + model `openai/gpt-6-luna` + the
+  `max_tool_calls` budget). There is deliberately no `reasoning_effort`
+  Profile option: the frozen Profile option surface is exactly the Terra
+  route's, and per-user reasoning choice would be a separate review.
+- **Forwarded unmodified.** The Laravel AI SDK merges `providerOptions`
+  into the outbound body verbatim — it has no reasoning-effort enum, so no
+  silent downgrade to a lower effort is possible (the package's separate
+  OpenAI Responses research driver sends its own fixed effort, but it never
+  touches this route); the outbound payload test asserts
+  `reasoning.effort === "max"` reaches the wire.
+- **`exclude: true` is request-only, not disabling.** Per the official
+  reasoning guide, `exclude` suppresses the reasoning text returned in the
+  response but reasoning is still generated and still billed as completion
+  tokens. The bound's output quantities already cover reasoning tokens;
+  nothing about `exclude` shrinks them.
+- **No retention guarantee.** `exclude: true` alone cannot prove that
+  retained raw evidence omits chain-of-thought — a provider endpoint that
+  ignores the flag could still return reasoning text in the captured raw
+  exchange. Consumers persisting collected evidence must redact before
+  persistence; the package's collection redaction
+  (`librarium.redaction.paths`/`patterns`, see
+  [Collection and recovery](collection-and-recovery.md)) already supports
+  exact dotted paths such as `reasoning_details` or
+  `choices.0.message.reasoning` — it does not treat reasoning fields as
+  sensitive by default, so persistence owners must configure those paths.
+
+Terra emits no `reasoning` key at all, and unpinned or unsupported
+OpenRouter models emit none either.
+
+### Model-revision binding
+
+`openai/gpt-6-luna` is a moving alias whose public catalog entry names the
+canonical dated revision `openai/gpt-6-luna-20260922`. The dated slug is not
+sent as the request model, for the same evidence reasons as Terra, and the
+revision is bound two ways, both fail-closed, with the Luna values:
+
+1. **Pre-dispatch catalog check.** One public, unauthenticated,
+   timeout-bounded GET of `/api/v1/model/openai/gpt-6-luna` (no credentials,
+   no retry, no caching) must return `canonical_slug`
+   `openai/gpt-6-luna-20260922` before any inference request can spend
+   money. The same positive shared-deadline check precedes the GET and the
+   lookup timeout is capped to the remaining request budget (integer
+   granularity is the `remainingSeconds()` helper's policy, not a framework
+   limitation; no hard upstream cancellation at the exact deadline is
+   claimed). A missing, malformed, errored, or unreachable answer fails
+   closed before dispatch (`laravel_ai.model_revision_unverified`); a
+   different `canonical_slug` fails closed before dispatch
+   (`laravel_ai.model_revision_drift_before_dispatch`). Catalog traffic is
+   never recorded as provider inference evidence, so every pre-dispatch
+   rejection settles `not_sent` by construction.
+2. **Response-side binding (defense in depth).** The driver rejects the
+   result (`laravel_ai.model_revision_drift`) unless the response's `model`
+   field is exactly `openai/gpt-6-luna-20260922`. The inference POST has
+   definitely happened by then, so this rejection never settles `not_sent`:
+   with no raw capture the dispatch is explicitly recorded as an unanswered
+   attempt and settles `possibly_accepted`. The same post-prompt guarantee
+   covers a runtime deadline reached after a conforming no-raw response
+   (`librarium.timeout`) and a required-grounding rejection
+   (`laravel_ai.ungrounded_response`).
+
+The check-to-use race is unavoidable and the same as Terra's: the alias can
+move between the catalog check and the inference POST, and only the
+response-side binding catches that. Neither check is a provider-side
+immutable pin; re-enabling after drift requires updating the reviewed
+revision. The revision checks apply only to the pinned bounded route —
+unpinned Luna requests and unsupported OpenRouter models perform no catalog
+check, keep default routing, and are never rejected for their served model.
+The Luna behavioral suite (`tests/Feature/LunaBoundedCanaryTest.php`) covers
+the payload, quantities, the pre-dispatch drift rejection with zero
+inference POSTs, the response-side drift rejection that can only fire after
+the inference POST has been made and spent, and the no-raw
+`possibly_accepted` settlements on Luna itself; the Terra suite keeps the
+historical route's coverage on the shipped Terra default.
+
+## Historical bounded route — OpenRouter `openai/gpt-5.6-terra`: preserved, unchanged
+
+The Terra route was the reviewed canary before the Luna switch. Its driver
+facts, bound, routing, revision bindings, and settlement semantics are
+preserved byte-for-byte and remain fully covered by
+`tests/Feature/GroundedLaravelAiSpendingBoundTest.php` (running against the
+shipped Terra default, including the assertion that Terra emits no
+`reasoning` key). It remains the shipped `openrouter-chat` Profile model;
+the Luna canary above is selected only through an explicit model override.
+The section below is the reviewed Terra authority, and the Luna section
+above inherits every mechanism it describes, with Luna's facts.
 
 Required options: `web_search` is exactly `true`, `search_engine` is exactly
 `exa`, `search_mode` is exactly `auto` (sent explicitly as the Exa `mode`
@@ -190,7 +391,11 @@ other OpenRouter model keeps the pre-existing routing block and is never
 rerouted to OpenAI. Requests without the budget control are never silently
 altered.
 
-Pricing identity: `openrouter:openai/gpt-5.6-terra-272k`. The identity names
+Pricing identity: `openrouter:openai/gpt-5.6-terra-272k` — this is Terra's
+identity and this paragraph is Terra-specific; the Luna route carries its
+own `openrouter:openai/gpt-6-luna-272k` identity under the same
+worst-case-reservation logic, documented in the Luna section above. Terra's
+identity names
 the worst-case billing basis rather than the base model rates: every
 completion is conservatively billed at the endpoint's >272K-prompt override
 rates (2× input, 1.5× output for the full request) with the 1.25×
@@ -326,27 +531,39 @@ control.
 
 ## Shared integration needs for the pricing registry owner
 
-- `openrouter:openai/gpt-5.6-terra-272k`: worst-case per-completion rates
-  for the OpenAI default-tier endpoints serving this model — the >272K-prompt
-  override and the 1.25× cache-write basis — so resolving the bound's
-  `cache_write_input_tokens`/`output_tokens` quantities cannot silently use
-  cheaper aggregate rates. The catalog's context length, output maximum,
-  endpoint set, and rates are snapshot facts the pricing owner must reverify
-  against the live endpoint catalog before enabling or refreshing any price.
+These needs are shared by both bounded routes; each carries its own
+per-model facts rather than one merged entry.
+
+- Two bounded identities, each with worst-case per-completion rates for
+  the OpenAI default-tier endpoints serving its model:
+  `openrouter:openai/gpt-5.6-terra-272k` (the >272K-prompt override and
+  the 1.25× cache-write basis) and `openrouter:openai/gpt-6-luna-272k`
+  (the ≥272K long-context partition rates — input $0.2/M, output
+  $0.75/M, cache-read $0.02/M, cache-write $0.25/M — with the same
+  reserve-everything-in-cache-write logic), so resolving the bound's
+  `cache_write_input_tokens`/`output_tokens` quantities cannot silently
+  use cheaper aggregate rates. Each catalog's context length, output
+  maximum, endpoint set, and rates are snapshot facts the pricing owner
+  must reverify against the live endpoint catalog before enabling or
+  refreshing any price.
 - An `exa_search_requests` unit rate ($0.007 per request in the pinned Exa
-  `auto` mode) distinct from every model catalog's native `web_search` fee;
-  the catalog's model-level rate ($0.01/call) must never satisfy it.
-- The bounded request now carries `provider.max_price` (`prompt: "2"`,
-  `completion: "12"`, USD per million tokens) as a rate routing filter with
-  candidate base thresholds, and the exact request contract includes it:
+  `auto` mode, shared by both routes) distinct from every model catalog's
+  native `web_search` fee; the catalog's model-level rate ($0.01/call)
+  must never satisfy it.
+- Each bounded request carries `provider.max_price` as a rate routing
+  filter with candidate base thresholds — Terra `prompt: "2"` /
+  `completion: "12"`, Luna `prompt: "0.1"` / `completion: "0.5"`, USD
+  per million tokens — and the exact request contract includes it:
   the docs demonstrate base prompt/completion comparisons and the request
   fails when no endpoint qualifies. Record its limits with the frozen
   configuration: existing source-snapshot pricing does not cap future
   costs, and max_price coverage of cache/tool/tier price overrides is
   undocumented, so the worst-case quantity bases above are unchanged by it.
-- The reviewed exact revision for the model-revision binding is
-  `openai/gpt-5.6-terra-20260709` (the alias's current `canonical_slug`);
-  the request keeps the alias and the binding is two-way fail-closed — a
+- The reviewed exact revision for the model-revision binding is per-model:
+  `openai/gpt-5.6-terra-20260709` for Terra and
+  `openai/gpt-6-luna-20260922` for Luna (each the alias's current
+  `canonical_slug`); the request keeps the alias and the binding is
+  two-way fail-closed — a
   pre-dispatch public-catalog check of the alias's `canonical_slug` and a
   served-model response check — so an alias rollover requires re-review
   here before the bounded route runs again. Settlement is

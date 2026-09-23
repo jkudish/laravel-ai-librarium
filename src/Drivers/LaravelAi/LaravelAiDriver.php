@@ -76,34 +76,92 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
     private const array MAX_TOOL_CALLS_PROVIDERS = ['openai', 'openrouter'];
 
     /**
-     * The only OpenRouter model whose grounded bound is proven. The endpoint
-     * pin applies to exactly this model so a budget control on any other
-     * OpenRouter model never reroutes it to OpenAI.
+     * Per-model source of truth for the bounded OpenRouter routes — the
+     * only OpenRouter models whose grounded bound is proven. The endpoint
+     * pin applies to exactly these models, so a budget control on any other
+     * OpenRouter model never reroutes it to OpenAI. Terra is the historical
+     * bounded route and its facts are unchanged; Luna is the reviewed
+     * current canary — regular GPT-6 Luna, not Luna Pro — with its
+     * reviewed reasoning controls declared per model. There is deliberately
+     * no generic framework here: adding a bounded route means adding one
+     * reviewed entry with its own official-source facts.
+     *
+     * entry meaning:
+     * - revision: the exact canonical revision the alias must resolve to at
+     *   both fail-closed check points;
+     * - context_tokens / max_completion_tokens: the pinned endpoint's
+     *   catalog maxima behind the quantity contract;
+     * - pricing_model: the worst-case billing identity (-272k), which no
+     *   aggregate model rate satisfies;
+     * - order / ignore / max_price: the exact-route provider controls.
+     *   Base slugs do not match service-tier endpoints, so order "openai"
+     *   already excludes flex/fast-style tiers; the ignore list is explicit
+     *   redundant defense. max_price is a rate routing filter with
+     *   candidate base thresholds — the public docs demonstrate comparisons
+     *   against base per-M prompt/completion rates and state the request
+     *   does not run when no endpoint qualifies; whether the filter also
+     *   compares context-override, cache, or tool rates is undocumented, so
+     *   it is not an all-in spend cap and the worst-case quantities never
+     *   shrink because of it;
+     * - reasoning: reviewed per-model reasoning controls emitted verbatim at
+     *   the top level of the chat-completions body (Luna: effort max —
+     *   listed in the model's catalog supported_efforts — with
+     *   exclude: true, a request-only exclusion of returned reasoning text
+     *   that does not disable internal reasoning and leaves reasoning
+     *   billed as completion tokens). The Laravel AI SDK merges
+     *   providerOptions into the request body without any reasoning-effort
+     *   enum, so the reviewed effort is forwarded unmodified or the
+     *   outbound payload test fails. Null (Terra) emits no reasoning key at
+     *   all.
+     *
+     * @var array<string, array{
+     *     revision: string,
+     *     context_tokens: int,
+     *     max_completion_tokens: int,
+     *     pricing_model: string,
+     *     order: list<string>,
+     *     ignore: list<string>,
+     *     max_price: array{prompt: string, completion: string},
+     *     reasoning: array{effort: string, exclude: bool}|null,
+     * }>
      */
-    private const string OPENROUTER_BOUNDED_MODEL = 'openai/gpt-5.6-terra';
-
-    /**
-     * The exact canonical revision the pinned bounded route must serve.
-     * Public evidence does not establish that the dated slug is usable as a
-     * chat request model: the catalog list contains no row for it, the
-     * documented alias-resolving model-lookup route returns 404 for it, and
-     * the chat schema documents no revision semantics for the model field —
-     * yet absence from the catalog is not proof the chat router would reject
-     * it. Sending it would therefore be an invented control, so the request
-     * keeps the moving alias and the revision is bound two ways: fail-closed
-     * against the public catalog's canonical_slug before dispatch, and
-     * fail-closed against the served model OpenRouter reports in the
-     * response. Neither is a provider-side immutable pin.
-     */
-    private const string OPENROUTER_BOUNDED_MODEL_REVISION = 'openai/gpt-5.6-terra-20260709';
+    private const array OPENROUTER_BOUNDED_MODEL_FACTS = [
+        'openai/gpt-5.6-terra' => [
+            'revision' => 'openai/gpt-5.6-terra-20260709',
+            'context_tokens' => self::OPENROUTER_OPENAI_GPT_5_6_TERRA_CONTEXT_TOKENS,
+            'max_completion_tokens' => self::OPENROUTER_OPENAI_GPT_5_6_TERRA_MAX_COMPLETION_TOKENS,
+            'pricing_model' => 'openai/gpt-5.6-terra-272k',
+            'order' => ['openai'],
+            'ignore' => ['openai/flex'],
+            'max_price' => ['prompt' => '2', 'completion' => '12'],
+            'reasoning' => null,
+        ],
+        'openai/gpt-6-luna' => [
+            'revision' => 'openai/gpt-6-luna-20260922',
+            'context_tokens' => 1_050_000,
+            'max_completion_tokens' => 128_000,
+            'pricing_model' => 'openai/gpt-6-luna-272k',
+            'order' => ['openai'],
+            'ignore' => ['openai/flex', 'openai/fast'],
+            'max_price' => ['prompt' => '0.1', 'completion' => '0.5'],
+            'reasoning' => ['effort' => 'max', 'exclude' => true],
+        ],
+    ];
 
     /**
      * Base of the public, unauthenticated model-catalog lookup used by the
-     * pre-dispatch revision check. The documented route resolves known slug
-     * aliases and returns the catalog row whose required canonical_slug
-     * names the concrete revision the alias currently resolves to. The
-     * lookup is narrow: one bounded-timeout GET with no credentials, no
-     * retry, and no caching, made only for the pinned bounded route.
+     * pre-dispatch revision check. The public evidence kept the dated slugs
+     * out of the request body — no catalog row, a 404 from this documented
+     * alias-resolving route, and no documented revision semantics for the
+     * chat model field — so each bounded request keeps its moving alias and
+     * the revision is bound two ways: fail-closed against this catalog's
+     * canonical_slug before dispatch, and fail-closed against the served
+     * model OpenRouter reports in the response. Neither is a provider-side
+     * immutable pin. The documented route resolves known slug aliases and
+     * returns the catalog row whose required canonical_slug names the
+     * concrete revision the alias currently resolves to. The lookup is
+     * narrow: one bounded-timeout GET with no credentials, no retry, and no
+     * caching, made only for the pinned bounded route.
      */
     private const string OPENROUTER_MODEL_CATALOG_BASE_URL = 'https://openrouter.ai/api/v1/model/';
 
@@ -137,13 +195,45 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
         ];
     }
 
+    /**
+     * The reviewed bounded-route facts for the Profile's model, or null when
+     * the provider is not OpenRouter or the model is not a proven bounded
+     * route. The single lookup keeps the model gate and the per-model facts
+     * in one place: every behavior that keys off "the pinned bounded route"
+     * — the grounded spending bound, the exact routing controls, the
+     * reasoning controls, and both revision bindings — resolves through it,
+     * so an unsupported model can never inherit another model's controls.
+     *
+     * @return array{
+     *     revision: string,
+     *     context_tokens: int,
+     *     max_completion_tokens: int,
+     *     pricing_model: string,
+     *     order: list<string>,
+     *     ignore: list<string>,
+     *     max_price: array{prompt: string, completion: string},
+     *     reasoning: array{effort: string, exclude: bool}|null,
+     * }|null
+     */
+    private static function openRouterBoundedModelFacts(DriverRequest $request): ?array
+    {
+        $model = $request->profile->model;
+
+        if ($request->profile->provider !== 'openrouter' || ! is_string($model)) {
+            return null;
+        }
+
+        return self::OPENROUTER_BOUNDED_MODEL_FACTS[$model] ?? null;
+    }
+
     public function spendingBound(DriverRequest $request): SpendingBound
     {
         $options = $request->profile->options;
 
-        if ($request->profile->provider === 'openrouter'
-            && $request->profile->model === self::OPENROUTER_BOUNDED_MODEL) {
-            return $this->openRouterGroundedSpendingBound($request, $options);
+        $openRouterBoundedModelFacts = self::openRouterBoundedModelFacts($request);
+
+        if ($openRouterBoundedModelFacts !== null) {
+            return $this->openRouterGroundedSpendingBound($request, $openRouterBoundedModelFacts, $options);
         }
 
         if ($request->profile->provider === 'anthropic'
@@ -171,8 +261,18 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
      * multiple of the context window bounds their internal iterations.
      *
      * @param  array<string, mixed>  $options
+     * @param  array{
+     *     revision: string,
+     *     context_tokens: int,
+     *     max_completion_tokens: int,
+     *     pricing_model: string,
+     *     order: list<string>,
+     *     ignore: list<string>,
+     *     max_price: array{prompt: string, completion: string},
+     *     reasoning: array{effort: string, exclude: bool}|null,
+     * }  $facts
      */
-    private function openRouterGroundedSpendingBound(DriverRequest $request, array $options): SpendingBound
+    private function openRouterGroundedSpendingBound(DriverRequest $request, array $facts, array $options): SpendingBound
     {
         $maxToolCalls = $options['max_tool_calls'] ?? null;
         $maxResults = $options['max_results'] ?? null;
@@ -230,14 +330,14 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
         // bill cache writes without any opt-in, so the request cannot be
         // proven cache-write-free. The bound therefore reserves the entire
         // worst-case input quantity in the most expensive partition
-        // (cache-write at the compounded 1.25x long-context premium, $5/M),
-        // which dominates every possible actual partition mix without
-        // counting any token twice.
+        // (cache-write under the long-context override rates the -272k
+        // billing identity carries), which dominates every possible actual
+        // partition mix without counting any token twice.
         return SpendingBound::billableQuantities(
-            new ModelIdentity('openrouter', 'openai/gpt-5.6-terra-272k'),
+            new ModelIdentity('openrouter', $facts['pricing_model']),
             new Usage([
-                'cache_write_input_tokens' => $completions * self::OPENROUTER_OPENAI_GPT_5_6_TERRA_CONTEXT_TOKENS,
-                'output_tokens' => $completions * self::OPENROUTER_OPENAI_GPT_5_6_TERRA_MAX_COMPLETION_TOKENS,
+                'cache_write_input_tokens' => $completions * $facts['context_tokens'],
+                'output_tokens' => $completions * $facts['max_completion_tokens'],
                 'exa_search_requests' => $maxToolCalls,
             ]),
         );
@@ -416,9 +516,10 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
             );
         }
 
-        $pinsOpenRouterProvider = $request->profile->provider === 'openrouter'
-            && $request->profile->model === self::OPENROUTER_BOUNDED_MODEL
-            && $maxToolCalls !== null;
+        $pinnedBoundedModelFacts = $maxToolCalls !== null
+            ? self::openRouterBoundedModelFacts($request)
+            : null;
+        $pinsOpenRouterProvider = $pinnedBoundedModelFacts !== null;
 
         // The pinned bounded route verifies its revision against the public
         // catalog before any inference request can spend money. A positive
@@ -426,7 +527,7 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
         // is capped to the remaining request budget, so a fixed 5 s lookup
         // can never ignore a shorter remaining duration.
         if ($pinsOpenRouterProvider) {
-            $this->verifyPinnedModelRevisionBeforeDispatch($request);
+            $this->verifyPinnedModelRevisionBeforeDispatch($request, $pinnedBoundedModelFacts);
         }
 
         $timeout = $this->remainingSeconds($request);
@@ -442,6 +543,12 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
             maxToolCalls: $maxToolCalls,
             maxResults: $maxResults,
             pinsOpenRouterProvider: $pinsOpenRouterProvider,
+            pinnedOpenRouterRouting: $pinnedBoundedModelFacts === null ? null : [
+                'order' => $pinnedBoundedModelFacts['order'],
+                'ignore' => $pinnedBoundedModelFacts['ignore'],
+                'max_price' => $pinnedBoundedModelFacts['max_price'],
+            ],
+            pinnedOpenRouterReasoning: $pinnedBoundedModelFacts['reasoning'] ?? null,
         );
 
         try {
@@ -484,7 +591,7 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
         }
 
         if ($pinsOpenRouterProvider) {
-            $this->assertPinnedModelRevision($request, $response);
+            $this->assertPinnedModelRevision($request, $response, $pinnedBoundedModelFacts);
         }
 
         if ($this->captureResponse($request, $response) === 0) {
@@ -534,8 +641,19 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
      * races the request by design: the alias can move between this check
      * and the inference POST, which the response-side binding covers as
      * defense in depth.
+     *
+     * @param  array{
+     *     revision: string,
+     *     context_tokens: int,
+     *     max_completion_tokens: int,
+     *     pricing_model: string,
+     *     order: list<string>,
+     *     ignore: list<string>,
+     *     max_price: array{prompt: string, completion: string},
+     *     reasoning: array{effort: string, exclude: bool}|null,
+     * }  $facts
      */
-    private function verifyPinnedModelRevisionBeforeDispatch(DriverRequest $request): void
+    private function verifyPinnedModelRevisionBeforeDispatch(DriverRequest $request, array $facts): void
     {
         // A positive shared-deadline check precedes the GET, and the lookup
         // timeout is capped to the minimum of its 5 s bound and the integer
@@ -553,7 +671,7 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
         try {
             $response = Http::timeout($timeout)
                 ->acceptJson()
-                ->get(self::OPENROUTER_MODEL_CATALOG_BASE_URL.self::OPENROUTER_BOUNDED_MODEL);
+                ->get(self::OPENROUTER_MODEL_CATALOG_BASE_URL.$request->profile->model);
         } catch (ConnectionException) {
             throw new DriverException(
                 errorCode: 'laravel_ai.model_revision_unverified',
@@ -572,7 +690,7 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
             );
         }
 
-        if ($canonicalSlug !== self::OPENROUTER_BOUNDED_MODEL_REVISION) {
+        if ($canonicalSlug !== $facts['revision']) {
             throw new DriverException(
                 errorCode: 'laravel_ai.model_revision_drift_before_dispatch',
                 message: 'The pinned OpenRouter model alias no longer resolves to the reviewed exact revision.',
@@ -598,10 +716,21 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
      * an unanswered attempt, which settles the diagnostic PossiblyAccepted —
      * the billable request may have been accepted upstream, so a spent
      * reservation is never falsely released.
+     *
+     * @param  array{
+     *     revision: string,
+     *     context_tokens: int,
+     *     max_completion_tokens: int,
+     *     pricing_model: string,
+     *     order: list<string>,
+     *     ignore: list<string>,
+     *     max_price: array{prompt: string, completion: string},
+     *     reasoning: array{effort: string, exclude: bool}|null,
+     * }  $facts
      */
-    private function assertPinnedModelRevision(DriverRequest $request, AgentResponse $response): void
+    private function assertPinnedModelRevision(DriverRequest $request, AgentResponse $response, array $facts): void
     {
-        if (data_get($response, 'meta.model') !== self::OPENROUTER_BOUNDED_MODEL_REVISION) {
+        if (data_get($response, 'meta.model') !== $facts['revision']) {
             if ($this->captureResponse($request, $response) === 0) {
                 $request->captureNoResponse(Operation::Inline);
             }
