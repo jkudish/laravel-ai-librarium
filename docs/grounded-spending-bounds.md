@@ -391,7 +391,11 @@ other OpenRouter model keeps the pre-existing routing block and is never
 rerouted to OpenAI. Requests without the budget control are never silently
 altered.
 
-Pricing identity: `openrouter:openai/gpt-5.6-terra-272k`. The identity names
+Pricing identity: `openrouter:openai/gpt-5.6-terra-272k` — this is Terra's
+identity and this paragraph is Terra-specific; the Luna route carries its
+own `openrouter:openai/gpt-6-luna-272k` identity under the same
+worst-case-reservation logic, documented in the Luna section above. Terra's
+identity names
 the worst-case billing basis rather than the base model rates: every
 completion is conservatively billed at the endpoint's >272K-prompt override
 rates (2× input, 1.5× output for the full request) with the 1.25×
@@ -527,27 +531,39 @@ control.
 
 ## Shared integration needs for the pricing registry owner
 
-- `openrouter:openai/gpt-5.6-terra-272k`: worst-case per-completion rates
-  for the OpenAI default-tier endpoints serving this model — the >272K-prompt
-  override and the 1.25× cache-write basis — so resolving the bound's
-  `cache_write_input_tokens`/`output_tokens` quantities cannot silently use
-  cheaper aggregate rates. The catalog's context length, output maximum,
-  endpoint set, and rates are snapshot facts the pricing owner must reverify
-  against the live endpoint catalog before enabling or refreshing any price.
+These needs are shared by both bounded routes; each carries its own
+per-model facts rather than one merged entry.
+
+- Two bounded identities, each with worst-case per-completion rates for
+  the OpenAI default-tier endpoints serving its model:
+  `openrouter:openai/gpt-5.6-terra-272k` (the >272K-prompt override and
+  the 1.25× cache-write basis) and `openrouter:openai/gpt-6-luna-272k`
+  (the ≥272K long-context partition rates — input $0.2/M, output
+  $0.75/M, cache-read $0.02/M, cache-write $0.25/M — with the same
+  reserve-everything-in-cache-write logic), so resolving the bound's
+  `cache_write_input_tokens`/`output_tokens` quantities cannot silently
+  use cheaper aggregate rates. Each catalog's context length, output
+  maximum, endpoint set, and rates are snapshot facts the pricing owner
+  must reverify against the live endpoint catalog before enabling or
+  refreshing any price.
 - An `exa_search_requests` unit rate ($0.007 per request in the pinned Exa
-  `auto` mode) distinct from every model catalog's native `web_search` fee;
-  the catalog's model-level rate ($0.01/call) must never satisfy it.
-- The bounded request now carries `provider.max_price` (`prompt: "2"`,
-  `completion: "12"`, USD per million tokens) as a rate routing filter with
-  candidate base thresholds, and the exact request contract includes it:
+  `auto` mode, shared by both routes) distinct from every model catalog's
+  native `web_search` fee; the catalog's model-level rate ($0.01/call)
+  must never satisfy it.
+- Each bounded request carries `provider.max_price` as a rate routing
+  filter with candidate base thresholds — Terra `prompt: "2"` /
+  `completion: "12"`, Luna `prompt: "0.1"` / `completion: "0.5"`, USD
+  per million tokens — and the exact request contract includes it:
   the docs demonstrate base prompt/completion comparisons and the request
   fails when no endpoint qualifies. Record its limits with the frozen
   configuration: existing source-snapshot pricing does not cap future
   costs, and max_price coverage of cache/tool/tier price overrides is
   undocumented, so the worst-case quantity bases above are unchanged by it.
-- The reviewed exact revision for the model-revision binding is
-  `openai/gpt-5.6-terra-20260709` (the alias's current `canonical_slug`);
-  the request keeps the alias and the binding is two-way fail-closed — a
+- The reviewed exact revision for the model-revision binding is per-model:
+  `openai/gpt-5.6-terra-20260709` for Terra and
+  `openai/gpt-6-luna-20260922` for Luna (each the alias's current
+  `canonical_slug`); the request keeps the alias and the binding is
+  two-way fail-closed — a
   pre-dispatch public-catalog check of the alias's `canonical_slug` and a
   served-model response check — so an alias rollover requires re-review
   here before the bounded route runs again. Settlement is
