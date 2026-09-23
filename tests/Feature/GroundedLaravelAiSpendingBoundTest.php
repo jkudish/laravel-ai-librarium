@@ -257,6 +257,7 @@ it('maps complete OpenRouter reported charges without inventing an actual cost',
 })->with([
     'live-shaped numeric charge' => [['{"usage":{"cost":0.007342925}}'], '0.007342925', false, 'openrouter'],
     'explicit free request' => [['{"usage":{"cost":0}}'], '0', false, 'openrouter'],
+    'integer zeros survive fractional normalization' => [['{"usage":{"cost":"100.00000000000000000000"}}'], '100', false, 'openrouter'],
     'scientific notation' => [['{"usage":{"cost":2.5e-7}}'], '0.00000025', false, 'openrouter'],
     'decimal multi-step sum ignores aggregate' => [['{"usage":{"cost":0.1}}', '{"usage":{"cost":"0.200000000000000001"}}'], '0.300000000000000001', true, 'openrouter'],
     'missing cost' => [['{"usage":{}}'], null, false, 'openrouter'],

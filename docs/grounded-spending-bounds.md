@@ -285,7 +285,7 @@ carries the engine's search count: it prefers the current
 the legacy `usage.server_tool_use.web_search_requests` field only when the
 current field is absent, then sums the selected value across steps. It never
 double counts when both are present, and a malformed present current value
-is not masked by legacy data. Settlement consumers must price each partition
+is not masked by legacy data. When deriving a cost estimate, consumers must price each partition
 at its own rate — never re-adding an inclusive prompt total to the cache
 partitions — and must fail closed when the engine search count is missing or
 malformed rather than treating it as zero.

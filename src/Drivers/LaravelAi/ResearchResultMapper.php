@@ -141,8 +141,15 @@ final readonly class ResearchResultMapper
         // or the aggregate response on top of its steps. Do not round a charge
         // to fit the interchange contract's maximum 18 fractional digits.
         $cost = (new LaravelAiProviderCostExtractor)->extract($response, $provider);
-        $amount = $cost?->amount->strippedOfTrailingZeros();
-        $actualCost = $amount !== null && $amount->getScale() <= 18 ? (string) $amount : null;
+        $actualCost = $cost === null ? null : (string) $cost->amount;
+        if ($actualCost !== null) {
+            if (str_contains($actualCost, '.')) {
+                $actualCost = rtrim(rtrim($actualCost, '0'), '.');
+            }
+            if (preg_match('/^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/', $actualCost) !== 1) {
+                $actualCost = null;
+            }
+        }
 
         return new Usage(
             promptTokens: $this->integer($response, 'promptTokens'),
@@ -152,7 +159,7 @@ final readonly class ResearchResultMapper
             reasoningTokens: $this->integer($response, 'reasoningTokens'),
             serverToolSearchRequests: $this->serverToolSearchRequests($response),
             actualCost: $actualCost,
-            currency: $actualCost !== null ? $cost->currency : null,
+            currency: $actualCost !== null ? $cost?->currency : null,
         );
     }
 
