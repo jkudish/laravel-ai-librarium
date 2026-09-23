@@ -32,6 +32,11 @@ use Laravel\Ai\Responses\TextResponse;
 beforeEach(function (): void {
     app()->forgetInstance(AiManager::class);
     Ai::clearResolvedInstance(AiManager::class);
+
+    // The shipped openrouter-chat Profile default stays on the historical
+    // Terra route; the Luna canary selects the bounded Luna route the way
+    // Platform does, through an explicit model override.
+    config()->set('librarium.profiles.openrouter-chat.model', 'openai/gpt-6-luna');
 });
 
 it('bounds exact grounded Luna quantities from the documented server-tool budget', function (int $budget, string $inputTokens, string $outputTokens, string $searchRequests): void {

@@ -37,11 +37,6 @@ use Laravel\Ai\Responses\TextResponse;
 beforeEach(function (): void {
     app()->forgetInstance(AiManager::class);
     Ai::clearResolvedInstance(AiManager::class);
-
-    // The shipped openrouter-chat Profile now carries the Luna canary, so
-    // these historical Terra assertions pin the reviewed Terra route they
-    // were written against instead of following the Profile default.
-    config()->set('librarium.profiles.openrouter-chat.model', 'openai/gpt-5.6-terra');
 });
 
 it('bounds exact grounded OpenRouter quantities from the documented server-tool budget', function (int $budget, string $inputTokens, string $outputTokens, string $searchRequests): void {

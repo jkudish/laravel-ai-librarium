@@ -4,10 +4,12 @@ This page documents the pre-dispatch `spendingBound()` results for the four
 exact grounded Laravel AI Profiles — `claude-chat` (Anthropic
 `claude-sonnet-5`), `openai-chat` (OpenAI `gpt-5.6-luna`),
 `gemini-grounded` (Gemini `gemini-3.6-flash`), and `openrouter-chat`
-(OpenRouter `openai/gpt-6-luna` with the Exa engine — the reviewed current
-canary; the prior `openai/gpt-5.6-terra` route below is preserved unchanged
-as a historical bounded route). The result contract, ownership, and
-revalidation rules are defined in
+(OpenRouter with the Exa engine — the shipped Profile default stays on the
+historical `openai/gpt-5.6-terra` route below; the reviewed
+`openai/gpt-6-luna` canary route is a per-model driver route the Platform
+canary selects through an explicit derived model override). The result
+contract, ownership, and revalidation rules are
+defined in
 [Exact-request spending bounds](spending-bounds.md).
 
 Grounded requests bill more dimensions than model-only requests: the model's
@@ -22,10 +24,12 @@ that are never advertised as spending authority. The shipped default Profile
 options remain `unknown` everywhere, and the existing no-search Claude bound
 is unchanged.
 
-## `openrouter-chat` — OpenRouter `openai/gpt-6-luna` (current canary), Exa engine: bounded
+## `openrouter-chat` — OpenRouter `openai/gpt-6-luna` (canary via explicit model override), Exa engine: bounded
 
 The current reviewed canary is **regular** `openai/gpt-6-luna` (not Luna
-Pro), switched from `openai/gpt-5.6-terra` with every safeguard of the
+Pro), selected on `openrouter-chat` through an explicit model override —
+the shipped Profile default remains `openai/gpt-5.6-terra` — with every
+safeguard of the
 historical route preserved: the same option gate, the same server-tool
 budget authority, the same two fail-closed revision bindings, the same
 no-catalog-evidence settlement semantics, the same preflight deadline
@@ -201,20 +205,23 @@ revision. The revision checks apply only to the pinned bounded route —
 unpinned Luna requests and unsupported OpenRouter models perform no catalog
 check, keep default routing, and are never rejected for their served model.
 The Luna behavioral suite (`tests/Feature/LunaBoundedCanaryTest.php`) covers
-the payload, quantities, both drift rejections with zero inference POSTs,
-and the no-raw `possibly_accepted` settlements on Luna itself; the Terra
-suite keeps the historical route's coverage pinned to Terra.
+the payload, quantities, the pre-dispatch drift rejection with zero
+inference POSTs, the response-side drift rejection that can only fire after
+the inference POST has been made and spent, and the no-raw
+`possibly_accepted` settlements on Luna itself; the Terra suite keeps the
+historical route's coverage on the shipped Terra default.
 
 ## Historical bounded route — OpenRouter `openai/gpt-5.6-terra`: preserved, unchanged
 
 The Terra route was the reviewed canary before the Luna switch. Its driver
 facts, bound, routing, revision bindings, and settlement semantics are
 preserved byte-for-byte and remain fully covered by
-`tests/Feature/GroundedLaravelAiSpendingBoundTest.php` (pinned to Terra,
-including the assertion that Terra emits no `reasoning` key). It is no
-longer the shipped `openrouter-chat` Profile model. The section below is
-the reviewed Terra authority, and the Luna section above inherits every
-mechanism it describes, with Luna's facts.
+`tests/Feature/GroundedLaravelAiSpendingBoundTest.php` (running against the
+shipped Terra default, including the assertion that Terra emits no
+`reasoning` key). It remains the shipped `openrouter-chat` Profile model;
+the Luna canary above is selected only through an explicit model override.
+The section below is the reviewed Terra authority, and the Luna section
+above inherits every mechanism it describes, with Luna's facts.
 
 Required options: `web_search` is exactly `true`, `search_engine` is exactly
 `exa`, `search_mode` is exactly `auto` (sent explicitly as the Exa `mode`

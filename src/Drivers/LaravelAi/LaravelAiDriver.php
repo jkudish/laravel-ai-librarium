@@ -149,17 +149,6 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
     ];
 
     /**
-     * The public evidence that kept the dated slugs out of the request body —
-     * no catalog row, a 404 from the documented alias-resolving
-     * model-lookup route, and no documented revision semantics for the chat
-     * model field — applies equally to Terra and Luna, so both bounded
-     * requests keep their moving alias and bind the revision two ways:
-     * fail-closed against the public catalog's canonical_slug before
-     * dispatch, and fail-closed against the served model OpenRouter reports
-     * in the response. Neither is a provider-side immutable pin.
-     */
-
-    /**
      * Base of the public, unauthenticated model-catalog lookup used by the
      * pre-dispatch revision check. The public evidence kept the dated slugs
      * out of the request body — no catalog row, a 404 from this documented
