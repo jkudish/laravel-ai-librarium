@@ -148,15 +148,18 @@ final readonly class ResearchResultMapper
     /**
      * The SDK usage value object carries only token metrics, so the engine's
      * search request count is read from the raw provider responses —
-     * usage.server_tool_use.web_search_requests in OpenRouter's unified
-     * usage schema — and summed across steps the way the SDK sums tokens.
+     * current usage.server_tool_use_details.web_search_requests, with
+     * compatibility for legacy usage.server_tool_use.web_search_requests —
+     * and summed across steps the way the SDK sums tokens. When both fields
+     * are present on one response, only the current field is used.
      *
      * The count is an all-or-nothing measurement: every expected step must
      * carry a raw provider response reporting a nonnegative integer count.
-     * A missing raw response, a missing or malformed count on any step, or a
-     * sum that cannot be represented exactly makes the metric unavailable,
-     * because a partial sum would silently understate a billed quantity. An
-     * explicit zero on every step stays zero.
+     * A malformed present current field is never masked by a valid legacy
+     * field. A missing raw response, a missing or malformed count on any
+     * step, or a sum that cannot be represented exactly makes the metric
+     * unavailable, because a partial sum would silently understate a billed
+     * quantity. An explicit zero on every step stays zero.
      */
     private function serverToolSearchRequests(AgentResponse $response): ?int
     {
@@ -170,7 +173,28 @@ final readonly class ResearchResultMapper
 
         foreach ($rawResponses as $raw) {
             $json = $raw->json();
-            $value = is_array($json) ? data_get($json, 'usage.server_tool_use.web_search_requests') : null;
+            $usage = is_array($json) ? ($json['usage'] ?? null) : null;
+
+            if (! is_array($usage)) {
+                return null;
+            }
+
+            $value = null;
+            if (array_key_exists('server_tool_use_details', $usage)) {
+                $details = $usage['server_tool_use_details'];
+
+                if (! is_array($details)) {
+                    return null;
+                }
+
+                if (array_key_exists('web_search_requests', $details)) {
+                    $value = $details['web_search_requests'];
+                } else {
+                    $value = data_get($usage, 'server_tool_use.web_search_requests');
+                }
+            } else {
+                $value = data_get($usage, 'server_tool_use.web_search_requests');
+            }
 
             if (! is_int($value) || $value < 0) {
                 return null;

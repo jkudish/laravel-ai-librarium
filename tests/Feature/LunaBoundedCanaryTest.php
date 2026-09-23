@@ -77,11 +77,11 @@ it('returns an unknown Luna bound unless every reviewed bounded option is exact'
     'web search disabled' => [fn (): array => lunaBoundedOptions(webSearch: false)],
 ]);
 
-it('sends the exact grounded Luna budget, endpoint pin, max_price, reasoning, Exa mode, and revision controls through the real SDK', function (): void {
+it('sends the grounded Luna budget, endpoint pin, max_price, reasoning, Exa mode, and revision controls through the real SDK', function (string $reportedModel): void {
     config()->set('librarium.profiles.openrouter-chat.options', lunaBoundedOptions(maxToolCalls: 4));
 
     Http::fake(lunaCatalogFake() + [
-        'https://openrouter.ai/api/v1/chat/completions' => Http::response(lunaCompletionBody()),
+        'https://openrouter.ai/api/v1/chat/completions' => Http::response(lunaCompletionBody(model: $reportedModel)),
     ]);
 
     $response = Librarium::query('Bound this grounded Luna answer.')
@@ -90,7 +90,7 @@ it('sends the exact grounded Luna budget, endpoint pin, max_price, reasoning, Ex
 
     expect($response->status->value)->toBe('succeeded')
         ->and($response->results->sole()->citations)->toHaveCount(1)
-        ->and($response->results->sole()->model)->toBe('openai/gpt-6-luna-20260922')
+        ->and($response->results->sole()->model)->toBe($reportedModel)
         ->and($response->results->sole()->usage?->serverToolSearchRequests)->toBe(4);
     Http::assertSent(function (Request $request): bool {
         $body = $request->data();
@@ -119,7 +119,10 @@ it('sends the exact grounded Luna budget, endpoint pin, max_price, reasoning, Ex
             && str_contains((string) json_encode($body), 'Bound this grounded Luna answer.');
     });
     Http::assertSentCount(2);
-});
+})->with([
+    'requested alias reported by OpenRouter' => ['openai/gpt-6-luna'],
+    'reviewed dated revision reported by OpenRouter' => ['openai/gpt-6-luna-20260922'],
+]);
 
 it('checks the pinned Luna revision against the public catalog before dispatching the inference request', function (): void {
     config()->set('librarium.profiles.openrouter-chat.options', lunaBoundedOptions(maxToolCalls: 4));
@@ -557,7 +560,7 @@ function lunaCompletionBody(string $model = 'openai/gpt-6-luna-20260922'): array
             'prompt_tokens' => 900,
             'completion_tokens' => 120,
             'cost' => 0.002,
-            'server_tool_use' => ['web_search_requests' => 4],
+            'server_tool_use_details' => ['web_search_requests' => 4],
         ],
     ];
 }

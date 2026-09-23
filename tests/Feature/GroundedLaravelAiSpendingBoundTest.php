@@ -69,7 +69,7 @@ it('bounds exact grounded OpenRouter quantities from the documented server-tool 
     'maximum documented budget' => [30, '32550000', '3968000', '30'],
 ]);
 
-it('sends the exact grounded OpenRouter budget, endpoint pin, max_price, Exa mode, and revision controls through the real SDK', function (): void {
+it('sends the grounded OpenRouter budget, endpoint pin, max_price, Exa mode, and revision controls through the real SDK', function (string $reportedModel): void {
     config()->set('librarium.profiles.openrouter-chat.options', [
         'web_search' => true,
         'search_engine' => 'exa',
@@ -82,7 +82,7 @@ it('sends the exact grounded OpenRouter budget, endpoint pin, max_price, Exa mod
     Http::fake(catalogFake() + [
         'https://openrouter.ai/api/v1/chat/completions' => Http::response([
             'id' => 'gen-grounded',
-            'model' => 'openai/gpt-5.6-terra-20260709',
+            'model' => $reportedModel,
             'choices' => [[
                 'message' => [
                     'role' => 'assistant',
@@ -98,7 +98,7 @@ it('sends the exact grounded OpenRouter budget, endpoint pin, max_price, Exa mod
                 'prompt_tokens' => 900,
                 'completion_tokens' => 120,
                 'cost' => 0.002,
-                'server_tool_use' => ['web_search_requests' => 4],
+                'server_tool_use_details' => ['web_search_requests' => 4],
             ],
         ]),
     ]);
@@ -109,7 +109,7 @@ it('sends the exact grounded OpenRouter budget, endpoint pin, max_price, Exa mod
 
     expect($response->status->value)->toBe('succeeded')
         ->and($response->results->sole()->citations)->toHaveCount(1)
-        ->and($response->results->sole()->model)->toBe('openai/gpt-5.6-terra-20260709')
+        ->and($response->results->sole()->model)->toBe($reportedModel)
         ->and($response->results->sole()->usage?->serverToolSearchRequests)->toBe(4);
     Http::assertSent(function (Request $request): bool {
         $body = $request->data();
@@ -138,7 +138,10 @@ it('sends the exact grounded OpenRouter budget, endpoint pin, max_price, Exa mod
             && str_contains((string) json_encode($body), 'Bound this grounded OpenRouter answer.');
     });
     Http::assertSentCount(2);
-});
+})->with([
+    'requested alias reported by OpenRouter' => ['openai/gpt-5.6-terra'],
+    'reviewed dated revision reported by OpenRouter' => ['openai/gpt-5.6-terra-20260709'],
+]);
 
 it('maps asymmetric actual cache partitions and the engine search count through the real SDK', function (): void {
     config()->set('librarium.profiles.openrouter-chat.options', [
@@ -255,13 +258,24 @@ it('sums the engine search count only when every step reports a complete count',
 
     expect($usage?->serverToolSearchRequests)->toBe($expected);
 })->with([
-    'all steps present' => [[
+    'current fields on every step' => [[
+        '{"usage":{"prompt_tokens":10,"server_tool_use_details":{"web_search_requests":2}}}',
+        '{"usage":{"prompt_tokens":10,"server_tool_use_details":{"web_search_requests":3}}}',
+    ], 5],
+    'legacy fields on every step' => [[
         '{"usage":{"prompt_tokens":10,"server_tool_use":{"web_search_requests":2}}}',
         '{"usage":{"prompt_tokens":10,"server_tool_use":{"web_search_requests":3}}}',
     ], 5],
+    'current field wins without double counting when both are present' => [[
+        '{"usage":{"prompt_tokens":10,"server_tool_use_details":{"web_search_requests":2},"server_tool_use":{"web_search_requests":20}}}',
+        '{"usage":{"prompt_tokens":10,"server_tool_use_details":{"web_search_requests":3},"server_tool_use":{"web_search_requests":30}}}',
+    ], 5],
+    'malformed current field is not masked by legacy' => [[
+        '{"usage":{"prompt_tokens":10,"server_tool_use_details":{"web_search_requests":"2"},"server_tool_use":{"web_search_requests":20}}}',
+    ], null],
     'every step reports zero' => [[
-        '{"usage":{"prompt_tokens":10,"server_tool_use":{"web_search_requests":0}}}',
-        '{"usage":{"prompt_tokens":10,"server_tool_use":{"web_search_requests":0}}}',
+        '{"usage":{"prompt_tokens":10,"server_tool_use_details":{"web_search_requests":0}}}',
+        '{"usage":{"prompt_tokens":10,"server_tool_use_details":{"web_search_requests":0}}}',
     ], 0],
     'no step reports the count' => [[
         '{"usage":{"prompt_tokens":10}}',
@@ -814,7 +828,7 @@ it('rejects an undocumented Exa search mode value before execution', function ()
     Http::assertNothingSent();
 });
 
-it('fails closed when the pinned route serves any model other than the reviewed exact revision', function (string $servedModel): void {
+it('fails closed when the pinned route reports neither the requested alias nor the reviewed revision', function (?string $servedModel): void {
     config()->set('librarium.profiles.openrouter-chat.options', [
         'web_search' => true,
         'search_engine' => 'exa',
@@ -824,16 +838,21 @@ it('fails closed when the pinned route serves any model other than the reviewed 
         'max_steps' => 1,
         'max_prompt_bytes' => strlen('Bound this grounded OpenRouter answer.'),
     ]);
+    $completion = [
+        'id' => 'gen-grounded-drift',
+        'choices' => [[
+            'message' => ['role' => 'assistant', 'content' => 'A drifted revision answer.'],
+            'finish_reason' => 'stop',
+        ]],
+        'usage' => ['prompt_tokens' => 900, 'completion_tokens' => 120],
+    ];
+
+    if ($servedModel !== null) {
+        $completion['model'] = $servedModel;
+    }
+
     Http::fake(catalogFake() + [
-        'https://openrouter.ai/api/v1/chat/completions' => Http::response([
-            'id' => 'gen-grounded-drift',
-            'model' => $servedModel,
-            'choices' => [[
-                'message' => ['role' => 'assistant', 'content' => 'A drifted revision answer.'],
-                'finish_reason' => 'stop',
-            ]],
-            'usage' => ['prompt_tokens' => 900, 'completion_tokens' => 120],
-        ]),
+        'https://openrouter.ai/api/v1/chat/completions' => Http::response($completion),
     ]);
 
     try {
@@ -843,17 +862,16 @@ it('fails closed when the pinned route serves any model other than the reviewed 
             prompt: 'Bound this grounded OpenRouter answer.',
             options: config('librarium.profiles.openrouter-chat.options'),
         ));
-        $this->fail('A served model other than the reviewed exact revision should fail closed.');
+        $this->fail('A served model other than the requested alias or reviewed revision should fail closed.');
     } catch (DriverException $exception) {
         expect($exception->errorCode)->toBe('laravel_ai.model_revision_drift')
             ->and($exception->fallbackAllowed)->toBeFalse();
     }
 
     // The pre-dispatch catalog check passed, so the inference request was
-    // dispatched with the moving alias; the response-side check then caught
-    // the drift. This is the defense-in-depth half of the binding: the alias
-    // can move between the catalog check and the inference POST, and this
-    // check is what rejects that race at response time.
+    // dispatched with the moving alias. The response-side compatibility
+    // check then rejected an explicitly unexpected identity. An echoed alias
+    // is accepted and cannot prove which revision served the request.
     Http::assertSent(function (Request $request): bool {
         return $request->url() === 'https://openrouter.ai/api/v1/chat/completions'
             && $request->data()['model'] === 'openai/gpt-5.6-terra'
@@ -862,8 +880,9 @@ it('fails closed when the pinned route serves any model other than the reviewed 
     Http::assertSentCount(2);
 })->with([
     'a newer dated revision' => ['openai/gpt-5.6-terra-20261001'],
-    'the moving alias echoed back' => ['openai/gpt-5.6-terra'],
     'a sibling model' => ['openai/gpt-5.6-terra-pro-20260709'],
+    'an unknown model' => ['openai/unknown'],
+    'a missing model' => [null],
 ]);
 
 it('checks the pinned revision against the public catalog before dispatching the inference request', function (): void {

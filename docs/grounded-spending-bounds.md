@@ -29,14 +29,13 @@ is unchanged.
 The current reviewed canary is **regular** `openai/gpt-6-luna` (not Luna
 Pro), selected on `openrouter-chat` through an explicit model override —
 the shipped Profile default remains `openai/gpt-5.6-terra` — with every
-safeguard of the
-historical route preserved: the same option gate, the same server-tool
-budget authority, the same two fail-closed revision bindings, the same
-no-catalog-evidence settlement semantics, the same preflight deadline
-capping, and the same no-raw `possibly_accepted` guarantees. The route is a
-per-model entry in the driver's bounded-model facts — adding a bounded route
-requires a reviewed entry with official-source facts; no generic framework
-infers one.
+safeguard of the historical route preserved: the same option gate,
+server-tool budget authority, fail-closed catalog revision check, response
+model compatibility check, no-catalog-evidence settlement semantics,
+preflight deadline capping, and no-raw `possibly_accepted` guarantees. The
+route is a per-model entry in the driver's bounded-model facts — adding a
+bounded route requires a reviewed entry with official-source facts; no
+generic framework infers one.
 
 Required options: `web_search` is exactly `true`, `search_engine` is exactly
 `exa`, `search_mode` is exactly `auto` (sent explicitly as the Exa `mode`
@@ -166,12 +165,13 @@ the chat-completions body:
 Terra emits no `reasoning` key at all, and unpinned or unsupported
 OpenRouter models emit none either.
 
-### Model-revision binding
+### Catalog revision and response identity
 
 `openai/gpt-6-luna` is a moving alias whose public catalog entry names the
 canonical dated revision `openai/gpt-6-luna-20260922`. The dated slug is not
-sent as the request model, for the same evidence reasons as Terra, and the
-revision is bound two ways, both fail-closed, with the Luna values:
+sent as the request model, for the same evidence reasons as Terra. The
+catalog preflight remains the revision check; the response check is bounded
+identity compatibility, not independent immutable revision proof:
 
 1. **Pre-dispatch catalog check.** One public, unauthenticated,
    timeout-bounded GET of `/api/v1/model/openai/gpt-6-luna` (no credentials,
@@ -187,23 +187,30 @@ revision is bound two ways, both fail-closed, with the Luna values:
    (`laravel_ai.model_revision_drift_before_dispatch`). Catalog traffic is
    never recorded as provider inference evidence, so every pre-dispatch
    rejection settles `not_sent` by construction.
-2. **Response-side binding (defense in depth).** The driver rejects the
-   result (`laravel_ai.model_revision_drift`) unless the response's `model`
-   field is exactly `openai/gpt-6-luna-20260922`. The inference POST has
-   definitely happened by then, so this rejection never settles `not_sent`:
-   with no raw capture the dispatch is explicitly recorded as an unanswered
-   attempt and settles `possibly_accepted`. The same post-prompt guarantee
-   covers a runtime deadline reached after a conforming no-raw response
+2. **Response model compatibility.** OpenRouter may report either the exact
+   requested alias (`openai/gpt-6-luna`) or the reviewed dated revision
+   (`openai/gpt-6-luna-20260922`). The driver accepts either exact value and
+   preserves the reported value on the result. Missing identities, sibling
+   or unknown models, and unexpected dated revisions fail closed with
+   `laravel_ai.model_revision_drift`. The inference POST has definitely
+   happened by then, so this rejection never settles `not_sent`: with no raw
+   capture the dispatch is explicitly recorded as an unanswered attempt and
+   settles `possibly_accepted`. The same post-prompt guarantee covers a
+   runtime deadline reached after a conforming no-raw response
    (`librarium.timeout`) and a required-grounding rejection
    (`laravel_ai.ungrounded_response`).
 
 The check-to-use race is unavoidable and the same as Terra's: the alias can
-move between the catalog check and the inference POST, and only the
-response-side binding catches that. Neither check is a provider-side
-immutable pin; re-enabling after drift requires updating the reviewed
-revision. The revision checks apply only to the pinned bounded route —
-unpinned Luna requests and unsupported OpenRouter models perform no catalog
-check, keep default routing, and are never rejected for their served model.
+move between the catalog check and the inference POST. A dated response can
+expose a mismatch, but an alias response does not identify the served
+revision and therefore does not guarantee that the race is closed. The
+catalog `canonical_slug` check remains the revision assertion, but it is not
+a provider-side immutable pin. Re-enabling after catalog drift requires
+updating the reviewed revision. These checks apply only to the pinned bounded
+route — unpinned Luna requests and unsupported OpenRouter models perform no
+catalog check, keep default routing, and are never rejected for their served
+model.
+
 The Luna behavioral suite (`tests/Feature/LunaBoundedCanaryTest.php`) covers
 the payload, quantities, the pre-dispatch drift rejection with zero
 inference POSTs, the response-side drift rejection that can only fire after
@@ -211,11 +218,13 @@ the inference POST has been made and spent, and the no-raw
 `possibly_accepted` settlements on Luna itself; the Terra suite keeps the
 historical route's coverage on the shipped Terra default.
 
-## Historical bounded route — OpenRouter `openai/gpt-5.6-terra`: preserved, unchanged
+## Historical bounded route — OpenRouter `openai/gpt-5.6-terra`
 
 The Terra route was the reviewed canary before the Luna switch. Its driver
-facts, bound, routing, revision bindings, and settlement semantics are
-preserved byte-for-byte and remain fully covered by
+facts, bound, routing, catalog preflight, and settlement semantics remain
+preserved. Its response model check has the same bounded compatibility as
+Luna: exact requested alias or reviewed dated revision. The route remains
+fully covered by
 `tests/Feature/GroundedLaravelAiSpendingBoundTest.php` (running against the
 shipped Terra default, including the assertion that Terra emits no
 `reasoning` key). It remains the shipped `openrouter-chat` Profile model;
@@ -270,12 +279,16 @@ unproven (`unknown`); values above 25 are rejected by option validation.
 
 Reported usage mirrors the billed partitions: the Laravel AI gateway
 parsers convert the provider's inclusive prompt total into exclusive
-uncached / cache-read / cache-write partitions, and the result mapper also
-carries the engine's search count from `usage.server_tool_use.web_search_requests`
-(OpenRouter's unified usage schema), summed across steps. Settlement
-consumers must price each partition at its own rate — never re-adding an
-inclusive prompt total to the cache partitions — and must fail closed when
-the engine search count is missing rather than treating it as zero.
+uncached / cache-read / cache-write partitions. The result mapper also
+carries the engine's search count: it prefers the current
+`usage.server_tool_use_details.web_search_requests` field and falls back to
+the legacy `usage.server_tool_use.web_search_requests` field only when the
+current field is absent, then sums the selected value across steps. It never
+double counts when both are present, and a malformed present current value
+is not masked by legacy data. Settlement consumers must price each partition
+at its own rate — never re-adding an inclusive prompt total to the cache
+partitions — and must fail closed when the engine search count is missing or
+malformed rather than treating it as zero.
 
 ### Endpoint routing and billing identity
 
@@ -322,7 +335,7 @@ long-context rates, the cache-write premium, and per-tool fees are not
 proven to be filtered by it, which is exactly why the bound still reserves
 those worst-case bases.
 
-### Model-revision binding
+### Catalog revision and response identity
 
 `openai/gpt-5.6-terra` is a moving alias whose public catalog entry names the
 canonical dated revision `openai/gpt-5.6-terra-20260709`. The dated slug is
@@ -332,7 +345,8 @@ unavailable model"), and the chat schema documents no revision semantics for
 the `model` field, so requesting it would be an invented control. Absence
 from the catalog is not proof the chat router would reject the dated slug,
 but it is equally not proof it would serve it, so the request keeps the
-alias and the revision is bound **two ways, both fail-closed**:
+alias. The catalog preflight remains the revision check; the response check
+is bounded identity compatibility, not independent immutable revision proof:
 
 1. **Pre-dispatch catalog check.** Before any inference request can spend
    money, the driver performs one public, unauthenticated, timeout-bounded
@@ -357,34 +371,34 @@ alias and the revision is bound **two ways, both fail-closed**:
    settles its collection diagnostic `not_sent` by construction — zero
    inference attempts exist, so no catalog exchange can replay as an
    accepted (paid) result, and no evidence counting is needed.
-2. **Response-side binding (defense in depth).** OpenRouter reports that
-   "the response's `model` field reflects the concrete model that actually
-   served the request, not the alias you sent," and the driver rejects the
-   result (`laravel_ai.model_revision_drift`, fallback not allowed) unless
-   that field is exactly `openai/gpt-5.6-terra-20260709`. The inference
+2. **Response model compatibility.** OpenRouter may report either the exact
+   requested alias (`openai/gpt-5.6-terra`) or the reviewed dated revision
+   (`openai/gpt-5.6-terra-20260709`). The driver accepts either exact value,
+   preserves it on the result, and rejects missing identities, sibling or
+   unknown models, and unexpected dated revisions with
+   `laravel_ai.model_revision_drift` (fallback not allowed). The inference
    POST has definitely happened by then, so this rejection never settles
    `not_sent`: with a raw captured exchange it settles `accepted` (the
    billable call ran and is preserved for reconciliation), and with no raw
    capture the dispatch is explicitly recorded as an unanswered attempt and
    settles `possibly_accepted` — a spent reservation is never falsely
    released. The same post-prompt guarantee covers every later failure with
-   no raw capture: whenever the SDK returns a conforming response whose
-   raw exchange is unavailable, the driver records the unanswered dispatch
+   no raw capture: whenever the SDK returns a conforming response whose raw
+   exchange is unavailable, the driver records the unanswered dispatch
    before mapping, so a runtime deadline reached after the response
    (`librarium.timeout`) and a required-grounding rejection
-   (`laravel_ai.ungrounded_response`) also settle `possibly_accepted`,
-   never `not_sent`.
+   (`laravel_ai.ungrounded_response`) also settle `possibly_accepted`, never
+   `not_sent`.
 
-The two checks are complementary because a **check-to-use race is
-unavoidable**: the alias can move between the pre-dispatch catalog check and
-the inference POST, and only the response-side binding can catch that at
-response time. Neither check is a provider-side immutable pin. If the alias
-moves to a newer revision, or a routed endpoint serves a different one, the
-bounded route fails loudly instead of silently drifting from the reviewed
-spending contract; re-enabling requires updating the reviewed revision. The
-revision checks apply only to the pinned bounded route — unpinned and
-non-bounded OpenRouter requests perform no catalog check and are never
-rejected for their served model.
+The **check-to-use race is unavoidable**: the alias can move between the
+pre-dispatch catalog check and the inference POST. A dated response can
+expose a mismatch, but an alias response does not identify the served
+revision and therefore cannot guarantee that the race is closed. The catalog
+`canonical_slug` check remains the revision assertion, but it is not a
+provider-side immutable pin. Catalog movement fails closed before dispatch;
+re-enabling requires updating the reviewed revision. These checks apply only
+to the pinned bounded route — unpinned and non-bounded OpenRouter requests
+perform no catalog check and are never rejected for their served model.
 
 The pin applies only to the exact bounded model; a budget control on any
 other OpenRouter model keeps the pre-existing routing block and is never
@@ -418,11 +432,7 @@ routing](https://openrouter.ai/docs/guides/routing/provider-selection)
 `require_parameters`, and `max_price` — rate routing with candidate base
 thresholds that "will prevent your request from running if the price is not
 available"; the OpenAPI schema types `max_price.prompt`/`max_price.completion` as
-strings), [Latest Model
-Resolution](https://openrouter.ai/docs/guides/routing/routers/latest-resolution)
-("the response's `model` field reflects the concrete model that actually
-served the request, not the alias you sent" — the authority for the
-response-side revision binding), [Get a model by its
+strings), [Get a model by its
 slug](https://openrouter.ai/docs/api/api-reference/models/get-a-model-by-its-slug)
 (the public unauthenticated alias-resolving lookup used by the pre-dispatch
 revision check; `canonical_slug` is the revision authority), and the public
@@ -559,14 +569,16 @@ per-model facts rather than one merged entry.
   configuration: existing source-snapshot pricing does not cap future
   costs, and max_price coverage of cache/tool/tier price overrides is
   undocumented, so the worst-case quantity bases above are unchanged by it.
-- The reviewed exact revision for the model-revision binding is per-model:
+- The reviewed catalog revision is per-model:
   `openai/gpt-5.6-terra-20260709` for Terra and
   `openai/gpt-6-luna-20260922` for Luna (each the alias's current
-  `canonical_slug`); the request keeps the alias and the binding is
-  two-way fail-closed — a
-  pre-dispatch public-catalog check of the alias's `canonical_slug` and a
-  served-model response check — so an alias rollover requires re-review
-  here before the bounded route runs again. Settlement is
+  `canonical_slug`). The request keeps the alias. The pre-dispatch catalog
+  check fails closed unless that reviewed revision still matches; the
+  response check accepts only the exact requested alias or reviewed dated
+  revision and preserves whichever was reported. An alias response is
+  compatibility evidence, not immutable revision proof, and does not close
+  the catalog-to-inference race. An alias rollover therefore requires
+  re-review here before the bounded route runs again. Settlement is
   phase-distinct: the pre-dispatch codes
   (`laravel_ai.model_revision_unverified`,
   `laravel_ai.model_revision_drift_before_dispatch`) always settle
@@ -577,9 +589,7 @@ per-model facts rather than one merged entry.
   without a raw capture (`librarium.timeout` reached after the response,
   `laravel_ai.ungrounded_response`): the unanswered dispatch is recorded,
   so they settle `possibly_accepted`. Catalog traffic is never persisted
-  as inference evidence. Neither check is a provider-side immutable pin,
-  and the check-to-use race between the catalog check and the inference
-  POST is covered only by the response check.
+  as inference evidence.
 - If Anthropic, OpenAI, or Google later ship loop-capping controls or
   documented iteration maxima, the withdrawn routes can be revisited with
   their then-current token rates (Anthropic $2/$10 global flat across 1M
