@@ -16,28 +16,6 @@ final readonly class ResearchAgent implements Agent, HasProviderOptions, HasTool
 {
     use Promptable;
 
-    /**
-     * Routing for the bounded OpenRouter configuration: restrict to the
-     * OpenAI default-tier endpoints serving openai/gpt-5.6-terra. Base slugs
-     * do not match non-default service tiers, so order "openai" already
-     * excludes flex-style tiers; the openai/flex ignore is explicit redundant
-     * defense, not the pin itself.
-     */
-    private const array OPENROUTER_PINNED_PROVIDER_ORDER = ['openai'];
-
-    private const array OPENROUTER_PINNED_PROVIDER_IGNORE = ['openai/flex'];
-
-    /**
-     * Rate-filter ceiling for the pinned bounded OpenRouter route, in USD per
-     * million tokens. OpenRouter's OpenAPI schema types these as strings. The
-     * public docs demonstrate that the filter compares against base per-M
-     * prompt/completion rates and state that the request does not run when no
-     * endpoint qualifies; whether it also compares context-override, cache,
-     * or tool rates is undocumented. It is a rate routing filter, not an
-     * all-in spend cap.
-     */
-    private const array OPENROUTER_PINNED_PROVIDER_MAX_PRICE = ['prompt' => '2', 'completion' => '12'];
-
     public function __construct(
         private bool $usesWebSearch = true,
         private ?string $searchEngine = null,
@@ -49,6 +27,31 @@ final readonly class ResearchAgent implements Agent, HasProviderOptions, HasTool
         private ?int $maxToolCalls = null,
         private ?int $maxResults = null,
         private bool $pinsOpenRouterProvider = false,
+        /**
+         * Exact-route provider controls for the pinned bounded OpenRouter
+         * configuration, resolved by the driver from its per-model source of
+         * truth. Routing for the bounded routes restricts to the OpenAI
+         * default-tier endpoints serving the exact bounded model. Base slugs
+         * do not match non-default service tiers, so order "openai" already
+         * excludes flex- and fast-style tiers; the model's explicit ignore
+         * list is redundant defense, not the pin itself.
+         *
+         * @var array{order: list<string>, ignore: list<string>, max_price: array{prompt: string, completion: string}}|null
+         */
+        private ?array $pinnedOpenRouterRouting = null,
+
+        /**
+         * Reviewed reasoning controls emitted verbatim at the top level of the
+         * OpenRouter chat-completions body for the pinned bounded model that
+         * declares them. The Laravel AI SDK performs no reasoning-effort enum
+         * mapping — providerOptions are merged into the outbound body as-is —
+         * so the reviewed effort reaches the provider unmodified or the test
+         * suite fails. Null (the historical Terra route and every unpinned
+         * route) emits no reasoning key at all.
+         *
+         * @var array{effort: string, exclude: bool}|null
+         */
+        private ?array $pinnedOpenRouterReasoning = null,
     ) {}
 
     public function maxTokens(): ?int
@@ -106,16 +109,22 @@ final readonly class ResearchAgent implements Agent, HasProviderOptions, HasTool
         if ($this->exactOpenRouterRouting && $driver === Lab::OpenRouter->value) {
             $routing = [];
 
-            if ($this->pinsOpenRouterProvider) {
-                $routing['order'] = self::OPENROUTER_PINNED_PROVIDER_ORDER;
-                $routing['ignore'] = self::OPENROUTER_PINNED_PROVIDER_IGNORE;
-                $routing['max_price'] = self::OPENROUTER_PINNED_PROVIDER_MAX_PRICE;
+            if ($this->pinsOpenRouterProvider && $this->pinnedOpenRouterRouting !== null) {
+                $routing['order'] = $this->pinnedOpenRouterRouting['order'];
+                $routing['ignore'] = $this->pinnedOpenRouterRouting['ignore'];
+                $routing['max_price'] = $this->pinnedOpenRouterRouting['max_price'];
             }
 
             $routing['require_parameters'] = true;
             $routing['allow_fallbacks'] = false;
 
             $options['provider'] = $routing;
+        }
+
+        if ($this->pinsOpenRouterProvider
+            && $this->pinnedOpenRouterReasoning !== null
+            && $driver === Lab::OpenRouter->value) {
+            $options['reasoning'] = $this->pinnedOpenRouterReasoning;
         }
 
         return $options;

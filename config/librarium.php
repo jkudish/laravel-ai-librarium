@@ -237,7 +237,7 @@ return [
         'openrouter-chat' => [
             'driver' => LaravelAiDriver::class,
             'provider' => 'openrouter',
-            'model' => 'openai/gpt-5.6-terra',
+            'model' => 'openai/gpt-6-luna',
             'result_kind' => 'grounded_answer',
             'grounding' => 'optional',
             'observation' => 'api_output',
@@ -249,7 +249,7 @@ return [
             'credential' => config('ai.providers.openrouter.key'),
             'pricing' => [
                 'provider' => 'openrouter',
-                'model' => 'openai/gpt-5.6-terra',
+                'model' => 'openai/gpt-6-luna',
                 'usage' => ['input_tokens' => 100_000, 'output_tokens' => 100_000, 'web_searches' => 100],
                 'conservative' => false,
             ],
