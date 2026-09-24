@@ -45,6 +45,7 @@ it('bounds exact grounded OpenRouter quantities from the documented server-tool 
         'search_engine' => 'exa',
         'search_mode' => 'auto',
         'max_tool_calls' => $budget,
+        'max_searches' => $budget,
         'max_results' => 5,
         'max_steps' => 1,
         'max_prompt_bytes' => 4096,
@@ -75,6 +76,7 @@ it('sends the grounded OpenRouter budget, endpoint pin, max_price, Exa mode, and
         'search_engine' => 'exa',
         'search_mode' => 'auto',
         'max_tool_calls' => 4,
+        'max_searches' => 7,
         'max_results' => 5,
         'max_steps' => 1,
         'max_prompt_bytes' => strlen('Bound this grounded OpenRouter answer.'),
@@ -122,6 +124,7 @@ it('sends the grounded OpenRouter budget, endpoint pin, max_price, Exa mode, and
             && $body['tools'] === [[
                 'type' => 'openrouter:web_search',
                 'parameters' => [
+                    'max_uses' => 7,
                     'engine' => 'exa',
                     'mode' => 'auto',
                     'max_results' => 5,
@@ -438,6 +441,7 @@ it('names the engine-specific Exa search unit instead of the aliased model web s
         'search_engine' => 'exa',
         'search_mode' => 'auto',
         'max_tool_calls' => 4,
+        'max_searches' => 4,
         'max_results' => 5,
         'max_steps' => 1,
         'max_prompt_bytes' => 4096,
@@ -453,10 +457,11 @@ it('names the engine-specific Exa search unit instead of the aliased model web s
     Http::assertNothingSent();
 });
 
-it('fails closed when the ambiguous max_uses budget interaction is configured', function (int $maxSearches): void {
+it('bounds searches independently of the outer turn budget', function (int $maxSearches, string $expectedSearches): void {
     config()->set('librarium.profiles.openrouter-chat.options', [
         'web_search' => true,
         'search_engine' => 'exa',
+        'search_mode' => 'auto',
         'max_tool_calls' => 30,
         'max_searches' => $maxSearches,
         'max_results' => 5,
@@ -468,11 +473,16 @@ it('fails closed when the ambiguous max_uses budget interaction is configured', 
         ->using('openrouter-chat')
         ->spendingBound();
 
-    expect($bound->kind)->toBe(SpendingBoundKind::Unknown);
+    expect($bound->kind)->toBe(SpendingBoundKind::BillableQuantities)
+        ->and($bound->quantities?->toArray())->toBe([
+            'cache_write_input_tokens' => '32550000',
+            'output_tokens' => '3968000',
+            'exa_search_requests' => $expectedSearches,
+        ]);
     Http::assertNothingSent();
 })->with([
-    'a search cap below the budget' => [5],
-    'a search cap above the budget' => [35],
+    'a search cap below the budget' => [5, '5'],
+    'a search cap above the budget' => [35, '35'],
 ]);
 
 it('treats the documented server-tool budget maximum as the bounded boundary', function (int $budget, string $kind): void {
@@ -481,6 +491,7 @@ it('treats the documented server-tool budget maximum as the bounded boundary', f
         'search_engine' => 'exa',
         'search_mode' => 'auto',
         'max_tool_calls' => $budget,
+        'max_searches' => 5,
         'max_results' => 5,
         'max_steps' => 1,
         'max_prompt_bytes' => 4096,
@@ -520,6 +531,7 @@ it('treats the Exa per-request result allowance as the additional-result fee bou
         'search_engine' => 'exa',
         'search_mode' => 'auto',
         'max_tool_calls' => 4,
+        'max_searches' => 5,
         'max_results' => $maxResults,
         'max_steps' => 1,
         'max_prompt_bytes' => 4096,
@@ -554,6 +566,7 @@ it('keeps grounded OpenRouter configurations unknown until the budget contract i
         'search_engine' => 'exa',
         'search_mode' => 'auto',
         'max_tool_calls' => 4,
+        'max_searches' => 5,
         'max_results' => 5,
         'max_steps' => 1,
         'max_prompt_bytes' => 4096,
@@ -568,6 +581,7 @@ it('keeps grounded OpenRouter configurations unknown until the budget contract i
     Http::assertNothingSent();
 })->with([
     'missing budget' => fn () => removeProfileOption('openrouter-chat', 'max_tool_calls'),
+    'legacy request without search cap' => fn () => removeProfileOption('openrouter-chat', 'max_searches'),
     'missing result cap' => fn () => removeProfileOption('openrouter-chat', 'max_results'),
     'missing SDK step cap' => fn () => removeProfileOption('openrouter-chat', 'max_steps'),
     'multiple SDK steps' => fn () => config()->set('librarium.profiles.openrouter-chat.options.max_steps', 2),
@@ -587,6 +601,7 @@ it('keeps the OpenRouter bound independent of the optional output-token run cont
         'search_engine' => 'exa',
         'search_mode' => 'auto',
         'max_tool_calls' => 4,
+        'max_searches' => 4,
         'max_results' => 5,
         'max_output_tokens' => 16_000,
         'max_steps' => 1,

@@ -24,6 +24,30 @@ that are never advertised as spending authority. The shipped default Profile
 options remain `unknown` everywhere, and the existing no-search Claude bound
 is unchanged.
 
+## Search-count correction (2026-09-24)
+
+A retained consumer observation reported 12 executed searches with
+`max_tool_calls: 5`. That disproves the previous equation of search count
+with loop steps: one tool-calling turn can request several searches.
+Both reviewed OpenRouter models now require an independent positive
+`max_searches`, emitted by the Laravel AI SDK as
+`tools[].parameters.max_uses`. Without it, `spendingBound()` returns
+`unknown`, including for the old five-step request.
+
+The corrected bound combines the documented outer-loop turn budget with
+the documented per-request executed-search cap. It does not restrict how
+many products, citations or claims an answer may contain, reject retained
+answers by count, or change usage mapping and settlement. A provider-reported
+charge remains charge evidence; a small charge does not prove a ceiling.
+
+This is a documentation-derived correction verified offline for quantity
+calculation and real-SDK serialization, **not a live validation of provider
+enforcement**. Consumers must review and authorize the changed request before
+activation. Do not retrofit the new option into persisted request envelopes
+or reuse historical dispatch authority: a consumer that recomputes an old
+bound should now refuse it. Stored evidence and settled charges remain valid
+records of what happened.
+
 ## `openrouter-chat` — OpenRouter `openai/gpt-6-luna` (canary via explicit model override), Exa engine: bounded
 
 The current reviewed canary is **regular** `openai/gpt-6-luna` (not Luna
@@ -41,12 +65,12 @@ Required options: `web_search` is exactly `true`, `search_engine` is exactly
 `exa`, `search_mode` is exactly `auto` (sent explicitly as the Exa `mode`
 tool parameter; any other documented mode leaves the bound `unknown` because
 the deeper modes price differently), `max_tool_calls` (1 through 30),
+`max_searches` (positive integer, independent of the turn budget),
 `max_results` (1 through 10), `max_steps` is exactly `1`, and
 `max_prompt_bytes` (positive, satisfied by the rendered prompt).
-`max_output_tokens` is optional and does not affect the bound. Configuring
-`max_searches` makes the bound `unknown` — the `max_uses` ambiguity is
-identical to the Terra route's and is documented in the historical section
-below. The loop-length authority (OpenRouter's request-wide server-tool
+`max_output_tokens` is optional and does not affect the bound. Omitting
+`max_searches` makes the bound `unknown`. The loop-length authority
+(OpenRouter's request-wide server-tool
 budget) is also identical: at most `max_tool_calls` steps plus one final
 completion, with `max_tool_calls` sent as a top-level field and budgets
 above 30 rejected before execution.
@@ -55,7 +79,7 @@ above 30 rejected before execution.
 
 | Unit | Maximum | Basis |
 | --- | --- | --- |
-| `exa_search_requests` | `max_tool_calls` | Every Exa-billed search is a tool call the model makes, so executing searches ≤ budget steps; the request pins Exa `mode: "auto"` ($0.007 per request; deeper modes fail the bound closed). The unit is engine-specific so the catalog's model-level `web_search` passthrough rate can never satisfy it. |
+| `exa_search_requests` | `max_searches` | The explicit `max_uses` tool parameter bounds executed searches independently of parallel calls per turn. The request pins Exa `mode: "auto"` ($0.007 per request; deeper modes fail the bound closed). The unit is engine-specific so the catalog's model-level `web_search` passthrough rate can never satisfy it. |
 | `cache_write_input_tokens` | `(max_tool_calls + 1) × 1,050,000` | At most budget + 1 model completions; each processes at most the pinned endpoint's 1,050,000-token context, including injected search content. Input tokens bill as exclusive partitions (uncached input, cache-read, cache-write), and OpenAI automatic caching can bill cache writes without opt-in, so the request cannot be proven cache-write-free; the bound therefore reserves the entire worst-case input quantity in the most expensive partition — cache-write under the ≥272K long-context override rate ($0.25/M for Luna) — which dominates every possible actual partition mix without counting any token twice. |
 | `output_tokens` | `(max_tool_calls + 1) × 128,000` | Per-completion output uses the pinned endpoint's `max_completion_tokens` (128,000) because forwarding the request's `max_tokens` to every internal loop completion is not documented. |
 
@@ -64,7 +88,7 @@ each Exa request includes up to 10 results and then bills $0.001 per
 additional result, and the bound requires an enforced `max_results` of at
 most 10.
 
-For the reviewed canary budget (`max_tool_calls` 5) the quantities are
+For the corrected candidate (`max_tool_calls` 5 and `max_searches` 5), quantities are
 exactly 6,300,000 `cache_write_input_tokens`, 768,000 `output_tokens`, and 5
 `exa_search_requests`, which the pricing snapshot v7 (assembly timestamp
 `2026-09-23T00:10:40Z`) quotes at $2.186 ($1.575 cache-write + $0.576
@@ -236,36 +260,42 @@ Required options: `web_search` is exactly `true`, `search_engine` is exactly
 `exa`, `search_mode` is exactly `auto` (sent explicitly as the Exa `mode`
 tool parameter; any other documented mode — or omitting it — leaves the bound
 `unknown` because the deeper modes price differently), `max_tool_calls`
-(1 through 30), `max_results` (1 through 10), `max_steps` is exactly `1`,
+(1 through 30), `max_searches` (positive integer), `max_results` (1 through 10), `max_steps` is exactly `1`,
 and `max_prompt_bytes` (positive, satisfied by the rendered prompt).
-`max_output_tokens` is optional and does not affect the bound. Configuring
+`max_output_tokens` is optional and does not affect the bound. Omitting
 `max_searches` makes the bound `unknown` (see below).
 
-### Why the loop length is provable here and nowhere else
+### Independent loop and search limits
 
-OpenRouter documents a request-wide server-tool budget: "Every request that
-uses server tools runs an agent loop with a step budget. **Each tool call the
-model makes** (a web search, an image generation, etc.) **consumes one step;
-when the budget is exhausted, the model is asked to produce its final
-answer** with the context gathered so far." The top-level `max_tool_calls`
-request field sets that budget, defaults to 30, and has 30 as the documented
-maximum. The loop therefore performs at most `max_tool_calls` steps plus one
-final completion. The driver sends `max_tool_calls` as a top-level field
-(sibling of `messages` and `tools`, merged through the SDK's provider
-options) and rejects budgets above 30 before execution.
+OpenRouter's [server-tool guide](https://openrouter.ai/docs/guides/features/server-tools#tool-call-limits)
+defines a request-wide outer-loop step budget, default and maximum 30,
+followed by a final answer. The [Chat Completions API reference](https://openrouter.ai/docs/api/api-reference/chat/create-a-chat-completion)
+describes tool-calling steps and allows multiple parallel calls in one
+response. We use `max_tool_calls + 1` for the maximum inference turns,
+never for executed searches. The guide's loose "each tool call" wording
+must not be interpreted as a search-count guarantee. The driver sends
+`max_tool_calls` as a top-level field and rejects budgets above 30.
 
-A configured `max_searches` (forwarded as the tool's `max_uses`) is
-deliberately **ambiguous** with the budget: once `max_uses` is reached,
-"further search calls return an error result instead of executing," and the
-documentation does not state whether those over-cap attempts still consume
-budget steps. The bound therefore fails closed (`unknown`) whenever
-`max_searches` is present rather than assuming an interpretation.
+Separately, [web-search `max_uses`](https://openrouter.ai/docs/guides/features/server-tools/web-search#limiting-the-number-of-searches)
+limits searches per request: further calls return errors instead of
+executing. Librarium's existing `max_searches` option emits this parameter.
+Those errors remain inside the request-wide outer loop; they do not grant
+extra loop turns. The bound relies on both published provider contracts,
+not on success-only step counting or a prompt asking for fewer searches.
+If provider behavior contradicts either control, stop new affected dispatch
+and retain the answer and reported usage for reconciliation.
+
+No `stop_server_tools_when` is emitted: it overrides, rather than supplements,
+`max_tool_calls`. No model-specific `parallel_tool_calls` behavior is assumed.
+The old interpretation that adding a search cap necessarily loses the outer
+loop bound is withdrawn; a per-tool error is not evidence that a documented
+request-wide loop budget ceases to apply.
 
 ### The bound
 
 | Unit | Maximum | Basis |
 | --- | --- | --- |
-| `exa_search_requests` | `max_tool_calls` | Every Exa-billed search is a tool call the model makes, so executing searches ≤ budget steps; the request pins Exa `mode: "auto"`, and Instant/Fast/Auto mode costs $0.007 per request (deep-lite/deep $0.012, deep-reasoning $0.015 — those modes fail the bound closed). The unit is engine-specific so the catalog's model-level `web_search` rate (the $0.01 native passthrough fee) can never satisfy it. |
+| `exa_search_requests` | `max_searches` | The explicit per-request `max_uses` cap bounds executed searches. The request pins Exa `mode: "auto"` at $0.007 per request; deeper modes fail the bound closed. The engine-specific unit cannot be satisfied by a model-level native search rate. |
 | `cache_write_input_tokens` | `(max_tool_calls + 1) × 1,050,000` | At most budget + 1 model completions; each processes at most the pinned endpoint's 1,050,000-token context, including injected search content ("All pricing is in addition to standard LLM token costs for processing the search result content"). Input tokens bill as exclusive partitions (uncached input, cache-read, cache-write), and OpenAI automatic caching can bill cache writes without opt-in, so the request cannot be proven cache-write-free; the bound therefore reserves the entire worst-case input quantity in the most expensive partition — cache-write at the compounded 1.25x long-context premium ($5/M) — which dominates every possible actual partition mix without counting any token twice. |
 | `output_tokens` | `(max_tool_calls + 1) × 128,000` | Per-completion output uses the pinned endpoint's `max_completion_tokens` (128,000) because forwarding the request's `max_tokens` to every internal loop completion is not documented. |
 
