@@ -39,8 +39,8 @@ beforeEach(function (): void {
     config()->set('librarium.profiles.openrouter-chat.model', 'openai/gpt-6-luna');
 });
 
-it('bounds exact grounded Luna quantities from the documented server-tool budget', function (int $budget, string $inputTokens, string $outputTokens, string $searchRequests): void {
-    config()->set('librarium.profiles.openrouter-chat.options', lunaBoundedOptions(maxToolCalls: $budget));
+it('bounds Luna inference turns and searches with independent controls', function (int $budget, int $searchCap, string $inputTokens, string $outputTokens, string $searchRequests): void {
+    config()->set('librarium.profiles.openrouter-chat.options', lunaBoundedOptions(maxToolCalls: $budget, maxSearches: $searchCap));
 
     $bound = Librarium::query('Bound this grounded Luna answer.')
         ->using('openrouter-chat')
@@ -55,10 +55,10 @@ it('bounds exact grounded Luna quantities from the documented server-tool budget
         ]);
     Http::assertNothingSent();
 })->with([
-    'minimum budget' => [1, '2100000', '256000', '1'],
-    'moderate budget' => [4, '5250000', '640000', '4'],
-    'canary budget' => [5, '6300000', '768000', '5'],
-    'maximum documented budget' => [30, '32550000', '3968000', '30'],
+    'parallel searches in one turn' => [1, 7, '2100000', '256000', '7'],
+    'search cap below turn budget' => [4, 2, '5250000', '640000', '2'],
+    'canary budget' => [5, 5, '6300000', '768000', '5'],
+    'maximum documented turn budget' => [30, 1, '32550000', '3968000', '1'],
 ]);
 
 it('returns an unknown Luna bound unless every reviewed bounded option is exact', function (array $options): void {
@@ -72,7 +72,7 @@ it('returns an unknown Luna bound unless every reviewed bounded option is exact'
     Http::assertNothingSent();
 })->with([
     'not the reviewed Exa auto mode' => [fn (): array => lunaBoundedOptions(searchMode: 'deep')],
-    'a cap beside the budget' => [fn (): array => lunaBoundedOptions() + ['max_searches' => 2]],
+    'legacy request without an explicit search cap' => [fn (): array => array_diff_key(lunaBoundedOptions(), ['max_searches' => true])],
     'no server-tool budget' => [fn (): array => array_diff_key(lunaBoundedOptions(), ['max_tool_calls' => true])],
     'web search disabled' => [fn (): array => lunaBoundedOptions(webSearch: false)],
 ]);
@@ -103,6 +103,7 @@ it('sends the grounded Luna budget, endpoint pin, max_price, reasoning, Exa mode
             && $body['tools'] === [[
                 'type' => 'openrouter:web_search',
                 'parameters' => [
+                    'max_uses' => 5,
                     'engine' => 'exa',
                     'mode' => 'auto',
                     'max_results' => 5,
@@ -123,6 +124,30 @@ it('sends the grounded Luna budget, endpoint pin, max_price, reasoning, Exa mode
     'requested alias reported by OpenRouter' => ['openai/gpt-6-luna'],
     'reviewed dated revision reported by OpenRouter' => ['openai/gpt-6-luna-20260922'],
 ]);
+
+it('preserves answer citations and reported usage rather than clipping them to spending controls', function (): void {
+    config()->set('librarium.profiles.openrouter-chat.options', lunaBoundedOptions());
+    $body = lunaCompletionBody();
+    data_set($body, 'choices.0.message.annotations', array_map(static fn (int $index): array => [
+        'type' => 'url_citation',
+        'url_citation' => ['url' => "https://example.com/source-{$index}", 'title' => "Source {$index}"],
+    ], range(1, 7)));
+    data_set($body, 'usage.server_tool_use_details.web_search_requests', 12);
+    Http::fake(lunaCatalogFake() + [
+        'https://openrouter.ai/api/v1/chat/completions' => Http::response($body),
+    ]);
+
+    $response = Librarium::query('Bound this grounded Luna answer.')->using('openrouter-chat')->run();
+    $result = $response->results->sole();
+
+    expect($response->status->value)->toBe('succeeded')
+        ->and($result->content)->toBe('A grounded Luna answer.')
+        ->and($result->citations)->toHaveCount(7)
+        ->and($result->citations->last()?->source->url)->toBe('https://example.com/source-7')
+        ->and($result->usage?->serverToolSearchRequests)->toBe(12)
+        ->and($result->usage?->actualCost)->toBe('0.002');
+    Http::assertSentCount(2);
+});
 
 it('checks the pinned Luna revision against the public catalog before dispatching the inference request', function (): void {
     config()->set('librarium.profiles.openrouter-chat.options', lunaBoundedOptions(maxToolCalls: 4));
@@ -508,12 +533,14 @@ function lunaBoundedOptions(
     ?bool $webSearch = true,
     ?string $searchMode = 'auto',
     ?int $maxToolCalls = 5,
+    int $maxSearches = 5,
 ): array {
     return [
         'web_search' => $webSearch,
         'search_engine' => 'exa',
         'search_mode' => $searchMode,
         'max_tool_calls' => $maxToolCalls,
+        'max_searches' => $maxSearches,
         'max_results' => 5,
         'max_steps' => 1,
         'max_prompt_bytes' => strlen('Bound this grounded Luna answer.'),

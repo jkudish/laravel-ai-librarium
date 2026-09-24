@@ -40,11 +40,9 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
     private const int OPENAI_RESPONSES_MIN_OUTPUT_TOKENS = 16;
 
     /**
-     * OpenRouter's server-tool budget: "Each tool call the model makes ...
-     * consumes one step; when the budget is exhausted, the model is asked to
-     * produce its final answer." max_tool_calls defaults to 30 and 30 is the
-     * documented maximum, so a budgeted request performs at most 30 tool-call
-     * steps plus one final model completion.
+     * OpenRouter's outer server-tool loop allows at most 30 tool-calling
+     * turns, followed by a final answer. A turn may contain parallel calls:
+     * this is an inference bound, never an executed-search count bound.
      */
     private const int OPENROUTER_SERVER_TOOL_BUDGET_MAXIMUM = 30;
 
@@ -250,19 +248,12 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
     }
 
     /**
-     * The one grounded route with a complete official quantity authority:
-     * OpenRouter's server-tool budget bounds the agent loop itself. "Each tool
-     * call the model makes ... consumes one step; when the budget is
-     * exhausted, the model is asked to produce its final answer," and
-     * max_tool_calls defaults to 30 with 30 as the documented maximum, so the
-     * request performs at most budget + 1 model completions regardless of
-     * whether individual searches succeed, error, or are attempted past a
-     * per-tool cap. Every other grounded route stays unknown: Anthropic's
-     * max_uses returns max_uses_exceeded error results to the internal model
-     * (undocumented per-turn iteration cap) and OpenAI's max_tool_calls only
-     * ignores further attempts ("Any further attempts to call a tool by the
-     * model will be ignored"), which does not prove inference stops, so no
-     * multiple of the context window bounds their internal iterations.
+     * Two independent provider contracts are required: max_tool_calls bounds
+     * outer loop turns plus one final completion; max_searches is emitted as
+     * web-search max_uses and bounds executed searches even with parallel
+     * calls. Rejected searches return error results within the same bounded
+     * outer loop. Never infer search count from turns, citations, or results.
+     * See docs/grounded-spending-bounds.md for the provider sources and limits.
      *
      * @param  array<string, mixed>  $options
      * @param  array{
@@ -279,6 +270,7 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
     private function openRouterGroundedSpendingBound(DriverRequest $request, array $facts, array $options): SpendingBound
     {
         $maxToolCalls = $options['max_tool_calls'] ?? null;
+        $maxSearches = $options['max_searches'] ?? null;
         $maxResults = $options['max_results'] ?? null;
         $maxSteps = $options['max_steps'] ?? null;
         $maxPromptBytes = $options['max_prompt_bytes'] ?? null;
@@ -286,7 +278,8 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
         if (($options['web_search'] ?? null) !== true
             || ($options['search_engine'] ?? null) !== 'exa'
             || ($options['search_mode'] ?? null) !== 'auto'
-            || array_key_exists('max_searches', $options)
+            || ! is_int($maxSearches)
+            || $maxSearches < 1
             || ! is_int($maxToolCalls)
             || $maxToolCalls < 1
             || $maxToolCalls > self::OPENROUTER_SERVER_TOOL_BUDGET_MAXIMUM
@@ -299,13 +292,6 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
             || strlen($request->prompt) > $maxPromptBytes) {
             return SpendingBound::unknown();
         }
-
-        // A configured max_searches alongside the budget is ambiguous: after
-        // max_uses is reached, further search calls "return an error result
-        // instead of executing," and the docs do not state whether those
-        // failed attempts still consume budget steps, so the loop length
-        // cannot be derived. The check above fails such configurations closed
-        // instead of assuming an interpretation.
 
         $completions = $maxToolCalls + 1;
 
@@ -342,7 +328,7 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
             new Usage([
                 'cache_write_input_tokens' => $completions * $facts['context_tokens'],
                 'output_tokens' => $completions * $facts['max_completion_tokens'],
-                'exa_search_requests' => $maxToolCalls,
+                'exa_search_requests' => $maxSearches,
             ]),
         );
     }
