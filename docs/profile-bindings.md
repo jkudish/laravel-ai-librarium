@@ -570,7 +570,7 @@ and provenance semantics.
 - **Binding:** xAI Responses API with X-only search tool
 - **Execution:** inline
 - **Terminal:** HTTP answer; `x_post` only when provider facts support it
-- **Pricing:** current token/search units provide a partial estimate; X Search billing must be refreshed for the announced 2026-09-21 change
+- **Pricing:** unavailable since the September 21, 2026 X Search change (billed per fetched post/profile, unbounded by any request parameter); the Profile quotes unavailable and preflight fails closed
 - **Test and proof:** exact X-only HTTP fake; D + L
 
 ### `grok-combined/combined`
@@ -582,7 +582,7 @@ and provenance semantics.
 - **Binding:** one xAI Responses attempt with both web and X tools
 - **Execution:** inline; one origin, never two independent confirmations
 - **Terminal:** HTTP answer with per-citation source kinds when supported
-- **Pricing:** current token/search units provide a partial estimate; X Search billing must be refreshed for the announced 2026-09-21 change
+- **Pricing:** unavailable since the September 21, 2026 X Search change (billed per fetched post/profile, unbounded by any request parameter); the Profile quotes unavailable and preflight fails closed
 - **Test and proof:** combined-tool HTTP fake proving one request and one origin; D + L
 
 ### `jina-search/search`

@@ -594,7 +594,17 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
             // releasing a spent reservation.
             $request->captureNoResponse(Operation::Inline);
         }
-        $result = $this->mapper->map($response, $request, $usesWebSearch);
+        // The Gemini gateway speaks the Interactions API, whose citation
+        // indexes are documented byte offsets; laravel/ai 1.0 currently
+        // drops Gemini citation indexes entirely, but if a release starts
+        // forwarding them they must not be labeled as the OpenAI-compatible
+        // character positions the other gateways report.
+        $result = $this->mapper->map(
+            $response,
+            $request,
+            $usesWebSearch,
+            citationByteOffsets: $request->profile->provider === 'gemini',
+        );
 
         if ($request->profile->grounding === GroundingPolicy::Required && $result->citations->isEmpty()) {
             throw new DriverException(

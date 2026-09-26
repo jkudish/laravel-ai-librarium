@@ -487,6 +487,10 @@ return [
             'enabled' => true,
             'options' => [],
             'credential' => config('ai.providers.xai.key'),
+            // The web-only route still bills search as native Web Search
+            // calls, so the searches count stays the priced basis; see the
+            // grok-x-only comment for why the X-search routes carry no
+            // pricing usage since xAI's September 21, 2026 change.
             'pricing' => [
                 'provider' => 'xai',
                 'model' => 'grok-4.6',
@@ -856,6 +860,17 @@ return [
                 'conservative' => false,
             ],
         ],
+        /*
+         * Since September 21, 2026, xAI bills X Search per item fetched
+         * ($5/1k posts, $10/1k profiles) instead of per call, and no
+         * documented request control bounds how many posts or profiles a
+         * search fetches (https://docs.x.ai/developers/tools/x-search and
+         * https://docs.x.ai/developers/pricing, read September 26, 2026).
+         * A search-call bound would price none of that spend, so the X-only
+         * Profile carries no pricing usage at all and its quote resolves
+         * unavailable rather than presenting an unverifiable guess at
+         * fetched-item quantities. See docs/xai-grok-spending-bounds.md.
+         */
         'grok-x-only' => [
             'driver' => XaiGrokDriver::class,
             'provider' => 'xai',
@@ -869,13 +884,13 @@ return [
             'enabled' => true,
             'options' => [],
             'credential' => config('ai.providers.xai.key'),
-            'pricing' => [
-                'provider' => 'xai',
-                'model' => 'grok-4.6',
-                'usage' => ['input_tokens' => 100_000, 'output_tokens' => 100_000, 'searches' => 100],
-                'conservative' => false,
-            ],
         ],
+        /*
+         * The combined route bills the same fetched-item X Search spend on
+         * top of Web Search calls, and only the web half has a countable
+         * basis. Quoting the web half alone would understate the route, so
+         * this Profile fails closed the same way as grok-x-only.
+         */
         'grok-combined' => [
             'driver' => XaiGrokDriver::class,
             'provider' => 'xai',
@@ -889,12 +904,6 @@ return [
             'enabled' => true,
             'options' => [],
             'credential' => config('ai.providers.xai.key'),
-            'pricing' => [
-                'provider' => 'xai',
-                'model' => 'grok-4.6',
-                'usage' => ['input_tokens' => 100_000, 'output_tokens' => 100_000, 'searches' => 100],
-                'conservative' => false,
-            ],
         ],
         'parallel-search' => [
             'driver' => ParallelSearchDriver::class,

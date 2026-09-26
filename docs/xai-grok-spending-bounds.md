@@ -139,6 +139,45 @@ uses the global endpoint and default tier. For the X routes, xAI reprices
 X Search on September 21, 2026 at 12:00 PM PT to $5 per 1k posts fetched and
 $10 per 1k profiles fetched.
 
+## The September 21, 2026 X Search billing change
+
+Read September 26, 2026:
+
+- [X Search](https://docs.x.ai/developers/tools/x-search)
+  (page last updated September 22, 2026): X Search is billed at $5 per 1k
+  posts fetched and $10 per 1k user profiles fetched, in addition to token
+  costs. Every `/v1/responses` response that ran X Search reports the counts
+  under `usage.server_side_tool_usage_details` — `x_posts_fetched` (posts
+  returned by `x_keyword_search`, `x_semantic_search`, and `x_thread_fetch`,
+  including parent and quoted posts and every post of a fetched thread) and
+  `x_users_fetched` (profiles returned by `x_user_search`) — next to the
+  per-call `x_search_calls` and `web_search_calls`. The tool's request
+  parameters (`allowed_x_handles` / `excluded_x_handles` at max 20,
+  `from_date`, `enable_image_understanding`) filter what is searched; none
+  bounds how many posts or profiles a search fetches.
+- [Pricing](https://docs.x.ai/developers/pricing) (page last updated
+  September 21, 2026): Web Search stays $5 per 1k calls; X Search is billed
+  per item fetched rather than per call.
+
+Consequences recorded here:
+
+- **Pre-dispatch bound**: still `unknown` for all three Grok Profiles. The
+  fetched-item basis removes the old per-call pricing that a `searches`
+  quantity used to price, and no verifiable pre-dispatch quantity exists for
+  posts or profiles fetched, so the `grok-x-only` and `grok-combined`
+  Profiles carry no pricing usage at all and their quotes resolve
+  `unavailable` — a maximum-cost preflight that includes them fails closed
+  instead of quoting a search-call line that prices none of the route's
+  billed spend. Quoting only the web half of `grok-combined` would understate
+  the route, so it fails closed the same way. The web-only `grok` Profile
+  keeps its native `searches` count because Web Search still bills per call.
+- **Settlement**: unchanged in kind. The driver settles on
+  `cost_in_usd_ticks`, which already contains the fetched-item charges, and
+  it does not fabricate per-item counts into reported usage; xAI reports the
+  native `x_posts_fetched` / `x_users_fetched` counts for reconciliation,
+  but Librarium carries no interchange field for them and settles on the
+  authoritative cost instead.
+
 ## Exact settlement serialization (evidence, never a bound)
 
 The [Responses REST reference](https://docs.x.ai/developers/rest-api-reference/inference/responses)

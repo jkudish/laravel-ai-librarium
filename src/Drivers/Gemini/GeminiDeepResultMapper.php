@@ -32,6 +32,7 @@ final readonly class GeminiDeepResultMapper
             request: $request,
             completedAt: $this->completedAt($interaction),
             usage: $this->usage(data_get($interaction, 'usage')),
+            citationByteOffsets: true,
         );
     }
 
@@ -145,15 +146,33 @@ final readonly class GeminiDeepResultMapper
         $cached = $this->nonNegativeInt(data_get($value, 'total_cached_tokens'));
         $output = $this->nonNegativeInt(data_get($value, 'total_output_tokens'));
         $thought = $this->nonNegativeInt(data_get($value, 'total_thought_tokens'));
+        $toolUse = $this->nonNegativeInt(data_get($value, 'total_tool_use_tokens'));
 
         // Gemini reports thought tokens outside the output token count, so
         // the interchange contract's inclusive completion total folds them
         // in the same way laravel/ai's own Gemini gateway parser does.
+        // Gemini reports total_input_tokens as an inclusive total that
+        // already contains the cached partition, so the exclusive prompt
+        // partition is derived by subtracting it; when that subtraction
+        // would go negative, the provider's usage report is internally
+        // inconsistent, so the whole input side fails closed to unknown
+        // instead of fabricating partitions. total_tool_use_tokens counts
+        // "tokens present in tool-use prompt(s)"; the Interactions examples
+        // prove it is not additive to the reported totals, but Google bills
+        // tool tokens by category (Search retrieved context free, URL
+        // context and File search charged as input), so it is carried as an
+        // unpriced audit count and never added to the priced partitions.
+        if ($input !== null && $input - ($cached ?? 0) < 0) {
+            $input = null;
+            $cached = null;
+        }
+
         return new Usage(
-            promptTokens: $input === null ? null : max(0, $input - ($cached ?? 0)),
+            promptTokens: $input === null ? null : $input - ($cached ?? 0),
             completionTokens: $output === null ? null : $output + ($thought ?? 0),
             cacheReadInputTokens: $cached,
             reasoningTokens: $thought,
+            toolUseTokens: $toolUse,
         );
     }
 
