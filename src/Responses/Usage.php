@@ -42,10 +42,10 @@ final readonly class Usage
         public ?int $cacheReadInputTokens = null,
         public ?int $reasoningTokens = null,
         public ?int $serverToolSearchRequests = null,
-        public ?int $toolUseTokens = null,
         public ?string $actualCost = null,
         public ?string $estimatedCost = null,
         public ?string $currency = null,
+        public ?int $toolUseTokens = null,
     ) {}
 
     /** @param array<array-key, mixed> $value */
