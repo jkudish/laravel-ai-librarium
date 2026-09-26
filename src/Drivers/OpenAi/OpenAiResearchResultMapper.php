@@ -13,8 +13,8 @@ use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 use Laravel\Ai\Responses\AgentResponse;
 use Laravel\Ai\Responses\Data\Citation;
 use Laravel\Ai\Responses\Data\Meta;
+use Laravel\Ai\Responses\Data\TextUsage;
 use Laravel\Ai\Responses\Data\UrlCitation;
-use Laravel\Ai\Responses\Data\Usage;
 
 /** @internal */
 final readonly class OpenAiResearchResultMapper
@@ -144,21 +144,25 @@ final readonly class OpenAiResearchResultMapper
         return false;
     }
 
-    private function usage(mixed $value): Usage
+    /**
+     * The webhook payload's OpenAI Responses API usage. Its input_tokens
+     * already totals the cached partition, which matches the laravel/ai 1.0
+     * TextUsage contract, so the counts pass straight through and the
+     * interchange mapper derives the exclusive prompt partition.
+     * cache_write_input_tokens is not an OpenAI Responses API field and
+     * stays unreported, as it always was on this route.
+     */
+    private function usage(mixed $value): TextUsage
     {
         if (! is_array($value) || array_is_list($value)) {
-            return new Usage;
+            return new TextUsage;
         }
 
-        $inputTokens = $this->nonNegativeInt(data_get($value, 'input_tokens')) ?? 0;
-        $cachedTokens = $this->nonNegativeInt(data_get($value, 'input_tokens_details.cached_tokens')) ?? 0;
-
-        return new Usage(
-            promptTokens: max(0, $inputTokens - $cachedTokens),
-            completionTokens: $this->nonNegativeInt(data_get($value, 'output_tokens')) ?? 0,
-            cacheWriteInputTokens: $this->nonNegativeInt(data_get($value, 'input_tokens_details.cache_write_tokens')) ?? 0,
-            cacheReadInputTokens: $cachedTokens,
-            reasoningTokens: $this->nonNegativeInt(data_get($value, 'output_tokens_details.reasoning_tokens')) ?? 0,
+        return new TextUsage(
+            inputTokens: $this->nonNegativeInt(data_get($value, 'input_tokens')) ?? 0,
+            outputTokens: $this->nonNegativeInt(data_get($value, 'output_tokens')) ?? 0,
+            cacheReadInputTokens: $this->nonNegativeInt(data_get($value, 'input_tokens_details.cached_tokens')),
+            reasoningTokens: $this->nonNegativeInt(data_get($value, 'output_tokens_details.reasoning_tokens')),
         );
     }
 

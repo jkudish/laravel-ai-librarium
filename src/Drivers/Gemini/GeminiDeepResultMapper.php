@@ -16,8 +16,8 @@ use Jkudish\LaravelAiLibrarium\Responses\Usage;
 use Laravel\Ai\Responses\AgentResponse;
 use Laravel\Ai\Responses\Data\Citation;
 use Laravel\Ai\Responses\Data\Meta;
+use Laravel\Ai\Responses\Data\TextUsage;
 use Laravel\Ai\Responses\Data\UrlCitation;
-use Laravel\Ai\Responses\Data\Usage as AiUsage;
 
 /** @internal */
 final readonly class GeminiDeepResultMapper
@@ -47,7 +47,7 @@ final readonly class GeminiDeepResultMapper
         return new AgentResponse(
             invocationId: $request->requestId,
             text: $text,
-            usage: new AiUsage,
+            usage: new TextUsage,
             meta: new Meta(
                 provider: $request->profile->provider,
                 model: $this->str(data_get($interaction, 'agent'))

@@ -152,8 +152,8 @@ final readonly class ResearchResultMapper
         }
 
         return new Usage(
-            promptTokens: $this->integer($response, 'promptTokens'),
-            completionTokens: $this->integer($response, 'completionTokens'),
+            promptTokens: $this->promptTokens($response),
+            completionTokens: $this->completionTokens($response),
             cacheWriteInputTokens: $this->integer($response, 'cacheWriteInputTokens'),
             cacheReadInputTokens: $this->integer($response, 'cacheReadInputTokens'),
             reasoningTokens: $this->integer($response, 'reasoningTokens'),
@@ -161,6 +161,37 @@ final readonly class ResearchResultMapper
             actualCost: $actualCost,
             currency: $actualCost !== null ? $cost?->currency : null,
         );
+    }
+
+    /**
+     * laravel/ai 1.0 reports inputTokens as a total that always includes the
+     * cached and cache-written partitions, so the interchange contract's
+     * exclusive prompt count is derived by subtracting them. laravel/ai 0.x
+     * reported promptTokens already exclusive of both partitions; its shape
+     * is detected by the absence of the renamed inputTokens field.
+     */
+    private function promptTokens(AgentResponse $response): ?int
+    {
+        if (data_get($response, 'usage.inputTokens') !== null) {
+            $input = $this->integer($response, 'inputTokens');
+            $read = $this->integer($response, 'cacheReadInputTokens');
+            $write = $this->integer($response, 'cacheWriteInputTokens');
+
+            return $input === null ? null : max(0, $input - ($read ?? 0) - ($write ?? 0));
+        }
+
+        return $this->integer($response, 'promptTokens');
+    }
+
+    /**
+     * laravel/ai 1.0 renamed completionTokens to outputTokens; the count
+     * itself kept its 0.x semantics and includes reasoning tokens.
+     */
+    private function completionTokens(AgentResponse $response): ?int
+    {
+        return data_get($response, 'usage.outputTokens') !== null
+            ? $this->integer($response, 'outputTokens')
+            : $this->integer($response, 'completionTokens');
     }
 
     /**
@@ -244,6 +275,8 @@ final readonly class ResearchResultMapper
         $paths = match ($metric) {
             'promptTokens' => ['usage.input_tokens', 'usage.prompt_tokens', 'usageMetadata.promptTokenCount'],
             'completionTokens' => ['usage.output_tokens', 'usage.completion_tokens', 'usageMetadata.candidatesTokenCount'],
+            'inputTokens' => ['usage.input_tokens', 'usage.prompt_tokens', 'usageMetadata.promptTokenCount'],
+            'outputTokens' => ['usage.output_tokens', 'usage.completion_tokens', 'usageMetadata.candidatesTokenCount'],
             'cacheWriteInputTokens' => ['usage.input_tokens_details.cache_write_tokens', 'usage.prompt_tokens_details.cache_write_tokens', 'usage.cache_creation_input_tokens'],
             'cacheReadInputTokens' => ['usage.input_tokens_details.cached_tokens', 'usage.prompt_tokens_details.cached_tokens', 'usage.cache_read_input_tokens', 'usageMetadata.cachedContentTokenCount'],
             'reasoningTokens' => ['usage.output_tokens_details.reasoning_tokens', 'usage.completion_tokens_details.reasoning_tokens', 'usageMetadata.thoughtsTokenCount'],

@@ -31,7 +31,7 @@ use Laravel\Ai\Responses\AgentResponse;
 use Laravel\Ai\Responses\Data\FinishReason;
 use Laravel\Ai\Responses\Data\Meta;
 use Laravel\Ai\Responses\Data\Step;
-use Laravel\Ai\Responses\Data\Usage as AiUsage;
+use Laravel\Ai\Responses\Data\TextUsage as AiUsage;
 use Laravel\Ai\Responses\TextResponse;
 
 beforeEach(function (): void {
@@ -238,7 +238,7 @@ it('maps complete OpenRouter reported charges without inventing an actual cost',
     $raw = static fn (string $body): HttpResponse => new HttpResponse(new PsrResponse(200, ['Content-Type' => 'application/json'], $body));
     if ($useSteps) {
         $response->withSteps(collect($bodies)->map(function (?string $body) use ($raw, $provider): Step {
-            $step = new Step('', [], [], FinishReason::Stop, new AiUsage(10, 4), new Meta($provider, 'fixture'));
+            $step = new Step('', [], [], FinishReason::Stop, new AiUsage(10, 4), new Meta($provider, 'fixture'), '', []);
             if ($body !== null) {
                 $step->withRawResponse($raw($body));
             }
@@ -282,6 +282,8 @@ it('sums the engine search count only when every step reports a complete count',
             finishReason: FinishReason::Stop,
             usage: new AiUsage(10, 4),
             meta: new Meta('openrouter', 'openai/gpt-5.6-terra'),
+            reasoning: '',
+            replayBlocks: [],
         );
         if (is_string($rawStep)) {
             $step->withRawResponse(new HttpResponse(new PsrResponse(200, ['Content-Type' => 'application/json'], $rawStep)));
@@ -802,18 +804,20 @@ it('still enforces Gemini token controls on the real outbound request while the 
     ]);
     Http::fake([
         'https://generativelanguage.googleapis.com/*' => Http::response([
-            'candidates' => [[
-                'content' => [
-                    'role' => 'model',
-                    'parts' => [['text' => 'A grounded Gemini answer.']],
-                ],
-                'finishReason' => 'STOP',
-                'groundingMetadata' => [
-                    'groundingChunks' => [['web' => ['uri' => 'https://example.com/source', 'title' => 'Example source']]],
-                    'groundingSupports' => [['groundingChunkIndices' => [0]]],
-                ],
+            'status' => 'completed',
+            'steps' => [[
+                'type' => 'model_output',
+                'content' => [[
+                    'type' => 'text',
+                    'text' => 'A grounded Gemini answer.',
+                    'annotations' => [[
+                        'type' => 'url_citation',
+                        'url' => 'https://example.com/source',
+                        'title' => 'Example source',
+                    ]],
+                ]],
             ]],
-            'usageMetadata' => ['promptTokenCount' => 40, 'candidatesTokenCount' => 30, 'thoughtsTokenCount' => 10],
+            'usage' => ['total_input_tokens' => 40, 'total_output_tokens' => 30, 'total_thought_tokens' => 10],
         ]),
     ]);
 
@@ -826,9 +830,10 @@ it('still enforces Gemini token controls on the real outbound request while the 
     Http::assertSent(function (Request $request): bool {
         $body = $request->data();
 
-        return $request->url() === 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent'
-            && data_get($body, 'generationConfig.maxOutputTokens') === 4_096
-            && (array) data_get($body, 'tools.0.google_search') === [];
+        return $request->url() === 'https://generativelanguage.googleapis.com/v1beta/interactions'
+            && data_get($body, 'model') === 'gemini-3.6-flash'
+            && data_get($body, 'generation_config.max_output_tokens') === 4_096
+            && data_get($body, 'tools.0.type') === 'google_search';
     });
     Http::assertSentCount(1);
 });
@@ -1258,7 +1263,7 @@ it('settles response-side drift without raw capture as possibly accepted, never 
     ResearchAgent::fake([
         new TextResponse(
             'A drifted revision answer.',
-            new AiUsage(promptTokens: 900, completionTokens: 120),
+            new AiUsage(inputTokens: 900, outputTokens: 120),
             new Meta('openrouter', 'openai/gpt-5.6-terra-20261001'),
         ),
     ])->preventStrayPrompts();
@@ -1358,7 +1363,7 @@ it('settles a runtime timeout after a conforming no-raw response as possibly acc
 
         return new TextResponse(
             'A grounded OpenRouter answer.',
-            new AiUsage(promptTokens: 900, completionTokens: 120),
+            new AiUsage(inputTokens: 900, outputTokens: 120),
             new Meta('openrouter', 'openai/gpt-5.6-terra-20260709'),
         );
     })->preventStrayPrompts();
@@ -1392,7 +1397,7 @@ it('settles an ungrounded required-grounding response without raw capture as pos
     ResearchAgent::fake([
         new TextResponse(
             'An answer without provider-reported evidence.',
-            new AiUsage(promptTokens: 900, completionTokens: 120),
+            new AiUsage(inputTokens: 900, outputTokens: 120),
             new Meta('openrouter', 'openai/gpt-5.6-luna'),
         ),
     ])->preventStrayPrompts();

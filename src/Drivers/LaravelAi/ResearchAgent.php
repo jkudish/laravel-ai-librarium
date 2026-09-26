@@ -12,7 +12,7 @@ use Laravel\Ai\Promptable;
 use Laravel\Ai\Providers\Tools\WebSearch;
 
 /** @internal */
-final readonly class ResearchAgent implements Agent, HasProviderOptions, HasTools
+final class ResearchAgent implements Agent, HasProviderOptions, HasTools
 {
     use Promptable;
 

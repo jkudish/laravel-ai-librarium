@@ -37,8 +37,8 @@ use Laravel\Ai\Responses\AgentResponse;
 use Laravel\Ai\Responses\Data\FinishReason;
 use Laravel\Ai\Responses\Data\Meta;
 use Laravel\Ai\Responses\Data\Step;
+use Laravel\Ai\Responses\Data\TextUsage as AiUsage;
 use Laravel\Ai\Responses\Data\UrlCitation;
-use Laravel\Ai\Responses\Data\Usage as AiUsage;
 use Laravel\Ai\Responses\TextResponse;
 
 beforeEach(function (): void {
@@ -53,7 +53,7 @@ it('runs each configured Laravel AI Profile through one exact SDK provider and m
     ResearchAgent::fake([
         new TextResponse(
             'A grounded answer.',
-            new AiUsage(promptTokens: 10, completionTokens: 6),
+            new AiUsage(inputTokens: 10, outputTokens: 6),
             new Meta($provider, $model, collect([
                 new UrlCitation('https://example.com/source', 'Example source'),
             ])),
@@ -102,7 +102,7 @@ it('returns an honest model answer when optional web search is disabled', functi
     ResearchAgent::fake([
         new TextResponse(
             'A direct model answer.',
-            new AiUsage(promptTokens: 5, completionTokens: 4),
+            new AiUsage(inputTokens: 5, outputTokens: 4),
             new Meta('gemini', 'gemini-3.7-flash'),
         ),
     ])->preventStrayPrompts();
@@ -187,7 +187,7 @@ it('accepts the exact rendered prompt byte limit and rejects one byte beyond it'
     ResearchAgent::fake([
         new TextResponse(
             'A grounded answer.',
-            new AiUsage(promptTokens: 1, completionTokens: 1),
+            new AiUsage(inputTokens: 1, outputTokens: 1),
             new Meta('gemini', 'gemini-2.5-pro', collect([
                 new UrlCitation('https://example.com/source', 'Example source'),
             ])),
@@ -236,7 +236,7 @@ it('prompts one exact SDK provider and model with native web search and the rema
     ResearchAgent::fake([
         (new TextResponse(
             'A grounded answer.',
-            new AiUsage(promptTokens: 12, completionTokens: 8, cacheReadInputTokens: 3, reasoningTokens: 2),
+            new AiUsage(inputTokens: 15, outputTokens: 8, cacheReadInputTokens: 3, reasoningTokens: 2),
             new Meta('gemini', 'gemini-2.5-pro', collect([
                 new UrlCitation('https://laravel.com/docs/13.x/ai-sdk', 'Laravel AI SDK'),
             ])),
@@ -279,19 +279,19 @@ it('maps citations from every SDK response step and the aggregate usage', functi
     $response = (new AgentResponse(
         'invocation-123',
         'Final grounded answer.',
-        new AiUsage(30, 20, 4, 5, 6),
+        new AiUsage(inputTokens: 39, outputTokens: 20, cacheReadInputTokens: 5, cacheWriteInputTokens: 4, reasoningTokens: 6),
         new Meta('gemini', 'gemini-2.5-pro'),
     ))->withSteps(collect([
         sdkStep(
             citations: [new UrlCitation('https://example.com/first', 'First source', 10, 20)],
-            usage: new AiUsage(10, 4),
+            usage: new AiUsage(inputTokens: 10, outputTokens: 4),
         ),
         sdkStep(
             citations: [
                 new UrlCitation('https://example.com/first', 'Repeated source', 10, 20),
                 new UrlCitation('https://example.com/second', 'Second source', 30, 45),
             ],
-            usage: new AiUsage(20, 16, 4, 5, 6),
+            usage: new AiUsage(inputTokens: 29, outputTokens: 16, cacheReadInputTokens: 5, cacheWriteInputTokens: 4, reasoningTokens: 6),
         ),
     ]));
 
@@ -363,7 +363,7 @@ it('rejects a required-grounding response without provider-reported evidence', f
     ResearchAgent::fake([
         new TextResponse(
             'An unsupported answer.',
-            new AiUsage(promptTokens: 5, completionTokens: 3),
+            new AiUsage(inputTokens: 5, outputTokens: 3),
             new Meta('gemini', 'gemini-2.5-pro'),
         ),
     ])->preventStrayPrompts();
@@ -509,6 +509,8 @@ function sdkStep(array $citations, AiUsage $usage): Step
         finishReason: FinishReason::Stop,
         usage: $usage,
         meta: new Meta('gemini', 'gemini-2.5-pro', collect($citations)),
+        reasoning: '',
+        replayBlocks: [],
     );
 }
 

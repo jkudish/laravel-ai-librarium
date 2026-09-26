@@ -26,7 +26,7 @@ use Jkudish\LaravelAiLibrarium\SpendingBoundKind;
 use Laravel\Ai\Ai;
 use Laravel\Ai\AiManager;
 use Laravel\Ai\Responses\Data\Meta;
-use Laravel\Ai\Responses\Data\Usage as AiUsage;
+use Laravel\Ai\Responses\Data\TextUsage as AiUsage;
 use Laravel\Ai\Responses\TextResponse;
 
 beforeEach(function (): void {
@@ -333,7 +333,7 @@ it('settles Luna response-side drift without raw capture as possibly accepted, n
     ResearchAgent::fake([
         new TextResponse(
             'A drifted revision answer.',
-            new AiUsage(promptTokens: 900, completionTokens: 120),
+            new AiUsage(inputTokens: 900, outputTokens: 120),
             new Meta('openrouter', 'openai/gpt-6-luna-20261101'),
         ),
     ])->preventStrayPrompts();
@@ -372,7 +372,7 @@ it('settles a runtime timeout after a conforming no-raw Luna response as possibl
 
         return new TextResponse(
             'A grounded Luna answer.',
-            new AiUsage(promptTokens: 900, completionTokens: 120),
+            new AiUsage(inputTokens: 900, outputTokens: 120),
             new Meta('openrouter', 'openai/gpt-6-luna-20260922'),
         );
     })->preventStrayPrompts();
@@ -413,7 +413,7 @@ it('settles an ungrounded required-grounding Luna response without raw capture a
     ResearchAgent::fake([
         new TextResponse(
             'An answer without provider-reported evidence.',
-            new AiUsage(promptTokens: 900, completionTokens: 120),
+            new AiUsage(inputTokens: 900, outputTokens: 120),
             new Meta('openrouter', 'openai/gpt-6-luna-20260922'),
         ),
     ])->preventStrayPrompts();

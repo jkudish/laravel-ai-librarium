@@ -100,7 +100,7 @@ it('normalizes completed research into a Laravel AI AgentResponse before interch
     expect($response)->toBeInstanceOf(AgentResponse::class)
         ->and($response->invocationId)->toBe('request-1')
         ->and($response->text)->toBe('A researched report with a cited claim.')
-        ->and($response->usage->promptTokens)->toBe(100)
+        ->and($response->usage->inputTokens)->toBe(120)
         ->and($response->usage->cacheReadInputTokens)->toBe(20)
         ->and($response->meta->provider)->toBe('openai')
         ->and($response->meta->model)->toBe('gpt-5.6-sol-reported')

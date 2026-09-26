@@ -21,7 +21,7 @@ function releaseReadinessComposerFixture(): array
             'illuminate/support' => '^13.0',
             'illuminate/validation' => '^13.0',
             'jkudish/laravel-ai-pricing' => '^0.1.1',
-            'laravel/ai' => '^0.10.3 || ^0.11.0',
+            'laravel/ai' => '^0.10.3 || ^0.11.0 || ^1.0',
         ],
         'require-dev' => [
             'orchestra/testbench' => '^11.0',
@@ -126,7 +126,7 @@ it('requires the exact supported PHP, Laravel, and Laravel AI compatibility poli
     'PHP floor' => ['require', 'php', '^8.3', 'Runtime dependency php must use the release compatibility constraint [^8.4].'],
     'Laravel major' => ['require', 'illuminate/support', '^12.0', 'Runtime dependency illuminate/support must use the release compatibility constraint [^13.0].'],
     'pricing release' => ['require', 'jkudish/laravel-ai-pricing', '^0.2', 'Runtime dependency jkudish/laravel-ai-pricing must use the release compatibility constraint [^0.1.1].'],
-    'Laravel AI range' => ['require', 'laravel/ai', '^0.9', 'Runtime dependency laravel/ai must use the release compatibility constraint [^0.10.3 || ^0.11.0].'],
+    'Laravel AI range' => ['require', 'laravel/ai', '^0.9', 'Runtime dependency laravel/ai must use the release compatibility constraint [^0.10.3 || ^0.11.0 || ^1.0].'],
     'Testbench major' => ['require-dev', 'orchestra/testbench', '^10.0', 'Development dependency orchestra/testbench must use the release compatibility constraint [^11.0].'],
 ]);
 
