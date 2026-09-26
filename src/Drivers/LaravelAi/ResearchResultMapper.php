@@ -166,32 +166,24 @@ final readonly class ResearchResultMapper
     /**
      * laravel/ai 1.0 reports inputTokens as a total that always includes the
      * cached and cache-written partitions, so the interchange contract's
-     * exclusive prompt count is derived by subtracting them. laravel/ai 0.x
-     * reported promptTokens already exclusive of both partitions; its shape
-     * is detected by the absence of the renamed inputTokens field.
+     * exclusive prompt count is derived by subtracting them.
      */
     private function promptTokens(AgentResponse $response): ?int
     {
-        if (data_get($response, 'usage.inputTokens') !== null) {
-            $input = $this->integer($response, 'inputTokens');
-            $read = $this->integer($response, 'cacheReadInputTokens');
-            $write = $this->integer($response, 'cacheWriteInputTokens');
+        $input = $this->integer($response, 'inputTokens');
+        $read = $this->integer($response, 'cacheReadInputTokens');
+        $write = $this->integer($response, 'cacheWriteInputTokens');
 
-            return $input === null ? null : max(0, $input - ($read ?? 0) - ($write ?? 0));
-        }
-
-        return $this->integer($response, 'promptTokens');
+        return $input === null ? null : max(0, $input - ($read ?? 0) - ($write ?? 0));
     }
 
     /**
      * laravel/ai 1.0 renamed completionTokens to outputTokens; the count
-     * itself kept its 0.x semantics and includes reasoning tokens.
+     * itself kept its semantics and includes reasoning tokens.
      */
     private function completionTokens(AgentResponse $response): ?int
     {
-        return data_get($response, 'usage.outputTokens') !== null
-            ? $this->integer($response, 'outputTokens')
-            : $this->integer($response, 'completionTokens');
+        return $this->integer($response, 'outputTokens');
     }
 
     /**
@@ -273,8 +265,6 @@ final readonly class ResearchResultMapper
     private function reported(AgentResponse $response, string $metric): bool
     {
         $paths = match ($metric) {
-            'promptTokens' => ['usage.input_tokens', 'usage.prompt_tokens', 'usageMetadata.promptTokenCount'],
-            'completionTokens' => ['usage.output_tokens', 'usage.completion_tokens', 'usageMetadata.candidatesTokenCount'],
             'inputTokens' => ['usage.input_tokens', 'usage.prompt_tokens', 'usageMetadata.promptTokenCount'],
             'outputTokens' => ['usage.output_tokens', 'usage.completion_tokens', 'usageMetadata.candidatesTokenCount'],
             'cacheWriteInputTokens' => ['usage.input_tokens_details.cache_write_tokens', 'usage.prompt_tokens_details.cache_write_tokens', 'usage.cache_creation_input_tokens'],

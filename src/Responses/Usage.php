@@ -12,13 +12,10 @@ final readonly class Usage
     /**
      * Token quantities are exclusive partitions: prompt_tokens counts only
      * uncached input, and cache_write_input_tokens / cache_read_input_tokens
-     * count their own partitions. laravel/ai 0.x gateway parsers subtracted
-     * cached and cache-written tokens from the provider's inclusive prompt
-     * total (OpenAI/OpenRouter) or read the provider's native exclusive
-     * fields (Anthropic); laravel/ai 1.0 instead reports inputTokens as an
+     * count their own partitions. laravel/ai 1.0 reports inputTokens as an
      * inclusive total, so the mapper derives the exclusive prompt partition
      * by subtracting the reported cache partitions before building this
-     * contract. Either way every input token is represented exactly once.
+     * contract, and every input token is represented exactly once.
      * server_tool_search_requests carries the engine's server-tool search
      * count (current usage.server_tool_use_details.web_search_requests, with
      * legacy usage.server_tool_use.web_search_requests compatibility) and

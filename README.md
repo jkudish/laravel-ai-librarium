@@ -450,7 +450,7 @@ for the supported Profiles listed in
 
 - PHP 8.4+
 - Laravel 13
-- Laravel AI SDK >=0.10.3,<0.12.0
+- Laravel AI SDK ^1.0
 
 Development currently follows the latest `jkudish/laravel-ai-pricing`
 `dev-main` through Packagist. Librarium must not be released or published with
