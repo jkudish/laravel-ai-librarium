@@ -283,6 +283,21 @@ final readonly class PerplexityAgentResultMapper
             throw $this->invalidResponse();
         }
 
+        // Perplexity reports input_tokens as an inclusive total that already
+        // contains the cached partition, so the exclusive prompt partition is
+        // derived by subtracting it. When that subtraction would go negative,
+        // the provider's usage report is internally inconsistent, so the
+        // whole input side fails closed to unknown (prompt, cache write, and
+        // cache read) instead of clamping the prompt to zero and pricing
+        // cache partitions a report that cannot be reconciled. The provider's
+        // actual cost, when reported, stays authoritative either way.
+        if ($promptTokens !== null && $promptTokens - ($cacheRead ?? 0) < 0) {
+            $promptTokens = null;
+            $cacheRead = null;
+            $cacheCreation = null;
+            $cacheWrite = null;
+        }
+
         $actualCost = $this->cost(data_get($cost, 'total_cost'));
         $currency = data_get($cost, 'currency');
 
@@ -291,7 +306,7 @@ final readonly class PerplexityAgentResultMapper
         }
 
         return new Usage(
-            promptTokens: $promptTokens === null ? null : max(0, $promptTokens - ($cacheRead ?? 0)),
+            promptTokens: $promptTokens === null ? null : $promptTokens - ($cacheRead ?? 0),
             completionTokens: $completionTokens,
             cacheWriteInputTokens: $cacheCreation ?? $cacheWrite,
             cacheReadInputTokens: $cacheRead,

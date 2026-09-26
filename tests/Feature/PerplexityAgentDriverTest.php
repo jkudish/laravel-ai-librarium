@@ -530,7 +530,7 @@ it('strictly validates usage, cache, reasoning, and reported USD cost', function
     'non-USD cost' => ['usage.cost.currency', 'EUR'],
 ]);
 
-it('floors uncached prompt usage when reported cache reads exceed input tokens', function (): void {
+it('fails closed when reported cache reads exceed input tokens', function (): void {
     $response = perplexityCompletedResponse();
     data_set($response, 'usage.input_tokens', 10);
     data_set($response, 'usage.total_tokens', 50);
@@ -539,8 +539,22 @@ it('floors uncached prompt usage when reported cache reads exceed input tokens',
 
     $result = perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-sonar-pro'));
 
-    expect($result->usage?->promptTokens)->toBe(0)
-        ->and($result->usage?->cacheReadInputTokens)->toBe(20);
+    // A cache partition claiming more tokens than the inclusive input total
+    // makes the input side unreconcilable: every input-side partition is
+    // unknown, never a clamped prompt of zero that still prices the caches.
+    // The output side and the provider's authoritative cost stay reported.
+    expect($result->usage?->promptTokens)->toBeNull()
+        ->and($result->usage?->cacheReadInputTokens)->toBeNull()
+        ->and($result->usage?->cacheWriteInputTokens)->toBeNull()
+        ->and($result->usage?->completionTokens)->toBe(40)
+        ->and($result->usage?->actualCost)->toBe('0.0125')
+        ->and($result->usage?->currency)->toBe('USD')
+        ->and($result->usage?->toArray())->toBe([
+            'completion_tokens' => 40,
+            'reasoning_tokens' => 10,
+            'actual_cost' => '0.0125',
+            'currency' => 'USD',
+        ]);
 });
 
 it('preserves reported USD cost precision supported by the interchange contract', function (): void {

@@ -30,10 +30,27 @@ final readonly class Usage
      * stays null when unreported.
      * tool_use_tokens carries Gemini Interactions usage.total_tool_use_tokens
      * ("tokens present in tool-use prompt(s)") as a reported, unpriced audit
-     * count. Those tokens are input-prompt tokens already counted inside the
-     * inclusive total_input_tokens, so they are already priced once through
-     * the input-side partitions and are never priced again from this field;
-     * it stays null when the provider does not report it.
+     * count, and stays null when the provider does not report it. Google's
+     * own example arithmetic (ai.google.dev/api/interactions-api: input 100,
+     * output 25, thought 0, tool_use 50, total 125) proves the field is not
+     * additive to the reported token totals, but the reference does not
+     * state verbatim that those tokens sit inside total_input_tokens, and
+     * Google bills tool tokens by category rather than uniformly (pricing
+     * page: Grounding with Google Search retrieved context "is not charged
+     * as input tokens", while URL-context and File-search retrieved tokens
+     * are charged as input). No independently verified charge covers the
+     * field, so it is never added to the priced partitions, which derive
+     * only from the provider's inclusive input and cache totals.
+     *
+     * server_tool_search_requests and tool_use_tokens are wire fields of
+     * this PHP value object beyond the checksum-pinned v1 interchange
+     * schema (tests/Support/Contracts/v1), which does not list them; they
+     * must not be added to that frozen schema without new interchange-
+     * snapshot authority. Consequence for rollback: a payload carrying
+     * these fields is rejected by older package versions, whose usage
+     * reader treats unknown fields as invalid, so persisted payloads with
+     * the audit counts cannot be re-read after rolling back; the priced
+     * partitions and costs are unaffected either way.
      */
     public function __construct(
         public ?int $promptTokens = null,

@@ -381,6 +381,44 @@ it('fails closed when SDK cache partitions exceed the inclusive input total', fu
         ->and($positiveUsage?->cacheWriteInputTokens)->toBe(4);
 });
 
+it('fails closed when one step is inconsistent even if the SDK aggregate looks consistent', function (): void {
+    // Both responses fold to the same SDK aggregate — input 110 with cached
+    // 30 — but the first comes from steps whose own partitions are
+    // individually consistent, while the second hides a step reporting input
+    // 10 with cached 30. The aggregate check alone cannot tell them apart,
+    // so each step's own partitions are validated before it is trusted.
+    $consistent = (new AgentResponse(
+        'invocation-steps-consistent',
+        'Answer.',
+        new AiUsage(inputTokens: 110, cacheReadInputTokens: 30, outputTokens: 6),
+        new Meta('gemini', 'gemini-2.5-pro'),
+    ))->withSteps(collect([
+        sdkStep(citations: [], usage: new AiUsage(inputTokens: 40, cacheReadInputTokens: 30, outputTokens: 2)),
+        sdkStep(citations: [], usage: new AiUsage(inputTokens: 70, outputTokens: 4)),
+    ]));
+    $maskedStep = (new AgentResponse(
+        'invocation-steps-masked',
+        'Answer.',
+        new AiUsage(inputTokens: 110, cacheReadInputTokens: 30, outputTokens: 6),
+        new Meta('gemini', 'gemini-2.5-pro'),
+    ))->withSteps(collect([
+        sdkStep(citations: [], usage: new AiUsage(inputTokens: 10, cacheReadInputTokens: 30, outputTokens: 2)),
+        sdkStep(citations: [], usage: new AiUsage(inputTokens: 100, outputTokens: 4)),
+    ]));
+
+    $consistentUsage = (new ResearchResultMapper)->map($consistent, groundedDriverRequest())->usage;
+    $maskedUsage = (new ResearchResultMapper)->map($maskedStep, groundedDriverRequest())->usage;
+
+    expect($consistentUsage?->promptTokens)->toBe(80)
+        ->and($consistentUsage?->cacheReadInputTokens)->toBe(30)
+        ->and($consistentUsage?->completionTokens)->toBe(6)
+        ->and($maskedUsage?->promptTokens)->toBeNull()
+        ->and($maskedUsage?->cacheReadInputTokens)->toBeNull()
+        ->and($maskedUsage?->cacheWriteInputTokens)->toBeNull()
+        ->and($maskedUsage?->completionTokens)->toBe(6)
+        ->and($maskedUsage?->toArray())->toBe(['completion_tokens' => 6]);
+});
+
 it('sums the Gemini tool-use audit tokens from every step raw response', function (): void {
     $raw = static fn (string $body): HttpResponse => new HttpResponse(new PsrResponse(
         200,

@@ -157,9 +157,11 @@ final readonly class GeminiDeepResultMapper
         // would go negative, the provider's usage report is internally
         // inconsistent, so the whole input side fails closed to unknown
         // instead of fabricating partitions. total_tool_use_tokens counts
-        // tokens in tool-use prompts that Google already bills inside the
-        // inclusive input total, so it is carried as an unpriced audit
-        // count alongside the priced partitions.
+        // "tokens present in tool-use prompt(s)"; the Interactions examples
+        // prove it is not additive to the reported totals, but Google bills
+        // tool tokens by category (Search retrieved context free, URL
+        // context and File search charged as input), so it is carried as an
+        // unpriced audit count and never added to the priced partitions.
         if ($input !== null && $input - ($cached ?? 0) < 0) {
             $input = null;
             $cached = null;

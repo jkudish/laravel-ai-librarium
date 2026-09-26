@@ -185,13 +185,31 @@ final readonly class ResearchResultMapper
      * than its inclusive input total contains), so the input side fails
      * closed: every input-side partition is reported as unknown rather than
      * fabricating a partition split that would price tokens the provider
-     * never accounted for. A zero or positive remainder partitions normally,
+     * never accounted for.
+     *
+     * The same check runs per step before the SDK's aggregate is trusted,
+     * because the SDK folds every step's usage into one total: one step
+     * reporting input 10 with cached 30 plus one step reporting input 100
+     * with no caching folds to a consistent-looking input 110 with cached
+     * 30, and the aggregate check alone would price 30 cached tokens the
+     * inconsistent step cannot account for. Any step whose own cache
+     * partitions exceed its own inclusive input total makes the whole input
+     * side unknown, and its cache partitions are never published from the
+     * aggregate either. A zero or positive remainder partitions normally,
      * and the output side is always reported as measured.
      *
      * @return array{0: ?int, 1: ?int, 2: ?int}
      */
     private function inputPartitions(AgentResponse $response): array
     {
+        if ($response->steps->isNotEmpty()) {
+            foreach ($response->steps as $step) {
+                if ($step->usage->uncachedInputTokens() < 0) {
+                    return [null, null, null];
+                }
+            }
+        }
+
         $input = $this->integer($response, 'inputTokens');
         $read = $this->integer($response, 'cacheReadInputTokens');
         $write = $this->integer($response, 'cacheWriteInputTokens');
@@ -286,11 +304,23 @@ final readonly class ResearchResultMapper
      * number of tokens present in tool-use prompt(s)" — which laravel/ai 1.0
      * drops when it parses usage into its token value object, so the count is
      * read from the raw provider responses and summed across steps the way
-     * the SDK sums tokens. Those tokens are input-prompt tokens that Google
-     * already counts inside the inclusive total_input_tokens, so the count is
-     * carried as an unpriced audit detail, never added to the priced input
-     * partitions; OpenAI-compatible bodies do not report the field, so it
-     * stays null for them.
+     * the SDK sums tokens.
+     *
+     * The count stays an unpriced audit detail and is never added to the
+     * priced input partitions. Google's own example arithmetic proves the
+     * field is not additive to the reported totals — the Interactions
+     * reference's function-calling example reports input 100, output 25,
+     * thought 0, tool_use 50, and total 125 (ai.google.dev/api/interactions-api)
+     * — but the reference does not state verbatim that the tool-use tokens
+     * sit inside total_input_tokens, and the pricing page bills tool tokens
+     * by category rather than uniformly: Grounding with Google Search
+     * retrieved context "is not charged as input tokens", while URL-context
+     * and File-search retrieved tokens are charged as input per model
+     * pricing (ai.google.dev/gemini-api/docs/pricing). No independently
+     * verified charge covers the whole field, so it is never used to price
+     * anything; the priced partitions derive only from the provider's own
+     * inclusive input and cache totals. OpenAI-compatible bodies do not
+     * report the field, so it stays null for them.
      *
      * Like the search count, this is an all-or-nothing measurement: every
      * expected step must carry a raw provider response reporting a

@@ -35,12 +35,14 @@ use stdClass;
  * Runs one inline xAI Responses API request with an exact web, X, or combined search strategy.
  *
  * This driver deliberately does not implement `DefinesSpendingBound`: every route it serves
- * enables a server-side search tool, xAI bills each successful tool invocation ($5 per 1k
- * `web_search` calls), and no official documentation today bounds the invocation count from
- * the request side (`max_turns` limits turns, not the parallel tool calls within a turn,
- * and `max_tool_calls` exists only on the response object). The pre-dispatch bound therefore
- * fails closed to `unknown`; see `docs/xai-grok-spending-bounds.md` for the sourced
- * analysis, including the `parallel_tool_calls` investigation and what would change the
+ * enables a server-side search tool, and no official documentation today bounds the route's
+ * billable search quantity from the request side. Web Search still bills per call ($5 per 1k
+ * `web_search` calls) but `max_turns` limits turns, not the parallel tool calls within a turn,
+ * and `max_tool_calls` exists only on the response object; since the September 21, 2026 change,
+ * X Search no longer bills per call at all — it bills $5 per 1k posts fetched and $10 per 1k
+ * profiles fetched, and no parameter bounds how many items a search returns. The pre-dispatch
+ * bound therefore fails closed to `unknown`; see `docs/xai-grok-spending-bounds.md` for the
+ * sourced analysis, including the `parallel_tool_calls` investigation and what would change the
  * verdict. That is "no documented provable ceiling found", not a claim of impossibility.
  */
 final readonly class XaiGrokDriver implements Driver
