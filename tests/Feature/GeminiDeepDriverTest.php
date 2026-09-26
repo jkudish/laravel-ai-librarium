@@ -104,7 +104,7 @@ it('submits the exact Deep Research interaction and preserves provisional status
         ])
         ->and($result->citations->first()->locator)->toBe('characters:0-12')
         ->and($result->usage?->promptTokens)->toBe(90)
-        ->and($result->usage?->completionTokens)->toBe(340)
+        ->and($result->usage?->completionTokens)->toBe(390)
         ->and($result->usage?->cacheReadInputTokens)->toBe(30)
         ->and($result->usage?->reasoningTokens)->toBe(50)
         ->and((array) $result->providerMeta)->toBe([
@@ -144,10 +144,13 @@ it('preserves reported zero usage while leaving absent Gemini usage unknown', fu
     ];
     $unknown = geminiDeepInteraction('completed', completed: true);
     unset($unknown['usage']);
+    $thoughtOnly = geminiDeepInteraction('completed', completed: true);
+    $thoughtOnly['usage'] = ['total_thought_tokens' => 50];
     $mapper = app(GeminiDeepResultMapper::class);
 
     $reportedUsage = $mapper->map($reported, geminiDeepRequest())->usage;
     $unknownUsage = $mapper->map($unknown, geminiDeepRequest())->usage;
+    $thoughtOnlyUsage = $mapper->map($thoughtOnly, geminiDeepRequest())->usage;
 
     expect($reportedUsage?->promptTokens)->toBe(0)
         ->and($reportedUsage?->completionTokens)->toBe(0)
@@ -156,7 +159,11 @@ it('preserves reported zero usage while leaving absent Gemini usage unknown', fu
         ->and($unknownUsage?->promptTokens)->toBeNull()
         ->and($unknownUsage?->completionTokens)->toBeNull()
         ->and($unknownUsage?->cacheReadInputTokens)->toBeNull()
-        ->and($unknownUsage?->reasoningTokens)->toBeNull();
+        ->and($unknownUsage?->reasoningTokens)->toBeNull()
+        // Thought tokens alone cannot reconstruct the inclusive completion
+        // total, so it stays unknown rather than understating output.
+        ->and($thoughtOnlyUsage?->completionTokens)->toBeNull()
+        ->and($thoughtOnlyUsage?->reasoningTokens)->toBe(50);
 });
 
 it('falls back to ordered model output text blocks when output_text is absent', function (): void {

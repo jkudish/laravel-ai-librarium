@@ -143,12 +143,17 @@ final readonly class GeminiDeepResultMapper
 
         $input = $this->nonNegativeInt(data_get($value, 'total_input_tokens'));
         $cached = $this->nonNegativeInt(data_get($value, 'total_cached_tokens'));
+        $output = $this->nonNegativeInt(data_get($value, 'total_output_tokens'));
+        $thought = $this->nonNegativeInt(data_get($value, 'total_thought_tokens'));
 
+        // Gemini reports thought tokens outside the output token count, so
+        // the interchange contract's inclusive completion total folds them
+        // in the same way laravel/ai's own Gemini gateway parser does.
         return new Usage(
             promptTokens: $input === null ? null : max(0, $input - ($cached ?? 0)),
-            completionTokens: $this->nonNegativeInt(data_get($value, 'total_output_tokens')),
+            completionTokens: $output === null ? null : $output + ($thought ?? 0),
             cacheReadInputTokens: $cached,
-            reasoningTokens: $this->nonNegativeInt(data_get($value, 'total_thought_tokens')),
+            reasoningTokens: $thought,
         );
     }
 
