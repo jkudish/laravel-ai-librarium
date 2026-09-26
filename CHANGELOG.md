@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2.0.0 - 2026-09-26
+
+- **Breaking:** require `laravel/ai` `^1.0` only; support for the 0.10.3–0.11 range is dropped. The SDK 1.0 gateway parsers report inclusive token totals and the package's result mappers derive the interchange contract's exclusive input partitions themselves; the OpenAI Responses and Gemini Deep Research mappers build the SDK 1.0 `TextUsage` value object, which exists only in 1.0. Historical 0.11 package revisions stay replay-accepted downstream.
+- Read Gemini Interactions usage from the 1.0 raw body (`usage.total_input_tokens`, `total_output_tokens`, `total_cached_tokens`, `total_thought_tokens`) so a reported zero stays `0` instead of collapsing to `null`.
+- Fold Gemini Deep Research thought tokens into the completion total, matching the SDK 1.0 Gemini gateway parser's own inclusive output semantics.
+
 ## 1.0.0 - 2026-09-15
 
 - Add the Laravel-native query, preview, synchronous, queued, event, and

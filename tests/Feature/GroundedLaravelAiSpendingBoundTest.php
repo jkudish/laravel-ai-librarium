@@ -817,7 +817,7 @@ it('still enforces Gemini token controls on the real outbound request while the 
                     ]],
                 ]],
             ]],
-            'usage' => ['total_input_tokens' => 40, 'total_output_tokens' => 30, 'total_thought_tokens' => 10],
+            'usage' => ['total_input_tokens' => 40, 'total_output_tokens' => 30, 'total_thought_tokens' => 10, 'total_cached_tokens' => 0],
         ]),
     ]);
 
@@ -825,8 +825,16 @@ it('still enforces Gemini token controls on the real outbound request while the 
         ->using('gemini-grounded')
         ->run();
 
+    $usage = $response->results->sole()->usage;
     expect($response->status->value)->toBe('succeeded')
-        ->and($response->results->sole()->citations)->toHaveCount(1);
+        ->and($response->results->sole()->citations)->toHaveCount(1)
+        // The completion total folds the thought subset (30 + 10), the cache
+        // read partition stays a real 0 — not null — when Google reports
+        // total_cached_tokens: 0, and every input token stays represented.
+        ->and($usage->promptTokens)->toBe(40)
+        ->and($usage->completionTokens)->toBe(40)
+        ->and($usage->reasoningTokens)->toBe(10)
+        ->and($usage->cacheReadInputTokens)->toBe(0);
     Http::assertSent(function (Request $request): bool {
         $body = $request->data();
 

@@ -264,12 +264,16 @@ final readonly class ResearchResultMapper
 
     private function reported(AgentResponse $response, string $metric): bool
     {
+        // The SDK 1.0 Gemini gateway talks to the Interactions API, whose raw
+        // body reports usage.total_* names, so those are the only evidence
+        // paths for a zero report; the OpenAI-compatible paths cover the
+        // OpenAI, OpenRouter, and Anthropic gateway bodies.
         $paths = match ($metric) {
-            'inputTokens' => ['usage.input_tokens', 'usage.prompt_tokens', 'usageMetadata.promptTokenCount'],
-            'outputTokens' => ['usage.output_tokens', 'usage.completion_tokens', 'usageMetadata.candidatesTokenCount'],
+            'inputTokens' => ['usage.input_tokens', 'usage.prompt_tokens', 'usage.total_input_tokens'],
+            'outputTokens' => ['usage.output_tokens', 'usage.completion_tokens', 'usage.total_output_tokens'],
             'cacheWriteInputTokens' => ['usage.input_tokens_details.cache_write_tokens', 'usage.prompt_tokens_details.cache_write_tokens', 'usage.cache_creation_input_tokens'],
-            'cacheReadInputTokens' => ['usage.input_tokens_details.cached_tokens', 'usage.prompt_tokens_details.cached_tokens', 'usage.cache_read_input_tokens', 'usageMetadata.cachedContentTokenCount'],
-            'reasoningTokens' => ['usage.output_tokens_details.reasoning_tokens', 'usage.completion_tokens_details.reasoning_tokens', 'usageMetadata.thoughtsTokenCount'],
+            'cacheReadInputTokens' => ['usage.input_tokens_details.cached_tokens', 'usage.prompt_tokens_details.cached_tokens', 'usage.cache_read_input_tokens', 'usage.total_cached_tokens'],
+            'reasoningTokens' => ['usage.output_tokens_details.reasoning_tokens', 'usage.completion_tokens_details.reasoning_tokens', 'usage.total_thought_tokens'],
             default => [],
         };
 
