@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+- Fail closed on a negative input remainder: when a provider's inclusive input total is smaller than its own reported cache partitions (for example input 10 with cached 30), the Laravel AI and Gemini Deep Research mappers now report every input-side partition (prompt, cache write, cache read) as unknown instead of clamping the prompt count to zero and pricing the cache partitions from a report that cannot be reconciled. The output side stays reported as measured.
+- Carry Gemini Interactions `usage.total_tool_use_tokens` ("tokens present in tool-use prompt(s)") as a reported, unpriced `tool_use_tokens` audit count instead of dropping it. Google counts those tokens inside the inclusive `total_input_tokens`, so they are already priced once through the input-side partitions and are never priced again. The Laravel AI driver reads the count from the 1.0 raw response bodies because laravel/ai 1.0's Gemini parser drops the field.
+- Label Google citation offsets as bytes: Gemini Interactions `url_citation` `start_index`/`end_index` are documented byte offsets (end exclusive), so Gemini Deep Research locators are now labeled `bytes:` instead of the incorrect `characters:`. OpenAI-compatible surfaces (OpenAI, OpenRouter, xAI) document character positions and keep the `characters:` label.
+- Widen `jkudish/laravel-ai-pricing` from `^0.1.1` to `^0.1.1 || ^0.2.0`.
+- Remove the pricing usage from the `grok-x-only` and `grok-combined` Profiles: since xAI's September 21, 2026 change, X Search bills $5 per 1k posts fetched and $10 per 1k profiles fetched rather than per call, and no documented control bounds fetched items, so a `searches` quantity can no longer bound the route's spend. Their quotes now resolve unavailable and any maximum-cost preflight including them fails closed instead of quoting web-search calls the X routes do not perform; the web-only `grok` Profile keeps its native `searches` count because Web Search still bills per call. Settlement is unchanged (the driver settles on `cost_in_usd_ticks`).
+
 ## 2.0.0 - 2026-09-26
 
 - **Breaking:** require `laravel/ai` `^1.0` only; support for the 0.10.3–0.11 range is dropped. The SDK 1.0 gateway parsers report inclusive token totals and the package's result mappers derive the interchange contract's exclusive input partitions themselves; the OpenAI Responses and Gemini Deep Research mappers build the SDK 1.0 `TextUsage` value object, which exists only in 1.0. Historical 0.11 package revisions stay replay-accepted downstream.

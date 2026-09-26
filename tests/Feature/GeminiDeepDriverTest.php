@@ -102,11 +102,12 @@ it('submits the exact Deep Research interaction and preserves provisional status
             'https://maps.example.com/lab',
             'https://example.com/report.pdf',
         ])
-        ->and($result->citations->first()->locator)->toBe('characters:0-12')
+        ->and($result->citations->first()->locator)->toBe('bytes:0-12')
         ->and($result->usage?->promptTokens)->toBe(90)
         ->and($result->usage?->completionTokens)->toBe(390)
         ->and($result->usage?->cacheReadInputTokens)->toBe(30)
         ->and($result->usage?->reasoningTokens)->toBe(50)
+        ->and($result->usage?->toolUseTokens)->toBe(10)
         ->and((array) $result->providerMeta)->toBe([
             'invocation_id' => 'request-gemini-deep',
             'step_count' => 0,
@@ -164,6 +165,77 @@ it('preserves reported zero usage while leaving absent Gemini usage unknown', fu
         // total, so it stays unknown rather than understating output.
         ->and($thoughtOnlyUsage?->completionTokens)->toBeNull()
         ->and($thoughtOnlyUsage?->reasoningTokens)->toBe(50);
+});
+
+it('partitions the inclusive input total only while the remainder stays nonnegative', function (): void {
+    $negative = geminiDeepInteraction('completed', completed: true);
+    $negative['usage'] = [
+        'total_input_tokens' => 10,
+        'total_cached_tokens' => 30,
+        'total_output_tokens' => 340,
+        'total_thought_tokens' => 50,
+        'total_tool_use_tokens' => 25,
+    ];
+    $zero = geminiDeepInteraction('completed', completed: true);
+    $zero['usage'] = [
+        'total_input_tokens' => 30,
+        'total_cached_tokens' => 30,
+        'total_output_tokens' => 340,
+        'total_thought_tokens' => 50,
+    ];
+    $positive = geminiDeepInteraction('completed', completed: true);
+    $positive['usage'] = [
+        'total_input_tokens' => 120,
+        'total_cached_tokens' => 30,
+        'total_output_tokens' => 340,
+        'total_thought_tokens' => 50,
+    ];
+    $mapper = app(GeminiDeepResultMapper::class);
+
+    $negativeUsage = $mapper->map($negative, geminiDeepRequest())->usage;
+    $zeroUsage = $mapper->map($zero, geminiDeepRequest())->usage;
+    $positiveUsage = $mapper->map($positive, geminiDeepRequest())->usage;
+
+    // A cached partition larger than the inclusive input total means the
+    // provider's usage report is internally inconsistent, so the whole input
+    // side fails closed to unknown instead of pricing unaccounted tokens.
+    expect($negativeUsage?->promptTokens)->toBeNull()
+        ->and($negativeUsage?->cacheReadInputTokens)->toBeNull()
+        ->and($negativeUsage?->toArray())->toBe([
+            'completion_tokens' => 390,
+            'reasoning_tokens' => 50,
+            'tool_use_tokens' => 25,
+        ])
+        ->and($zeroUsage?->promptTokens)->toBe(0)
+        ->and($zeroUsage?->cacheReadInputTokens)->toBe(30)
+        ->and($zeroUsage?->toolUseTokens)->toBeNull()
+        ->and($positiveUsage?->promptTokens)->toBe(90)
+        ->and($positiveUsage?->cacheReadInputTokens)->toBe(30);
+});
+
+it('labels multibyte citation offsets with the reported byte unit', function (): void {
+    $completed = geminiDeepInteraction('completed', completed: true);
+    data_set($completed, 'steps.0.content.0', [
+        'type' => 'text',
+        // 'É' is two bytes and the rocket emoji four, so the word "research"
+        // spans bytes 22-30 while a character-based locator would say 18-26.
+        'text' => 'Émile 🚀 published research.',
+        'annotations' => [[
+            'type' => 'url_citation',
+            'url' => 'https://example.com/research',
+            'title' => 'Research source',
+            'start_index' => 22,
+            'end_index' => 30,
+        ]],
+    ]);
+    Http::fakeSequence()
+        ->push(geminiDeepInteraction('in_progress'))
+        ->push($completed)
+        ->push($completed);
+
+    $result = app(GeminiDeepDriver::class)->run(geminiDeepRequest());
+
+    expect($result->citations->first()->locator)->toBe('bytes:22-30');
 });
 
 it('falls back to ordered model output text blocks when output_text is absent', function (): void {

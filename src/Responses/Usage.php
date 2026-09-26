@@ -18,11 +18,22 @@ final readonly class Usage
      * reports inputTokens as an inclusive total, so the mapper derives the
      * exclusive prompt partition by subtracting the reported cache partitions
      * before building this contract, and every input token is represented
-     * exactly once.
+     * exactly once. When that subtraction would go negative, the provider's
+     * input-side partitions are inconsistent with its own inclusive input
+     * total, so the mapper drops every input-side partition (prompt, cache
+     * write, cache read) to unknown instead of fabricating partitions; no
+     * input-side token is then priced from a report that cannot be
+     * reconciled. The output side is reported as measured.
      * server_tool_search_requests carries the engine's server-tool search
      * count (current usage.server_tool_use_details.web_search_requests, with
      * legacy usage.server_tool_use.web_search_requests compatibility) and
      * stays null when unreported.
+     * tool_use_tokens carries Gemini Interactions usage.total_tool_use_tokens
+     * ("tokens present in tool-use prompt(s)") as a reported, unpriced audit
+     * count. Those tokens are input-prompt tokens already counted inside the
+     * inclusive total_input_tokens, so they are already priced once through
+     * the input-side partitions and are never priced again from this field;
+     * it stays null when the provider does not report it.
      */
     public function __construct(
         public ?int $promptTokens = null,
@@ -31,6 +42,7 @@ final readonly class Usage
         public ?int $cacheReadInputTokens = null,
         public ?int $reasoningTokens = null,
         public ?int $serverToolSearchRequests = null,
+        public ?int $toolUseTokens = null,
         public ?string $actualCost = null,
         public ?string $estimatedCost = null,
         public ?string $currency = null,
@@ -48,6 +60,7 @@ final readonly class Usage
             cacheReadInputTokens: self::nullableInt($value, 'cache_read_input_tokens'),
             reasoningTokens: self::nullableInt($value, 'reasoning_tokens'),
             serverToolSearchRequests: self::nullableInt($value, 'server_tool_search_requests'),
+            toolUseTokens: self::nullableInt($value, 'tool_use_tokens'),
             actualCost: self::nullableString($value, 'actual_cost'),
             estimatedCost: self::nullableString($value, 'estimated_cost'),
             currency: self::nullableString($value, 'currency'),
@@ -64,6 +77,7 @@ final readonly class Usage
             'cache_read_input_tokens' => $this->cacheReadInputTokens,
             'reasoning_tokens' => $this->reasoningTokens,
             'server_tool_search_requests' => $this->serverToolSearchRequests,
+            'tool_use_tokens' => $this->toolUseTokens,
             'actual_cost' => $this->actualCost,
             'estimated_cost' => $this->estimatedCost,
             'currency' => $this->currency,
@@ -84,13 +98,14 @@ final readonly class Usage
             'cache_read_input_tokens' => ['integer', 'min:0', 'max:9007199254740991'],
             'reasoning_tokens' => ['integer', 'min:0', 'max:9007199254740991'],
             'server_tool_search_requests' => ['integer', 'min:0', 'max:9007199254740991'],
+            'tool_use_tokens' => ['integer', 'min:0', 'max:9007199254740991'],
             'actual_cost' => ['string', 'regex:/^(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$/'],
             'estimated_cost' => ['string', 'regex:/^(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$/'],
             'currency' => ['string', 'min:1'],
         ]);
 
         $validator->after(static function (\Illuminate\Validation\Validator $validator) use ($value): void {
-            if (array_diff(array_keys($value), ['prompt_tokens', 'completion_tokens', 'cache_write_input_tokens', 'cache_read_input_tokens', 'reasoning_tokens', 'server_tool_search_requests', 'actual_cost', 'estimated_cost', 'currency']) !== []) {
+            if (array_diff(array_keys($value), ['prompt_tokens', 'completion_tokens', 'cache_write_input_tokens', 'cache_read_input_tokens', 'reasoning_tokens', 'server_tool_search_requests', 'tool_use_tokens', 'actual_cost', 'estimated_cost', 'currency']) !== []) {
                 $validator->errors()->add('usage', 'contains an unknown field.');
             }
 

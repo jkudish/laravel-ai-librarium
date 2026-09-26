@@ -35,11 +35,12 @@ final readonly class ResearchResultMapper
         bool $usesWebSearch = true,
         ?CarbonImmutable $completedAt = null,
         ?Usage $usage = null,
+        bool $citationByteOffsets = false,
     ): ResearchResult {
         $text = data_get($response, 'text');
         $provider = data_get($response, 'meta.provider');
         $model = data_get($response, 'meta.model');
-        $citations = $this->citations($response);
+        $citations = $this->citations($response, $citationByteOffsets);
         $isGrounded = $usesWebSearch && $citations->isNotEmpty();
         $completedAt ??= CarbonImmutable::now();
 
@@ -82,7 +83,7 @@ final readonly class ResearchResultMapper
     }
 
     /** @return Collection<int, Citation> */
-    private function citations(AgentResponse $response): Collection
+    private function citations(AgentResponse $response, bool $byteOffsets): Collection
     {
         $steps = data_get($response, 'steps');
         $steps = $steps instanceof Collection ? $steps : collect();
@@ -105,7 +106,7 @@ final readonly class ResearchResultMapper
         return $citations
             ->filter(static fn (mixed $citation): bool => $citation instanceof UrlCitation && filled(data_get($citation, 'url')))
             ->unique(static fn (UrlCitation $citation): mixed => data_get($citation, 'url'))
-            ->map(function (UrlCitation $citation): Citation {
+            ->map(function (UrlCitation $citation) use ($byteOffsets): Citation {
                 $url = data_get($citation, 'url');
                 $title = data_get($citation, 'title');
 
@@ -116,13 +117,22 @@ final readonly class ResearchResultMapper
                         url: is_string($url) ? $url : null,
                         title: is_string($title) && $title !== '' ? $title : null,
                     ),
-                    locator: $this->locator($citation),
+                    locator: $this->locator($citation, $byteOffsets),
                 );
             })
             ->values();
     }
 
-    private function locator(UrlCitation $citation): ?string
+    /**
+     * The citation locator names the unit the provider actually reported.
+     * The OpenAI-compatible surfaces (OpenAI, OpenRouter, xAI) document
+     * character positions, so they keep the "characters:" label; Google's
+     * Interactions API documents start_index and end_index as byte offsets
+     * with an exclusive end, so those citations are labeled "bytes:" with
+     * the provider's numbers reported exactly as measured rather than
+     * converted through an undocumented reference frame.
+     */
+    private function locator(UrlCitation $citation, bool $byteOffsets): ?string
     {
         $start = data_get($citation, 'startIndex');
         $end = data_get($citation, 'endIndex');
@@ -131,7 +141,7 @@ final readonly class ResearchResultMapper
             return null;
         }
 
-        return 'characters:'.(is_int($start) ? $start : '?').'-'.(is_int($end) ? $end : '?');
+        return ($byteOffsets ? 'bytes:' : 'characters:').(is_int($start) ? $start : '?').'-'.(is_int($end) ? $end : '?');
     }
 
     private function usage(AgentResponse $response, string $provider): Usage
@@ -151,13 +161,16 @@ final readonly class ResearchResultMapper
             }
         }
 
+        [$prompt, $cacheWrite, $cacheRead] = $this->inputPartitions($response);
+
         return new Usage(
-            promptTokens: $this->promptTokens($response),
+            promptTokens: $prompt,
             completionTokens: $this->completionTokens($response),
-            cacheWriteInputTokens: $this->integer($response, 'cacheWriteInputTokens'),
-            cacheReadInputTokens: $this->integer($response, 'cacheReadInputTokens'),
+            cacheWriteInputTokens: $cacheWrite,
+            cacheReadInputTokens: $cacheRead,
             reasoningTokens: $this->integer($response, 'reasoningTokens'),
             serverToolSearchRequests: $this->serverToolSearchRequests($response),
+            toolUseTokens: $this->toolUseTokens($response),
             actualCost: $actualCost,
             currency: $actualCost !== null ? $cost?->currency : null,
         );
@@ -166,15 +179,32 @@ final readonly class ResearchResultMapper
     /**
      * laravel/ai 1.0 reports inputTokens as a total that always includes the
      * cached and cache-written partitions, so the interchange contract's
-     * exclusive prompt count is derived by subtracting them.
+     * exclusive prompt count is derived by subtracting them. When that
+     * subtraction would go negative, the provider's own usage report is
+     * internally inconsistent (its cache partitions claim more input tokens
+     * than its inclusive input total contains), so the input side fails
+     * closed: every input-side partition is reported as unknown rather than
+     * fabricating a partition split that would price tokens the provider
+     * never accounted for. A zero or positive remainder partitions normally,
+     * and the output side is always reported as measured.
+     *
+     * @return array{0: ?int, 1: ?int, 2: ?int}
      */
-    private function promptTokens(AgentResponse $response): ?int
+    private function inputPartitions(AgentResponse $response): array
     {
         $input = $this->integer($response, 'inputTokens');
         $read = $this->integer($response, 'cacheReadInputTokens');
         $write = $this->integer($response, 'cacheWriteInputTokens');
 
-        return $input === null ? null : max(0, $input - ($read ?? 0) - ($write ?? 0));
+        if ($input === null) {
+            return [null, $write, $read];
+        }
+
+        if ($input - ($read ?? 0) - ($write ?? 0) < 0) {
+            return [null, null, null];
+        }
+
+        return [$input - ($read ?? 0) - ($write ?? 0), $write, $read];
     }
 
     /**
@@ -236,6 +266,52 @@ final readonly class ResearchResultMapper
             } else {
                 $value = data_get($usage, 'server_tool_use.web_search_requests');
             }
+
+            if (! is_int($value) || $value < 0) {
+                return null;
+            }
+
+            if ($value > PHP_INT_MAX - $total) {
+                return null;
+            }
+
+            $total += $value;
+        }
+
+        return $total;
+    }
+
+    /**
+     * Gemini's Interactions API reports usage.total_tool_use_tokens — "the
+     * number of tokens present in tool-use prompt(s)" — which laravel/ai 1.0
+     * drops when it parses usage into its token value object, so the count is
+     * read from the raw provider responses and summed across steps the way
+     * the SDK sums tokens. Those tokens are input-prompt tokens that Google
+     * already counts inside the inclusive total_input_tokens, so the count is
+     * carried as an unpriced audit detail, never added to the priced input
+     * partitions; OpenAI-compatible bodies do not report the field, so it
+     * stays null for them.
+     *
+     * Like the search count, this is an all-or-nothing measurement: every
+     * expected step must carry a raw provider response reporting a
+     * nonnegative integer count for the metric to be reported at all. A
+     * missing raw response or a malformed count makes the audit count
+     * unknown, because a partial sum would silently understate the reported
+     * quantity. An explicit zero on every step stays zero.
+     */
+    private function toolUseTokens(AgentResponse $response): ?int
+    {
+        $rawResponses = $this->rawResponses($response);
+
+        if ($rawResponses === []) {
+            return null;
+        }
+
+        $total = 0;
+
+        foreach ($rawResponses as $raw) {
+            $json = $raw->json();
+            $value = is_array($json) ? data_get($json, 'usage.total_tool_use_tokens') : null;
 
             if (! is_int($value) || $value < 0) {
                 return null;

@@ -343,6 +343,138 @@ it('keeps absent SDK usage unknown while preserving an explicitly reported zero'
         ->and($reportedUsage?->cacheWriteInputTokens)->toBeNull();
 });
 
+it('fails closed when SDK cache partitions exceed the inclusive input total', function (): void {
+    $negative = new AgentResponse(
+        'invocation-negative',
+        'Answer.',
+        new AiUsage(inputTokens: 10, cacheReadInputTokens: 30, outputTokens: 8),
+        new Meta('gemini', 'gemini-2.5-pro'),
+    );
+    $zero = new AgentResponse(
+        'invocation-zero',
+        'Answer.',
+        new AiUsage(inputTokens: 30, cacheReadInputTokens: 30, outputTokens: 8),
+        new Meta('gemini', 'gemini-2.5-pro'),
+    );
+    $positive = new AgentResponse(
+        'invocation-positive',
+        'Answer.',
+        new AiUsage(inputTokens: 39, cacheReadInputTokens: 5, cacheWriteInputTokens: 4, outputTokens: 8),
+        new Meta('gemini', 'gemini-2.5-pro'),
+    );
+
+    $negativeUsage = (new ResearchResultMapper)->map($negative, groundedDriverRequest())->usage;
+    $zeroUsage = (new ResearchResultMapper)->map($zero, groundedDriverRequest())->usage;
+    $positiveUsage = (new ResearchResultMapper)->map($positive, groundedDriverRequest())->usage;
+
+    // Cache partitions claiming more tokens than the inclusive input total
+    // means the usage report is internally inconsistent, so the whole input
+    // side fails closed to unknown instead of pricing unaccounted tokens.
+    expect($negativeUsage?->promptTokens)->toBeNull()
+        ->and($negativeUsage?->cacheReadInputTokens)->toBeNull()
+        ->and($negativeUsage?->cacheWriteInputTokens)->toBeNull()
+        ->and($negativeUsage?->toArray())->toBe(['completion_tokens' => 8])
+        ->and($zeroUsage?->promptTokens)->toBe(0)
+        ->and($zeroUsage?->cacheReadInputTokens)->toBe(30)
+        ->and($positiveUsage?->promptTokens)->toBe(30)
+        ->and($positiveUsage?->cacheReadInputTokens)->toBe(5)
+        ->and($positiveUsage?->cacheWriteInputTokens)->toBe(4);
+});
+
+it('sums the Gemini tool-use audit tokens from every step raw response', function (): void {
+    $raw = static fn (string $body): HttpResponse => new HttpResponse(new PsrResponse(
+        200,
+        ['Content-Type' => 'application/json'],
+        $body,
+    ));
+    $complete = (new AgentResponse(
+        'invocation-tool-use',
+        'Answer.',
+        new AiUsage(inputTokens: 40, outputTokens: 6),
+        new Meta('gemini', 'gemini-2.5-pro'),
+    ))->withSteps(collect([
+        sdkStep(citations: [], usage: new AiUsage(inputTokens: 10, outputTokens: 2))
+            ->withRawResponse($raw('{"usage":{"total_tool_use_tokens":3}}')),
+        sdkStep(citations: [], usage: new AiUsage(inputTokens: 30, outputTokens: 4))
+            ->withRawResponse($raw('{"usage":{"total_tool_use_tokens":7}}')),
+    ]));
+    $missingRaw = (new AgentResponse(
+        'invocation-missing-raw',
+        'Answer.',
+        new AiUsage(inputTokens: 40, outputTokens: 6),
+        new Meta('gemini', 'gemini-2.5-pro'),
+    ))->withSteps(collect([
+        sdkStep(citations: [], usage: new AiUsage(inputTokens: 40, outputTokens: 6))
+            ->withRawResponse($raw('{"usage":{"total_tool_use_tokens":3}}')),
+        sdkStep(citations: [], usage: new AiUsage(inputTokens: 40, outputTokens: 6)),
+    ]));
+    $malformed = (new AgentResponse(
+        'invocation-malformed',
+        'Answer.',
+        new AiUsage(inputTokens: 40, outputTokens: 6),
+        new Meta('gemini', 'gemini-2.5-pro'),
+    ))->withSteps(collect([
+        sdkStep(citations: [], usage: new AiUsage(inputTokens: 40, outputTokens: 6))
+            ->withRawResponse($raw('{"usage":{"total_tool_use_tokens":3}}')),
+        sdkStep(citations: [], usage: new AiUsage(inputTokens: 40, outputTokens: 6))
+            ->withRawResponse($raw('{"usage":{"total_tool_use_tokens":"many"}}')),
+    ]));
+
+    $completeUsage = (new ResearchResultMapper)->map($complete, groundedDriverRequest())->usage;
+    $missingRawUsage = (new ResearchResultMapper)->map($missingRaw, groundedDriverRequest())->usage;
+    $malformedUsage = (new ResearchResultMapper)->map($malformed, groundedDriverRequest())->usage;
+
+    // The count is a reported audit detail only: it is never added to the
+    // priced input partitions, and a partial sum stays unknown.
+    expect($completeUsage?->toolUseTokens)->toBe(10)
+        ->and($completeUsage?->promptTokens)->toBe(40)
+        ->and($missingRawUsage?->toolUseTokens)->toBeNull()
+        ->and($malformedUsage?->toolUseTokens)->toBeNull();
+});
+
+it('labels citation offsets with the unit each provider surface documents', function (): void {
+    // 'É' is two bytes and the rocket emoji four, so bytes 22-30 mark the
+    // word "research", which a character-based locator would call 18-26.
+    $citation = new UrlCitation('https://example.com/research', 'Research source', 22, 30);
+    $gemini = new AgentResponse(
+        'invocation-gemini',
+        'Émile 🚀 published research.',
+        new AiUsage(inputTokens: 15, outputTokens: 8),
+        new Meta('gemini', 'gemini-2.5-pro', collect([$citation])),
+    );
+    $openAi = new AgentResponse(
+        'invocation-openai',
+        'Grounded answer.',
+        new AiUsage(inputTokens: 15, outputTokens: 8),
+        new Meta('openai', 'gpt-5.6', collect([
+            new UrlCitation('https://example.com/research', 'Research source', 10, 20),
+        ])),
+    );
+
+    $geminiLocator = (new ResearchResultMapper)->map($gemini, groundedDriverRequest(), citationByteOffsets: true)
+        ->citations->first()->locator;
+    $openAiLocator = (new ResearchResultMapper)->map($openAi, groundedDriverRequest(provider: 'openai'))->citations->first()->locator;
+
+    expect($geminiLocator)->toBe('bytes:22-30')
+        ->and($openAiLocator)->toBe('characters:10-20');
+});
+
+it('labels Gemini citation offsets as bytes through the driver', function (): void {
+    ResearchAgent::fake([
+        (new TextResponse(
+            'Émile 🚀 published research.',
+            new AiUsage(inputTokens: 15, outputTokens: 8),
+            new Meta('gemini', 'gemini-2.5-pro', collect([
+                new UrlCitation('https://example.com/research', 'Research source', 22, 30),
+            ])),
+        )),
+    ])->preventStrayPrompts();
+
+    $result = groundedDriver()->run(groundedDriverRequest());
+
+    expect($result->citations->first()->locator)->toBe('bytes:22-30');
+});
+
 it('rejects missing or unsupported search engines before prompting', function (string $provider, array $options, string $code): void {
     ResearchAgent::fake()->preventStrayPrompts();
 

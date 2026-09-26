@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Drivers\Xai\XaiGrokDriver;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
@@ -15,6 +16,7 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 use Jkudish\LaravelAiLibrarium\SpendingBoundKind;
+use Jkudish\LaravelAiPricing\Enums\CostCompleteness;
 
 /*
  * Offline spending-bound coverage for the exact `grok` Profile (grok-4.6, web-only corpus,
@@ -81,6 +83,75 @@ it('keeps the X-only and combined search routes unknown too', function (string $
     'x only' => 'grok-x-only',
     'combined' => 'grok-combined',
 ]);
+
+it('fails the X-search pricing contract closed instead of quoting search calls', function (string $profile): void {
+    // The September 21, 2026 xAI change bills X Search per fetched post and
+    // profile, not per call (https://docs.x.ai/developers/pricing), and no
+    // documented control bounds fetched items. Even with a catalog that
+    // prices the new units, an X-search Profile must resolve an unavailable
+    // quote rather than present a search-call line that prices none of the
+    // route's billed spend.
+    config()->set('ai-pricing.prices', [
+        'xai:grok-4.6' => [
+            'searches' => ['amount' => '5', 'per' => '1000', 'currency' => 'USD'],
+            'x_search_posts' => ['amount' => '5', 'per' => '1000', 'currency' => 'USD'],
+            'x_search_profiles' => ['amount' => '10', 'per' => '1000', 'currency' => 'USD'],
+        ],
+    ]);
+
+    $preview = Librarium::query('Research current xAI information.')
+        ->using($profile)
+        ->preview();
+    $entry = $preview->pricingQuotes->sole();
+
+    expect($entry['identity'])->toBeNull()
+        ->and($entry['usage'])->toBeNull()
+        ->and($entry['quote']->completeness)->toBe(CostCompleteness::Unavailable)
+        ->and($entry['quote']->cost)->toBeNull()
+        ->and($preview->pricingStatus)->toBe('unavailable')
+        ->and($preview->preflightCostCheckAvailable)->toBeFalse();
+
+    expect(fn () => Librarium::query('Research current xAI information.')
+        ->using($profile)
+        ->maxCost('1.00')
+        ->preview())->toThrow(ValidationException::class);
+
+    Http::assertNothingSent();
+})->with([
+    'x only' => 'grok-x-only',
+    'combined' => 'grok-combined',
+]);
+
+it('keeps pricing the web-only route on its native search-call count', function (): void {
+    // Web Search still bills per call, so the grok Profile keeps its native
+    // searches quantity and the catalog prices it; the token units stay
+    // unpriced by the grok-4.6 snapshot, leaving the quote partial rather
+    // than complete.
+    config()->set('ai-pricing.prices', [
+        'xai:grok-4.6' => [
+            'searches' => ['amount' => '5', 'per' => '1000', 'currency' => 'USD'],
+            'x_search_posts' => ['amount' => '5', 'per' => '1000', 'currency' => 'USD'],
+            'x_search_profiles' => ['amount' => '10', 'per' => '1000', 'currency' => 'USD'],
+        ],
+    ]);
+
+    $preview = Librarium::query('Research current xAI information.')
+        ->using('grok')
+        ->preview();
+    $entry = $preview->pricingQuotes->sole();
+
+    expect($entry['identity']?->provider.':'.$entry['identity']?->model)->toBe('xai:grok-4.6')
+        ->and($entry['usage']?->toArray())->toBe([
+            'input_tokens' => '100000',
+            'output_tokens' => '100000',
+            'searches' => '100',
+        ])
+        ->and($entry['quote']->completeness)->toBe(CostCompleteness::Partial)
+        ->and($entry['quote']->cost?->toArray())->toBe(['amount' => '0.5', 'currency' => 'USD'])
+        ->and($entry['quote']->missingUnits)->toBe(['input_tokens', 'output_tokens']);
+
+    Http::assertNothingSent();
+});
 
 it('fails unknown for an unsupported grok model instead of borrowing another identity', function (): void {
     config()->set('librarium.profiles.grok.model', 'grok-4.5');
