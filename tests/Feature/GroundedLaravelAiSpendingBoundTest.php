@@ -896,6 +896,7 @@ it('rejects an undocumented Exa search mode value before execution', function ()
 });
 
 it('fails closed when the pinned route reports neither the requested alias nor the reviewed revision', function (?string $servedModel, ?string $observedModel): void {
+    config()->set('ai.providers.openrouter.key', 'test-sdk-token-123');
     config()->set('librarium.profiles.openrouter-chat.options', [
         'web_search' => true,
         'search_engine' => 'exa',
@@ -954,6 +955,8 @@ it('fails closed when the pinned route reports neither the requested alias nor t
     'multiline text' => ["openai/model\nSENTINEL-PRIVATE", null],
     'a URL' => ['https://example.test/private', null],
     'an overlong value' => [str_repeat('a', 256), null],
+    'SDK credential without a Profile credential' => ['openai/test-sdk-token-123', null],
+    'encoded SDK credential without a Profile credential' => ['openai/'.base64_encode('test-sdk-token-123'), null],
 ]);
 
 it('checks the pinned revision against the public catalog before dispatching the inference request', function (): void {
@@ -1262,6 +1265,8 @@ it('settles an unreachable catalog as not sent', function (): void {
 });
 
 it('settles response-side drift without raw capture as possibly accepted, never not sent', function (string $reportedModel, ?string $observedModel): void {
+    config()->set('ai.providers.openrouter.key', 'test-sdk-token-123');
+    config()->set('librarium.profiles.openrouter-chat.credential', 'profile-secret-123');
     config()->set('librarium.profiles.openrouter-chat.options', [
         'web_search' => true,
         'search_engine' => 'exa',
@@ -1293,7 +1298,7 @@ it('settles response-side drift without raw capture as possibly accepted, never 
         ->and($diagnostic->code)->toBe('laravel_ai.model_revision_drift')
         ->and($diagnostic->observedModel)->toBe($observedModel)
         ->and($diagnostic->toArray()['observed_model'] ?? null)->toBe($observedModel)
-        ->and(json_encode($diagnostic, JSON_THROW_ON_ERROR))->not->toContain('testing-openrouter-key', 'SENTINEL-PRIVATE', 'A drifted revision answer.')
+        ->and(json_encode($diagnostic, JSON_THROW_ON_ERROR))->not->toContain('test-sdk-token-123', 'profile-secret-123', 'SENTINEL-PRIVATE', 'A drifted revision answer.')
         ->and($diagnostic->submissionState)->toBe(SubmissionState::PossiblyAccepted)
         ->and($diagnostic->operation)->toBe(Operation::Inline)
         ->and($collected->coverage)->toBe(CaptureCoverage::NoResponse)
@@ -1305,7 +1310,9 @@ it('settles response-side drift without raw capture as possibly accepted, never 
     'maximum length' => [str_repeat('a', 255), str_repeat('a', 255)],
     'overlong' => [str_repeat('a', 256), null],
     'multiline' => ["openai/model\nSENTINEL-PRIVATE", null],
-    'credential echo' => ['openai/testing-openrouter-key', null],
+    'credential echo' => ['openai/profile-secret-123', null],
+    'encoded credential echo' => ['openai/'.base64_encode('profile-secret-123'), null],
+    'encoded SDK credential differing from Profile' => ['openai/'.base64_encode('test-sdk-token-123'), null],
 ]);
 
 it('settles a deadline that expires after the catalog lookup as not sent', function (): void {

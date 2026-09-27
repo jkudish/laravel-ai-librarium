@@ -114,7 +114,7 @@ final class CaptureSession
             providerCode: $response === null ? null : $this->providerCode($response->body(), $profile->credential),
             retryAt: $response === null ? null : $this->retryAt($response),
             resetAt: $response === null ? null : $this->resetAt($response),
-            observedModel: $exception->observedModel !== null && ! $this->containsCredential($exception->observedModel, $profile->credential)
+            observedModel: $exception->observedModel !== null && ! ResponseRedactor::containsCredential($exception->observedModel, $profile->credential)
                 ? $exception->observedModel : null,
         );
     }
@@ -256,7 +256,7 @@ final class CaptureSession
             $candidate = data_get($value, $path);
             if (is_string($candidate)
                 && preg_match('/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,254}$/D', $candidate) === 1
-                && ! $this->containsCredential($candidate, $credential)) {
+                && ! ResponseRedactor::containsCredential($candidate, $credential)) {
                 return $candidate;
             }
         }
@@ -348,27 +348,5 @@ final class CaptureSession
         }
 
         return null;
-    }
-
-    private function containsCredential(string $candidate, ?string $credential): bool
-    {
-        if ($credential === null || $credential === '') {
-            return false;
-        }
-
-        $forms = [$credential, rawurlencode($credential), urlencode($credential), base64_encode($credential)];
-        $decoded = base64_decode($credential, true);
-        if (is_string($decoded) && $decoded !== '' && base64_encode($decoded) === $credential) {
-            $forms[] = $decoded;
-            array_push($forms, ...explode(':', $decoded));
-        }
-
-        foreach ($forms as $secret) {
-            if ($secret !== '' && str_contains($candidate, $secret)) {
-                return true;
-            }
-        }
-
-        return false;
     }
 }
