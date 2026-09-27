@@ -235,6 +235,28 @@ final readonly class ResponseRedactor
         return $safe;
     }
 
+    public static function containsCredential(string $candidate, ?string $credential): bool
+    {
+        if ($credential === null || $credential === '') {
+            return false;
+        }
+
+        $forms = [$credential, rawurlencode($credential), urlencode($credential), base64_encode($credential)];
+        $decoded = base64_decode($credential, true);
+        if (is_string($decoded) && $decoded !== '' && base64_encode($decoded) === $credential) {
+            $forms[] = $decoded;
+            array_push($forms, ...explode(':', $decoded));
+        }
+
+        foreach ($forms as $secret) {
+            if ($secret !== '' && str_contains($candidate, $secret)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /**
      * @param  Collection<int, Profile>  $profiles
      * @return list<string>

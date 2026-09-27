@@ -11,6 +11,7 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
+use Jkudish\LaravelAiLibrarium\Collection\ResponseRedactor;
 use Jkudish\LaravelAiLibrarium\Contracts\DefinesSpendingBound;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
@@ -738,10 +739,19 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
                 $request->captureNoResponse(Operation::Inline);
             }
 
+            // The SDK uses its configured key, which can differ from the
+            // Profile credential. Screen both before exposing the exception.
+            $sdkCredential = config("ai.providers.{$request->profile->provider}.key");
+            $observedModel = is_string($reportedModel)
+                && ! ResponseRedactor::containsCredential($reportedModel, $request->profile->credential)
+                && ! ResponseRedactor::containsCredential($reportedModel, is_string($sdkCredential) ? $sdkCredential : null)
+                    ? $reportedModel : null;
+
             throw new DriverException(
                 errorCode: 'laravel_ai.model_revision_drift',
                 message: 'The pinned OpenRouter response reported neither the requested model alias nor the reviewed exact revision.',
                 fallbackAllowed: false,
+                observedModel: $observedModel,
             );
         }
     }
