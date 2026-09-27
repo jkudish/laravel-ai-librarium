@@ -114,6 +114,8 @@ final class CaptureSession
             providerCode: $response === null ? null : $this->providerCode($response->body(), $profile->credential),
             retryAt: $response === null ? null : $this->retryAt($response),
             resetAt: $response === null ? null : $this->resetAt($response),
+            observedModel: $exception->observedModel !== null && ! $this->containsCredential($exception->observedModel, $profile->credential)
+                ? $exception->observedModel : null,
         );
     }
 

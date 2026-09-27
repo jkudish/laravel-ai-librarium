@@ -895,7 +895,7 @@ it('rejects an undocumented Exa search mode value before execution', function ()
     Http::assertNothingSent();
 });
 
-it('fails closed when the pinned route reports neither the requested alias nor the reviewed revision', function (?string $servedModel): void {
+it('fails closed when the pinned route reports neither the requested alias nor the reviewed revision', function (?string $servedModel, ?string $observedModel): void {
     config()->set('librarium.profiles.openrouter-chat.options', [
         'web_search' => true,
         'search_engine' => 'exa',
@@ -932,7 +932,8 @@ it('fails closed when the pinned route reports neither the requested alias nor t
         $this->fail('A served model other than the requested alias or reviewed revision should fail closed.');
     } catch (DriverException $exception) {
         expect($exception->errorCode)->toBe('laravel_ai.model_revision_drift')
-            ->and($exception->fallbackAllowed)->toBeFalse();
+            ->and($exception->fallbackAllowed)->toBeFalse()
+            ->and($exception->observedModel)->toBe($observedModel);
     }
 
     // The pre-dispatch catalog check passed, so the inference request was
@@ -946,10 +947,13 @@ it('fails closed when the pinned route reports neither the requested alias nor t
     });
     Http::assertSentCount(2);
 })->with([
-    'a newer dated revision' => ['openai/gpt-5.6-terra-20261001'],
-    'a sibling model' => ['openai/gpt-5.6-terra-pro-20260709'],
-    'an unknown model' => ['openai/unknown'],
-    'a missing model' => [null],
+    'a newer dated revision' => ['openai/gpt-5.6-terra-20261001', 'openai/gpt-5.6-terra-20261001'],
+    'a sibling model' => ['openai/gpt-5.6-terra-pro-20260709', 'openai/gpt-5.6-terra-pro-20260709'],
+    'an unknown model' => ['openai/unknown', 'openai/unknown'],
+    'a missing model' => [null, null],
+    'multiline text' => ["openai/model\nSENTINEL-PRIVATE", null],
+    'a URL' => ['https://example.test/private', null],
+    'an overlong value' => [str_repeat('a', 256), null],
 ]);
 
 it('checks the pinned revision against the public catalog before dispatching the inference request', function (): void {
@@ -1257,7 +1261,7 @@ it('settles an unreachable catalog as not sent', function (): void {
     Http::assertNothingSent();
 });
 
-it('settles response-side drift without raw capture as possibly accepted, never not sent', function (): void {
+it('settles response-side drift without raw capture as possibly accepted, never not sent', function (string $reportedModel, ?string $observedModel): void {
     config()->set('librarium.profiles.openrouter-chat.options', [
         'web_search' => true,
         'search_engine' => 'exa',
@@ -1272,7 +1276,7 @@ it('settles response-side drift without raw capture as possibly accepted, never 
         new TextResponse(
             'A drifted revision answer.',
             new AiUsage(inputTokens: 900, outputTokens: 120),
-            new Meta('openrouter', 'openai/gpt-5.6-terra-20261001'),
+            new Meta('openrouter', $reportedModel),
         ),
     ])->preventStrayPrompts();
 
@@ -1287,13 +1291,22 @@ it('settles response-side drift without raw capture as possibly accepted, never 
     // reservation is never falsely released as NotSent.
     expect($collected->response->errors->sole()->code)->toBe('laravel_ai.model_revision_drift')
         ->and($diagnostic->code)->toBe('laravel_ai.model_revision_drift')
+        ->and($diagnostic->observedModel)->toBe($observedModel)
+        ->and($diagnostic->toArray()['observed_model'] ?? null)->toBe($observedModel)
+        ->and(json_encode($diagnostic, JSON_THROW_ON_ERROR))->not->toContain('testing-openrouter-key', 'SENTINEL-PRIVATE', 'A drifted revision answer.')
         ->and($diagnostic->submissionState)->toBe(SubmissionState::PossiblyAccepted)
         ->and($diagnostic->operation)->toBe(Operation::Inline)
         ->and($collected->coverage)->toBe(CaptureCoverage::NoResponse)
         ->and($collected->evidence)->toBeEmpty();
     Http::assertSent(fn (Request $request): bool => $request->url() === 'https://openrouter.ai/api/v1/model/openai/gpt-5.6-terra');
     Http::assertNotSent(fn (Request $request): bool => $request->url() === 'https://openrouter.ai/api/v1/chat/completions');
-});
+})->with([
+    'model identity' => ['openai/gpt-5.6-terra-20261001', 'openai/gpt-5.6-terra-20261001'],
+    'maximum length' => [str_repeat('a', 255), str_repeat('a', 255)],
+    'overlong' => [str_repeat('a', 256), null],
+    'multiline' => ["openai/model\nSENTINEL-PRIVATE", null],
+    'credential echo' => ['openai/testing-openrouter-key', null],
+]);
 
 it('settles a deadline that expires after the catalog lookup as not sent', function (): void {
     config()->set('librarium.profiles.openrouter-chat.options', [

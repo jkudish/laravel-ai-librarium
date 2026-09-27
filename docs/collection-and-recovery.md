@@ -92,6 +92,13 @@ When `submission_state` is `possibly_accepted`, it takes precedence over a
 `temporary` or `rate_limit` category because another submission may duplicate
 paid work.
 
+For `laravel_ai.model_revision_drift`, the optional `observed_model` diagnostic
+reports the rejected model identifier, including when no raw exchange was
+captured. It is limited to 255 ASCII bytes of model-name segments separated by
+`/` or `:`; malformed text and values containing the configured credential are
+omitted. It does not include the response ID, answer, or reasoning. Absence does
+not change the original failure or authorize another submission.
+
 ## Persist a durable handle before retrieval
 
 Durable submission is deliberately separate from retrieval:

@@ -742,6 +742,10 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
                 errorCode: 'laravel_ai.model_revision_drift',
                 message: 'The pinned OpenRouter response reported neither the requested model alias nor the reviewed exact revision.',
                 fallbackAllowed: false,
+                observedModel: is_string($reportedModel)
+                    && ($request->profile->credential === null || $request->profile->credential === ''
+                        || ! str_contains($reportedModel, $request->profile->credential))
+                            ? $reportedModel : null,
             );
         }
     }

@@ -25,6 +25,7 @@ final readonly class OperationalDiagnostic implements Arrayable, JsonSerializabl
         public ?string $providerCode = null,
         public ?CarbonImmutable $retryAt = null,
         public ?CarbonImmutable $resetAt = null,
+        public ?string $observedModel = null,
     ) {}
 
     /** @return array<string, mixed> */
@@ -41,6 +42,7 @@ final readonly class OperationalDiagnostic implements Arrayable, JsonSerializabl
             'provider_code' => $this->providerCode,
             'retry_at' => $this->retryAt?->toIso8601ZuluString(),
             'reset_at' => $this->resetAt?->toIso8601ZuluString(),
+            'observed_model' => $this->observedModel,
         ], static fn (mixed $value): bool => $value !== null);
     }
 
