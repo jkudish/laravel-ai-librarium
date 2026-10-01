@@ -34,7 +34,7 @@ final readonly class ReleaseReadiness
         'illuminate/support' => '^13.0',
         'illuminate/validation' => '^13.0',
         'jkudish/laravel-ai-pricing' => '^0.1.1 || ^0.2.0',
-        'laravel/ai' => '^1.0',
+        'laravel/ai' => '^1.0.1',
     ];
 
     /** @var array<string, string> */
