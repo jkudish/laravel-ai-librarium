@@ -57,7 +57,7 @@ composer compatibility:check
 composer show --direct
 ```
 
-The resolved inventory must include Laravel 13, Laravel AI SDK 1.0.0, and the
+The resolved inventory must include Laravel 13, Laravel AI SDK 1.0.1, and the
 lowest compatible direct dependencies. `prefer-lowest` is the resolver input;
 inspect the resulting inventory rather than assuming it selected the intended
 floor. If another constraint raises a package above its declared minimum,
