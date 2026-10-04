@@ -36,7 +36,7 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
 
     /**
      * The OpenAI Responses API rejects max_output_tokens below 16 for every
-     * model, including gpt-5.6-luna.
+     * model, including gpt-6-luna.
      */
     private const int OPENAI_RESPONSES_MIN_OUTPUT_TOKENS = 16;
 

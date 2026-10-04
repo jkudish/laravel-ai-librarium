@@ -206,7 +206,7 @@ Perplexity's low Agent forms are intentionally different Profiles:
 
 - `perplexity-sonar-pro` sends the provider-managed `low` preset and does not
   claim an underlying model or inherited tool configuration.
-- `perplexity-low-frozen` sends the explicit `frozen-low-2026-09-11`
+- `perplexity-low-frozen` sends the explicit `frozen-low-2026-10-03`
   configuration: exact model, prompt, reasoning, step/output limits, and web
   search/fetch tool limits. Any drift from that binding fails before HTTP.
 

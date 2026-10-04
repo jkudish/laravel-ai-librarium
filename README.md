@@ -209,10 +209,10 @@ The package ships these Laravel AI SDK Profiles:
 | Profile | Provider | Model | Web search |
 | --- | --- | --- | --- |
 | `gemini-grounded` | Gemini | `gemini-3.6-flash` | Required |
-| `openrouter-grounded` | OpenRouter | `openai/gpt-5.6-luna` | Required |
+| `openrouter-grounded` | OpenRouter | `openai/gpt-6-luna` | Required |
 | `openrouter-chat` | OpenRouter | `openai/gpt-5.6-terra` | Optional, on by default |
 | `claude-chat` | Anthropic | `claude-sonnet-5` | Optional, on by default |
-| `openai-chat` | OpenAI | `gpt-5.6-luna` | Optional, on by default |
+| `openai-chat` | OpenAI | `gpt-6-luna` | Optional, on by default |
 | `gemini-chat` | Gemini | `gemini-3.7-flash` | Optional, on by default |
 
 The Profiles use Laravel AI's native `WebSearch`. Applications may disable it

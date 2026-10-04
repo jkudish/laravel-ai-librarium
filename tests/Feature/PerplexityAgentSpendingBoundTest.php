@@ -84,7 +84,7 @@ it('serializes the frozen low request with its exact enforced limits and no invo
     $result = perplexitySpendingBoundDriver()->run(perplexitySpendingBoundRequest('perplexity-low-frozen'));
 
     expect($result->profile)->toBe('perplexity-low-frozen')
-        ->and($result->model)->toBe('openai/gpt-5.6-luna');
+        ->and($result->model)->toBe('openai/gpt-6-luna');
     Http::assertSent(function (Request $http): bool {
         $payload = $http->data();
 
@@ -92,7 +92,7 @@ it('serializes the frozen low request with its exact enforced limits and no invo
             && $http->url() === 'https://api.perplexity.ai/v1/agent'
             && ! array_key_exists('preset', $payload)
             && ! array_key_exists('background', $payload)
-            && data_get($payload, 'model') === 'openai/gpt-5.6-luna'
+            && data_get($payload, 'model') === 'openai/gpt-6-luna'
             && data_get($payload, 'prompt_cache_key') === 'low'
             && data_get($payload, 'max_steps') === 5
             && data_get($payload, 'max_output_tokens') === 32768
@@ -128,7 +128,7 @@ function perplexitySpendingBoundRequest(
         id: $profileId,
         driver: PerplexityAgentDriver::class,
         provider: 'perplexity',
-        model: $frozen ? 'openai/gpt-5.6-luna' : null,
+        model: $frozen ? 'openai/gpt-6-luna' : null,
         resultKind: ResultKind::GroundedAnswer,
         grounding: GroundingPolicy::Required,
         observation: ObservationMode::ApiOutput,
@@ -136,7 +136,7 @@ function perplexitySpendingBoundRequest(
         retrievalMethods: collect([RetrievalMethod::ModelSearchTool]),
         prompt: '{{ query }}',
         enabled: true,
-        options: $frozen ? ['configuration' => 'frozen-low-2026-09-11'] : [],
+        options: $frozen ? ['configuration' => 'frozen-low-2026-10-03'] : [],
         credential: $credential,
     );
 
@@ -157,7 +157,7 @@ function perplexitySpendingBoundCompletedResponse(): array
         'id' => 'resp_private_1',
         'status' => 'completed',
         'completed_at' => CarbonImmutable::now()->getTimestamp(),
-        'model' => 'openai/gpt-5.6-luna',
+        'model' => 'openai/gpt-6-luna',
         'output' => [
             [
                 'type' => 'search_results',

@@ -90,10 +90,10 @@ it('runs each configured Laravel AI Profile through one exact SDK provider and m
         ->and($response->results->sole()->citations)->toHaveCount(1);
 })->with([
     'Gemini grounded' => ['gemini-grounded', 'gemini', 'gemini-3.6-flash'],
-    'OpenRouter grounded' => ['openrouter-grounded', 'openrouter', 'openai/gpt-5.6-luna'],
+    'OpenRouter grounded' => ['openrouter-grounded', 'openrouter', 'openai/gpt-6-luna'],
     'OpenRouter chat' => ['openrouter-chat', 'openrouter', 'openai/gpt-5.6-terra'],
     'Claude chat' => ['claude-chat', 'anthropic', 'claude-sonnet-5'],
-    'OpenAI chat' => ['openai-chat', 'openai', 'gpt-5.6-luna'],
+    'OpenAI chat' => ['openai-chat', 'openai', 'gpt-6-luna'],
     'Gemini chat' => ['gemini-chat', 'gemini', 'gemini-3.7-flash'],
 ]);
 
@@ -319,13 +319,13 @@ it('keeps absent SDK usage unknown while preserving an explicitly reported zero'
         'invocation-unknown',
         'Answer.',
         new AiUsage,
-        new Meta('openrouter', 'openai/gpt-5.6-luna'),
+        new Meta('openrouter', 'openai/gpt-6-luna'),
     );
     $reported = (new AgentResponse(
         'invocation-reported',
         'Answer.',
         new AiUsage,
-        new Meta('openrouter', 'openai/gpt-5.6-luna'),
+        new Meta('openrouter', 'openai/gpt-6-luna'),
     ))->withRawResponse(new HttpResponse(new PsrResponse(
         200,
         ['Content-Type' => 'application/json'],

@@ -217,7 +217,7 @@ return [
         'openrouter-grounded' => [
             'driver' => LaravelAiDriver::class,
             'provider' => 'openrouter',
-            'model' => 'openai/gpt-5.6-luna',
+            'model' => 'openai/gpt-6-luna',
             'result_kind' => 'grounded_answer',
             'grounding' => 'required',
             'observation' => 'api_output',
@@ -229,7 +229,7 @@ return [
             'credential' => config('ai.providers.openrouter.key'),
             'pricing' => [
                 'provider' => 'openrouter',
-                'model' => 'openai/gpt-5.6-luna',
+                'model' => 'openai/gpt-6-luna',
                 'usage' => ['input_tokens' => 100_000, 'output_tokens' => 100_000, 'web_searches' => 100],
                 'conservative' => false,
             ],
@@ -277,7 +277,7 @@ return [
         'openai-chat' => [
             'driver' => LaravelAiDriver::class,
             'provider' => 'openai',
-            'model' => 'gpt-5.6-luna',
+            'model' => 'gpt-6-luna',
             'result_kind' => 'grounded_answer',
             'grounding' => 'optional',
             'observation' => 'api_output',
@@ -289,7 +289,7 @@ return [
             'credential' => config('ai.providers.openai.key'),
             'pricing' => [
                 'provider' => 'openai',
-                'model' => 'gpt-5.6-luna',
+                'model' => 'gpt-6-luna',
                 'usage' => ['input_tokens' => 100_000, 'output_tokens' => 100_000, 'web_searches' => 100],
                 'conservative' => false,
             ],
@@ -457,7 +457,7 @@ return [
         'perplexity-low-frozen' => [
             'driver' => PerplexityAgentDriver::class,
             'provider' => 'perplexity',
-            'model' => 'openai/gpt-5.6-luna',
+            'model' => 'openai/gpt-6-luna',
             'result_kind' => 'grounded_answer',
             'grounding' => 'required',
             'observation' => 'api_output',
@@ -465,11 +465,11 @@ return [
             'retrieval_methods' => ['model_search_tool'],
             'prompt' => '{{ query }}',
             'enabled' => true,
-            'options' => ['configuration' => 'frozen-low-2026-09-11'],
+            'options' => ['configuration' => 'frozen-low-2026-10-03'],
             'credential' => config('services.perplexity.key'),
             'pricing' => [
                 'provider' => 'perplexity',
-                'model' => 'openai/gpt-5.6-luna',
+                'model' => 'openai/gpt-6-luna',
                 'usage' => ['input_tokens' => 100_000, 'output_tokens' => 100_000, 'web_searches' => 100, 'fetch_url_requests' => 100],
                 'conservative' => false,
             ],
