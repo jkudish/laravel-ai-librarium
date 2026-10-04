@@ -274,18 +274,101 @@ it('runs Google AI Overview as exactly two calls, passing zero retention on both
         && (searchApiQuery($request)['zero_retention'] ?? null) === 'true');
 });
 
-it('stops after stage one of Google AI Overview when the page token is missing', function (): void {
-    Http::fake(['https://www.searchapi.io/*' => Http::response(['ai_overview' => ['markdown' => 'no token here']])]);
+it('reads an inline AI Overview from the first search without a second request', function (): void {
+    Http::fake(['https://www.searchapi.io/*' => Http::response(searchApiFixture('google-inline-ai-overview'))]);
+
+    $result = searchApiDriver()->run(searchApiRequest('searchapi-google-ai-overview'));
+
+    expect($result->content)->toStartWith('Example Brand is a synthetic photo tool.')
+        ->and($result->provenance->surface)->toBe('google_ai_overview')
+        ->and($result->citations->map(fn ($citation): array => [$citation->source->url, $citation->source->providerReference, $citation->source->publisher])->all())->toBe([
+            ['https://example.com', 'https://www.google.com/goto?url=CAESOFN5bnRoZXRpYy1vcGFxdWUtdG9rZW4tb25l', 'Example Brand'],
+            ['https://reviews.example.org', 'https://www.google.com/goto?url=CAESOFN5bnRoZXRpYy1vcGFxdWUtdG9rZW4tdHdv', 'Example Reviews'],
+        ])
+        ->and($result->citations->pluck('derivation')->unique()->all())->toBe([CitationDerivation::CollectorExtracted]);
+    Http::assertSentCount(1);
+});
+
+it('follows page_token only when the first search has no inline overview, despite its not-available error', function (): void {
+    Http::fake(fn (Request $request) => Http::response(searchApiFixture(match (searchApiQuery($request)['engine'] ?? null) {
+        'google' => 'google-page-token',
+        'google_ai_overview' => 'google-ai-overview-page',
+    })));
+
+    $result = searchApiDriver()->run(searchApiRequest('searchapi-google-ai-overview'));
+
+    expect($result->content)->toStartWith('Synthetic tools include Example Brand')
+        // goto → favicon origin; plain link kept; url?q= target recovered;
+        // Google shopping and an opaque link without favicon yield nothing.
+        ->and($result->citations->map(fn ($citation): array => [$citation->source->url, $citation->source->providerReference])->all())->toBe([
+            ['https://example.com', 'https://www.google.com/goto?url=CAESOFN5bnRoZXRpYy1vcGFxdWUtdG9rZW4tb25l'],
+            ['https://www.example.net/guide', null],
+            ['https://www.example.org/legacy', 'https://www.google.com/url?q=https://www.example.org/legacy&sa=U'],
+        ]);
+    Http::assertSentCount(2);
+    Http::assertSent(fn (Request $request): bool => (searchApiQuery($request)['engine'] ?? null) === 'google_ai_overview'
+        && (searchApiQuery($request)['page_token'] ?? null) === 'synthetic-page-token');
+});
+
+it('distinguishes a SERP without an AI Overview from an overview the driver cannot read', function (array $first, ?array $second, string $code, int $requests): void {
+    Http::fake(fn (Request $request) => Http::response((searchApiQuery($request)['engine'] ?? null) === 'google' ? $first : ($second ?? [])));
 
     try {
         searchApiDriver()->run(searchApiRequest('searchapi-google-ai-overview'));
-        $this->fail('A missing page token should stop the overview workflow.');
+        $this->fail('The overview workflow should fail.');
     } catch (DriverException $exception) {
-        expect($exception->errorCode)->toBe('searchapi.invalid_response');
+        expect($exception->errorCode)->toBe($code);
     }
 
-    Http::assertSentCount(1);
+    Http::assertSentCount($requests);
+})->with([
+    'no ai_overview key' => [searchApiFixture('google-no-ai-overview'), null, 'searchapi.no_ai_overview', 1],
+    'empty ai_overview' => [['ai_overview' => []], null, 'searchapi.no_ai_overview', 1],
+    'inline references without readable text and no token' => [['ai_overview' => ['markdown' => 'broken [link](https://x', 'reference_links' => [['link' => 'https://www.example.com/']]]], null, 'searchapi.ai_overview_unparsed', 1],
+    'token page with no overview material' => [searchApiFixture('google-page-token'), ['search_metadata' => ['id' => 'x']], 'searchapi.no_ai_overview', 2],
+    'token page with unreadable overview material' => [searchApiFixture('google-page-token'), ['text_blocks' => [['type' => 'image']]], 'searchapi.ai_overview_unparsed', 2],
+]);
+
+it('keeps oversized redirect links out of the 255-character provider reference', function (): void {
+    $link = 'https://www.google.com/goto?url=CAES'.str_repeat('A', 300);
+    Http::fake(['https://www.searchapi.io/*' => Http::response(['ai_overview' => [
+        'markdown' => 'Synthetic overview.',
+        'reference_links' => [['link' => $link, 'favicon' => 'https://encrypted-tbn1.gstatic.com/faviconV2?url=https://example.com&client=AIM']],
+    ]])]);
+
+    $citation = searchApiDriver()->run(searchApiRequest('searchapi-google-ai-overview'))->citations->sole();
+
+    expect($citation->source->url)->toBe('https://example.com')
+        ->and($citation->source->providerReference)->toBeNull();
 });
+
+it('applies a profile request timeout below the shared deadline and keeps the default otherwise', function (?int $configured, int $expected): void {
+    if ($configured !== null) {
+        config()->set('librarium.profiles.searchapi-chatgpt.options.request_timeout_seconds', $configured);
+    }
+    $timeouts = [];
+    Http::fake(function (Request $request, array $options) use (&$timeouts) {
+        $timeouts[] = $options['timeout'] ?? null;
+
+        return Http::response(['markdown' => 'Synthetic answer.', 'reference_links' => []]);
+    });
+
+    searchApiDriver()->run(searchApiRequest('searchapi-chatgpt', CarbonImmutable::now()->addSeconds(120)));
+    searchApiDriver()->run(searchApiRequest('searchapi-chatgpt', CarbonImmutable::now()->addSeconds(10)));
+
+    expect($timeouts)->toBe([$expected, min($expected, 10)]);
+})->with([
+    'default' => [null, 20],
+    'configured' => [60, 60],
+]);
+
+it('rejects an invalid request timeout before any request', function (mixed $value): void {
+    config()->set('librarium.profiles.searchapi-chatgpt.options.request_timeout_seconds', $value);
+    Http::fake();
+
+    expect(app(ProfileCatalog::class)->find('searchapi-chatgpt')?->isEligible())->toBeFalse();
+    Http::assertNothingSent();
+})->with([0, 601, '30']);
 
 it('respects the shared deadline and never starts the second overview call after time runs out', function (): void {
     Http::fake(function (Request $request) {
@@ -436,4 +519,12 @@ function searchApiQuery(Request $request): array
 
     /** @var array<string, string> $query */
     return $query;
+}
+
+/** @return array<string, mixed> */
+function searchApiFixture(string $name): array
+{
+    $decoded = json_decode((string) file_get_contents(dirname(__DIR__).'/Fixtures/SearchApi/'.$name.'.json'), true, flags: JSON_THROW_ON_ERROR);
+
+    return is_array($decoded) ? $decoded : [];
 }

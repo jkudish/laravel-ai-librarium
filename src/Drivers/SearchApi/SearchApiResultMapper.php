@@ -25,7 +25,7 @@ use stdClass;
  *
  * @internal
  *
- * @phpstan-type CitationCandidate array{url: mixed, title?: mixed, snippet?: mixed}
+ * @phpstan-type CitationCandidate array{url: mixed, title?: mixed, snippet?: mixed, reference?: string|null, publisher?: mixed}
  */
 final readonly class SearchApiResultMapper
 {
@@ -87,6 +87,37 @@ final readonly class SearchApiResultMapper
             'citations' => $this->citations($this->referenceCandidates(data_get($data, 'reference_links')), CitationDerivation::CollectorExtracted),
             'model' => $this->str(data_get($data, 'response_metadata.model')),
         ];
+    }
+
+    /**
+     * Normalize a Google AI Overview, inline in a google response or loaded
+     * by page_token. Its reference links are Google redirects; see
+     * {@see self::overviewCandidates()}.
+     *
+     * @param  array<array-key, mixed>  $data
+     * @return array{content: string, citations: Collection<int, Citation>}
+     */
+    public function normalizeOverview(array $data): array
+    {
+        $content = $this->usableMarkdown(data_get($data, 'markdown')) ?? $this->renderSurfaceBlocks(data_get($data, 'text_blocks'));
+
+        return [
+            'content' => $content,
+            'citations' => $this->citations($this->overviewCandidates(data_get($data, 'reference_links')), CitationDerivation::CollectorExtracted),
+        ];
+    }
+
+    /**
+     * Whether an overview block carries answer material at all, so an
+     * unreadable overview is distinguished from a SERP without one.
+     *
+     * @param  array<array-key, mixed>  $data
+     */
+    public function hasOverviewPayload(array $data): bool
+    {
+        return $this->str(data_get($data, 'markdown')) !== null
+            || $this->records(data_get($data, 'text_blocks')) !== []
+            || $this->records(data_get($data, 'reference_links')) !== [];
     }
 
     /**
@@ -218,16 +249,20 @@ final readonly class SearchApiResultMapper
         $citations = [];
         foreach ($candidates as $candidate) {
             $url = $this->evidenceUrl($candidate['url'] ?? null);
-            if ($url === null || isset($seen[$url])) {
+            $reference = $candidate['reference'] ?? null;
+            $key = $url."\n".$reference;
+            if ($url === null || isset($seen[$key])) {
                 continue;
             }
-            $seen[$url] = true;
+            $seen[$key] = true;
             $citations[] = Citation::make(
                 derivation: $derivation,
                 source: new Source(
                     kind: SourceKind::WebPage,
                     url: $url,
+                    providerReference: $reference,
                     title: $this->str($candidate['title'] ?? null),
+                    publisher: $this->str($candidate['publisher'] ?? null),
                 ),
                 excerpt: $this->str($candidate['snippet'] ?? null),
             );
@@ -251,6 +286,84 @@ final readonly class SearchApiResultMapper
         }
 
         return $candidates;
+    }
+
+    /**
+     * AI Overview reference links arrive as Google redirects
+     * (google.com/goto?url=..., google.com/url?q=...). Resolution uses pure
+     * URL parsing and never fetches:
+     *
+     * 1. a non-Google url or link is the page itself;
+     * 2. a redirect whose url or q parameter is a non-Google http(s) URL
+     *    resolves to that target;
+     * 3. otherwise (observed 2026-10: every goto url parameter is an opaque
+     *    encrypted token) the publisher origin is read from the favicon URL's
+     *    url parameter, a page-less origin citation.
+     *
+     * The raw Google link is kept as the Source provider reference when it
+     * fits the interchange contract's 255 characters.
+     *
+     * @return list<CitationCandidate>
+     */
+    private function overviewCandidates(mixed $links): array
+    {
+        $candidates = [];
+        foreach ($this->records($links) as $link) {
+            $raw = $this->str(data_get($link, 'link')) ?? $this->str(data_get($link, 'url'));
+            $target = $this->evidenceUrl(data_get($link, 'url'))
+                ?? $this->evidenceUrl($raw)
+                ?? $this->redirectTarget($raw)
+                ?? $this->faviconOrigin(data_get($link, 'favicon'));
+            $candidates[] = [
+                'url' => $target,
+                'title' => data_get($link, 'title'),
+                'snippet' => data_get($link, 'snippet'),
+                'publisher' => data_get($link, 'source'),
+                'reference' => $raw !== null && $raw !== $target && strlen($raw) <= 255 && preg_match('/[\x00-\x1f\x7f\s]/', $raw) !== 1 ? $raw : null,
+            ];
+        }
+
+        return $candidates;
+    }
+
+    private function redirectTarget(?string $link): ?string
+    {
+        if ($link === null) {
+            return null;
+        }
+        $parts = parse_url($link);
+        if (! is_array($parts) || ! $this->isNavigationHost($parts['host'] ?? '') || ! isset($parts['query'])) {
+            return null;
+        }
+        parse_str($parts['query'], $query);
+        foreach (['url', 'q'] as $key) {
+            $target = $this->evidenceUrl(is_string($query[$key] ?? null) ? $query[$key] : null);
+            if ($target !== null) {
+                return $target;
+            }
+        }
+
+        return null;
+    }
+
+    private function faviconOrigin(mixed $favicon): ?string
+    {
+        if (! is_string($favicon)) {
+            return null;
+        }
+        $query = parse_url($favicon, PHP_URL_QUERY);
+        if (! is_string($query)) {
+            return null;
+        }
+        parse_str($query, $parameters);
+        $site = is_string($parameters['url'] ?? null) ? $parameters['url'] : null;
+        $parts = $site === null ? false : parse_url($site);
+        $scheme = is_array($parts) ? strtolower($parts['scheme'] ?? '') : '';
+        if (! is_array($parts) || ($parts['host'] ?? '') === '' || ! in_array($scheme, ['http', 'https'], true)) {
+            return null;
+        }
+
+        return $this->evidenceUrl($scheme.'://'.strtolower($parts['host']).(isset($parts['port']) ? ':'.$parts['port'] : ''));
     }
 
     private function usableMarkdown(mixed $value): ?string
