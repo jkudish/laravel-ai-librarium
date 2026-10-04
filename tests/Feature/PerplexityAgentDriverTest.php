@@ -607,6 +607,33 @@ it('rejects drift in the frozen low model or configuration before HTTP', functio
     'managed fields omitted' => ['openai/gpt-6-luna', []],
 ]);
 
+it('applies a profile request timeout without sending it to Perplexity', function (string $profile, ?string $model, array $options, int $expected): void {
+    $timeouts = [];
+    Http::fake(function (Request $request, array $httpOptions) use (&$timeouts) {
+        $timeouts[] = $httpOptions['timeout'] ?? null;
+        expect($request->data())->not->toHaveKey('request_timeout_seconds');
+
+        return Http::response(perplexityCompletedResponse());
+    });
+
+    perplexityAgentDriver()->run(perplexityAgentRequest($profile, deadline: CarbonImmutable::now()->addSeconds(300), model: $model, options: $options));
+    perplexityAgentDriver()->run(perplexityAgentRequest($profile, deadline: CarbonImmutable::now()->addSeconds(15), model: $model, options: $options));
+
+    expect($timeouts)->toBe([$expected, min($expected, 15)]);
+})->with([
+    'managed default' => ['perplexity-sonar-pro', null, [], 30],
+    'managed configured' => ['perplexity-sonar-pro', null, ['request_timeout_seconds' => 120], 120],
+    'frozen configured' => ['perplexity-low-frozen', 'openai/gpt-6-luna', ['configuration' => 'frozen-low-2026-10-03', 'request_timeout_seconds' => 120], 120],
+]);
+
+it('rejects an invalid Perplexity request timeout before HTTP', function (mixed $value): void {
+    Http::fake();
+
+    expect(fn () => perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-sonar-pro', options: ['request_timeout_seconds' => $value])))
+        ->toThrow(DriverException::class, 'invalid request timeout');
+    Http::assertNothingSent();
+})->with([0, 601, '120']);
+
 function perplexityAgentDriver(): PerplexityAgentDriver
 {
     return app(PerplexityAgentDriver::class);

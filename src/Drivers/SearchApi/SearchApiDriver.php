@@ -7,12 +7,14 @@ namespace Jkudish\LaravelAiLibrarium\Drivers\SearchApi;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
 use Jkudish\LaravelAiLibrarium\Contracts\DefinesSpendingBound;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
+use Jkudish\LaravelAiLibrarium\Responses\Citation;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 use Jkudish\LaravelAiLibrarium\SpendingBound;
 use Jkudish\LaravelAiPricing\ValueObjects\ModelIdentity;
@@ -32,7 +34,10 @@ final readonly class SearchApiDriver implements DefinesSpendingBound, Driver
 
     private const int CONNECT_TIMEOUT_SECONDS = 3;
 
+    /** Default per-request timeout; a Profile may set request_timeout_seconds. */
     private const int REQUEST_TIMEOUT_SECONDS = 20;
+
+    private const int MAX_REQUEST_TIMEOUT_SECONDS = 600;
 
     /**
      * Truthful, built-in engine and surface identity for each shipped profile.
@@ -57,6 +62,7 @@ final readonly class SearchApiDriver implements DefinesSpendingBound, Driver
     {
         return [
             'zero_retention' => ['sometimes', 'boolean'],
+            'request_timeout_seconds' => ['sometimes', 'integer:strict', 'min:1', 'max:'.self::MAX_REQUEST_TIMEOUT_SECONDS],
         ];
     }
 
@@ -64,6 +70,7 @@ final readonly class SearchApiDriver implements DefinesSpendingBound, Driver
     {
         $descriptor = $this->descriptor($request->profile->id);
         $zeroRetention = $this->zeroRetention($request);
+        $this->requestTimeout($request, $zeroRetention);
         $this->requireCredential($request, $zeroRetention);
 
         return match ($descriptor['mode']) {
@@ -124,17 +131,70 @@ final readonly class SearchApiDriver implements DefinesSpendingBound, Driver
         return $this->surfaceResult($request, $json, $descriptor['surface'] ?? '', $zeroRetention);
     }
 
+    /**
+     * Google returns an AI Overview in one of three shapes on the first
+     * search: inline content under ai_overview (read directly), a page_token
+     * whose second request loads the overview asynchronously (even when the
+     * first response also carries a "not available" error beside the
+     * token), or no ai_overview at all. Only the token shape costs a second
+     * request. "No overview on this SERP" and "an overview the driver could
+     * not read" fail with distinct codes.
+     */
     private function runOverview(DriverRequest $request, bool $zeroRetention): ResearchResult
     {
         $first = $this->requestJson($request, 'google', ['q' => $request->prompt], $zeroRetention);
-        $pageToken = $this->str(data_get($first, 'ai_overview.page_token'));
+        $overview = data_get($first, 'ai_overview');
+        if (! is_array($overview) || $overview === []) {
+            throw $this->noOverview($zeroRetention);
+        }
+
+        $inline = $this->mapper->normalizeOverview($overview);
+        if ($inline['content'] !== '') {
+            return $this->overviewResult($request, $inline, $first);
+        }
+
+        $pageToken = $this->str(data_get($overview, 'page_token'));
         if ($pageToken === null) {
-            throw $this->fail('searchapi.invalid_response', 'SearchAPI did not return a Google AI Overview page token.', $zeroRetention);
+            throw $this->mapper->hasOverviewPayload($overview)
+                ? $this->unparsedOverview($zeroRetention)
+                : $this->noOverview($zeroRetention);
         }
 
         $second = $this->requestJson($request, 'google_ai_overview', ['page_token' => $pageToken], $zeroRetention);
+        $loaded = $this->mapper->normalizeOverview($second);
+        if ($loaded['content'] === '') {
+            throw $this->mapper->hasOverviewPayload($second)
+                ? $this->unparsedOverview($zeroRetention)
+                : $this->noOverview($zeroRetention);
+        }
 
-        return $this->surfaceResult($request, $second, 'google_ai_overview', $zeroRetention);
+        return $this->overviewResult($request, $loaded, $second);
+    }
+
+    /**
+     * @param  array{content: string, citations: Collection<int, Citation>}  $normalized
+     * @param  array<array-key, mixed>  $json
+     */
+    private function overviewResult(DriverRequest $request, array $normalized, array $json): ResearchResult
+    {
+        return $this->mapper->result(
+            request: $request,
+            content: $normalized['content'],
+            citations: $normalized['citations'],
+            surface: 'google_ai_overview',
+            model: null,
+            providerMeta: $this->providerMeta($json, null),
+        );
+    }
+
+    private function noOverview(bool $zeroRetention): DriverException
+    {
+        return $this->fail('searchapi.no_ai_overview', 'Google showed no AI Overview for this search.', $zeroRetention);
+    }
+
+    private function unparsedOverview(bool $zeroRetention): DriverException
+    {
+        return $this->fail('searchapi.ai_overview_unparsed', 'SearchAPI returned a Google AI Overview the driver could not read.', $zeroRetention);
     }
 
     /**
@@ -197,7 +257,7 @@ final readonly class SearchApiDriver implements DefinesSpendingBound, Driver
             $response = Http::withToken((string) $request->profile->credential)
                 ->acceptJson()
                 ->connectTimeout(min(self::CONNECT_TIMEOUT_SECONDS, $remaining))
-                ->timeout(min(self::REQUEST_TIMEOUT_SECONDS, $remaining))
+                ->timeout(min($this->requestTimeout($request, $zeroRetention), $remaining))
                 ->get(self::ENDPOINT, $query);
         } catch (ConnectionException) {
             $request->captureNoResponse(Operation::Inline);
@@ -256,6 +316,16 @@ final readonly class SearchApiDriver implements DefinesSpendingBound, Driver
     {
         $value = data_get($request->profile->options, 'zero_retention', false);
         if (! is_bool($value)) {
+            throw new DriverException('searchapi.invalid_options', 'The SearchAPI profile received invalid options.', false);
+        }
+
+        return $value;
+    }
+
+    private function requestTimeout(DriverRequest $request, bool $zeroRetention): int
+    {
+        $value = data_get($request->profile->options, 'request_timeout_seconds', self::REQUEST_TIMEOUT_SECONDS);
+        if (! is_int($value) || $value < 1 || $value > self::MAX_REQUEST_TIMEOUT_SECONDS) {
             throw new DriverException('searchapi.invalid_options', 'The SearchAPI profile received invalid options.', false);
         }
 

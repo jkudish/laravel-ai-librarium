@@ -38,7 +38,10 @@ final readonly class PerplexityAgentDriver implements DurableDriver
 
     private const int CONNECT_TIMEOUT_SECONDS = 3;
 
+    /** Default per-request timeout; a Profile may set request_timeout_seconds. */
     private const int REQUEST_TIMEOUT_SECONDS = 30;
+
+    private const int MAX_REQUEST_TIMEOUT_SECONDS = 600;
 
     private const int POLL_INTERVAL_SECONDS = 2;
 
@@ -55,6 +58,7 @@ final readonly class PerplexityAgentDriver implements DurableDriver
     {
         return [
             'configuration' => ['sometimes', 'string', 'in:frozen-low-'.self::FROZEN_LOW_REVISION],
+            'request_timeout_seconds' => ['sometimes', 'integer:strict', 'min:1', 'max:'.self::MAX_REQUEST_TIMEOUT_SECONDS],
         ];
     }
 
@@ -177,19 +181,26 @@ final readonly class PerplexityAgentDriver implements DurableDriver
     private function validateRequest(DriverRequest|RecoveryRequest $request): string
     {
         $profile = $request->profile;
+        // The transport timeout is the only option outside the frozen
+        // request semantics; it never reaches the provider payload.
+        $timeout = $profile->options['request_timeout_seconds'] ?? self::REQUEST_TIMEOUT_SECONDS;
+        if (! is_int($timeout) || $timeout < 1 || $timeout > self::MAX_REQUEST_TIMEOUT_SECONDS) {
+            throw new DriverException('perplexity.invalid_profile', 'The Perplexity Agent Profile has an invalid request timeout.', false);
+        }
+        $options = array_diff_key($profile->options, ['request_timeout_seconds' => true]);
         $isManagedInline = $profile->id === 'perplexity-sonar-pro'
             && $profile->model === null
-            && $profile->options === []
+            && $options === []
             && $profile->resultKind === ResultKind::GroundedAnswer
             && $profile->retrievalMethods->values()->all() === [RetrievalMethod::ModelSearchTool];
         $isFrozenInline = $profile->id === self::FROZEN_LOW_PROFILE
             && $profile->model === self::FROZEN_LOW_MODEL
-            && $profile->options === ['configuration' => 'frozen-low-'.self::FROZEN_LOW_REVISION]
+            && $options === ['configuration' => 'frozen-low-'.self::FROZEN_LOW_REVISION]
             && $profile->resultKind === ResultKind::GroundedAnswer
             && $profile->retrievalMethods->values()->all() === [RetrievalMethod::ModelSearchTool];
         $isBackground = in_array($profile->id, ['perplexity-deep-research', 'perplexity-sonar-deep'], true)
             && $profile->model === null
-            && $profile->options === []
+            && $options === []
             && $profile->resultKind === ResultKind::ResearchReport
             && $profile->retrievalMethods->values()->all() === [RetrievalMethod::ResearchAgent];
 
@@ -420,7 +431,7 @@ PROMPT,
             ->asJson()
             ->withOptions(['allow_redirects' => false])
             ->connectTimeout(min(self::CONNECT_TIMEOUT_SECONDS, $remaining))
-            ->timeout(min(self::REQUEST_TIMEOUT_SECONDS, $remaining));
+            ->timeout(min($this->requestTimeout($request), $remaining));
 
         try {
             $response = $method === 'post'
@@ -435,6 +446,13 @@ PROMPT,
         $request->captureResponse($response, $operation);
 
         return $response;
+    }
+
+    private function requestTimeout(DriverRequest|RecoveryRequest $request): int
+    {
+        $timeout = $request->profile->options['request_timeout_seconds'] ?? self::REQUEST_TIMEOUT_SECONDS;
+
+        return is_int($timeout) ? $timeout : self::REQUEST_TIMEOUT_SECONDS;
     }
 
     private function waitBeforePolling(DriverRequest $request): void

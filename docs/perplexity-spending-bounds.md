@@ -212,6 +212,28 @@ A proven per-step total ceiling and a fetched-content cap are therefore
 **alternatives, not independent requirements**: the first makes the second
 unnecessary.
 
+## Inline timeouts cannot be reconciled
+
+The inline routes (`perplexity-sonar-pro`, `perplexity-low-frozen`) send one
+synchronous `POST /v1/agent`. Each HTTP request times out after 30 seconds
+unless the Profile sets `options.request_timeout_seconds`; the shared deadline
+still caps it. A timeout ends as `perplexity.submit_connection` with an
+unknown outcome. Perplexity may still finish and bill the run, and the client
+cannot find it afterwards, checked against the API reference on 2026-10-04:
+
+- `GET /v1/agent/{id}` retrieves a stored response only by its id, and a
+  synchronous request returns that id only in the response that timed out.
+- There is no list-responses endpoint and no idempotency or client
+  reference parameter to look a run up by.
+- The usage-analytics endpoints report organization-level time buckets (and
+  need an organization analytics key), not per-request costs.
+
+A timed-out inline request can therefore be reconciled only in aggregate,
+through the account's billing totals. A reconcilable route would submit with
+`background: true` (the id returns at once and the run can be polled, then
+cancelled with `POST /v1/agent/{id}/cancel`), or stream and record the id from
+the first event. Neither is implemented here.
+
 ## Tests
 
 `tests/Feature/PerplexityAgentSpendingBoundTest.php` covers, fully offline:

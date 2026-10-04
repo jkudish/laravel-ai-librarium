@@ -428,11 +428,11 @@ cost remains `null`, never zero.
 - **Semantics:** surface_observation; optional; surface_snapshot; web; surface_collector/collected; google via searchapi to google_ai_overview
 - **Target:** provider-managed and otherwise unaudited
 - **PHP path:** #2591 core HTTP under #2835; exact fallback identity remains #2830
-- **Binding:** SearchAPI two-stage Google page-token then `google_ai_overview`; no stage-one organic fallback
-- **Execution:** inline logical operation with two bounded HTTP calls
-- **Terminal:** Surface snapshot
-- **Pricing:** two configured-only request units; unavailable until the application supplies a rate
-- **Test and proof:** Two-stage surface fixture with missing-token failure; D + L + B
+- **Binding:** SearchAPI Google search; an inline `ai_overview` is read directly, otherwise its page token loads `google_ai_overview`; no organic fallback; redirect citations resolve by URL parsing to the target or the favicon publisher origin
+- **Execution:** inline logical operation with one or two bounded HTTP calls
+- **Terminal:** Surface snapshot; `searchapi.no_ai_overview` and `searchapi.ai_overview_unparsed` stay distinct
+- **Pricing:** two configured-only request units (the worst case); unavailable until the application supplies a rate
+- **Test and proof:** Sanitized inline, page-token, no-overview and redirect-link fixtures; D + L + B
 
 ## Separate approved tasks (1)
 
