@@ -15,13 +15,15 @@ live API requests were made.
 | `perplexity-sonar-pro` | `POST /v1/agent` inline with `{"input": <prompt>, "preset": "low"}` | `unknown` |
 | `perplexity-low-frozen` | `POST /v1/agent` inline with the frozen low configuration below | `unknown` |
 
-The frozen payload is copied from the official `low` preset values
+The frozen payload retains the official `low` preset controls
 ([presets → "low — current preset values"](https://docs.perplexity.ai/docs/agent-api/presets),
-checked 2026-09-11):
+checked 2026-09-11), with its model upgraded to GPT-6 Luna under configuration
+`frozen-low-2026-10-03`. This is a package-owned revision, not a claim that
+the entire payload matches today's provider-managed preset:
 
 ```json
 {
-    "model": "openai/gpt-5.6-luna",
+    "model": "openai/gpt-6-luna",
     "prompt_cache_key": "low",
     "max_steps": 5,
     "max_output_tokens": 32768,
@@ -43,8 +45,8 @@ tools" ([FAQ](https://docs.perplexity.ai/docs/resources/faq),
 
 | Dimension | Rate basis (source) | Enforced control in our requests |
 | --- | --- | --- |
-| Input tokens (incl. cache reads) | Per routed model per 1M; `openai/gpt-5.6-luna` 0.20 USD ≤272k / 0.40 USD >272k, cache reads 90 % off ([models](https://docs.perplexity.ai/docs/agent-api/models)) | none bounding the aggregate |
-| Output tokens (incl. reasoning) | `luna` 1.20 USD ≤272k / 1.80 USD >272k per 1M ([models](https://docs.perplexity.ai/docs/agent-api/models)) | `max_output_tokens` (frozen route only) |
+| Input tokens (incl. cache reads) | Per routed model; GPT-6 Luna's direct OpenAI input rate is 0.10 USD per 1M ([model](https://developers.openai.com/api/docs/models/gpt-6-luna)); Perplexity tier/cache rates are not reverified here | none bounding the aggregate |
+| Output tokens (incl. reasoning) | GPT-6 Luna's direct OpenAI output rate is 0.50 USD per 1M ([model](https://developers.openai.com/api/docs/models/gpt-6-luna)); no Perplexity tier rates inferred | `max_output_tokens` (frozen route only) |
 | `web_search` invocations | 2.50 USD per 1,000 invocations, "separate from model token usage" ([web search](https://docs.perplexity.ai/docs/agent-api/tools/web-search)) | none |
 | `fetch_url` invocations | 0.50 USD per 1,000 invocations ([fetch URL](https://docs.perplexity.ai/docs/agent-api/tools/fetch-url-content)) | none |
 | Search context tokens | "you are charged for the exact number of search context tokens consumed" ([web search](https://docs.perplexity.ai/docs/agent-api/tools/web-search)) | `max_tokens` 2000 / `max_tokens_per_page` 2000 per search call (frozen route only) |
@@ -65,7 +67,7 @@ those are settlement evidence after the fact, not pre-dispatch authority.
    Perplexity updates the underlying configuration as evals show
    improvements"
    ([presets → Overview](https://docs.perplexity.ai/docs/agent-api/presets)).
-   The routed model (today `openai/gpt-5.6-luna`) can therefore change
+   The routed model (`openai/gpt-6-luna` as of the 2026-10-03 upgrade) can therefore change
    server-side without client action, and no bounded model set is published
    for the preset (preset updates optimize the "Quality" dimension). The
    package's own pricing SKU for this route (`perplexity:agent-low`) contains
@@ -89,7 +91,7 @@ not happen silently).
 
 ## Why the frozen `perplexity-low-frozen` route is unproven
 
-The model is pinned (`openai/gpt-5.6-luna`), so token rates are known, and
+The model is pinned (`openai/gpt-6-luna`), and
 the payload enforces `max_steps` 5, `max_output_tokens` 32768, and per-call
 search context caps. The dimensions that still cannot be maximized:
 
@@ -158,19 +160,10 @@ context-window maximum.** The
 [models page](https://docs.perplexity.ai/docs/agent-api/models) FAQ answer
 defers: "Context window size varies by model. See the Agent API models page
 and the linked provider documentation"
-([FAQ](https://docs.perplexity.ai/docs/resources/faq)). The models page
-itself has no context-window column; its per-model "Docs" link for
-`openai/gpt-5.6-luna` points to OpenAI's
-[GPT-5.6 announcement](https://openai.com/index/gpt-5-6/). That page (a)
-states no context-window *limit* for any GPT-5.6 tier — its closest content
-is long-context *evaluation results* at 256K–512K and 1M lengths, which
-demonstrate test ranges, not a maximum the deployment enforces; (b)
-documents OpenAI's first-party API deployment, whose parameters are already
-not mirrored verbatim by Perplexity's own listing (OpenAI's page prices
-Luna at a flat $1/$6 per 1M while Perplexity lists tiered 0.20/0.40 and
-1.20/1.80 with its own cache-read rate), so nothing commits Perplexity's
-hosted serving to the upstream window; and (c) even if a number C were
-adopted, a `SpendingBound` maximum must be *enforced by the request
+([FAQ](https://docs.perplexity.ai/docs/resources/faq)). An upstream OpenAI
+context window is not itself proof of Perplexity's hosted serving limit.
+The GPT-6 Luna upgrade does not establish such a contract. Even if a number
+C were adopted, a `SpendingBound` maximum must be *enforced by the request
 contract* — no Agent API request control caps per-step input, so a
 Perplexity-side behavior change (or serving configuration that accepts more)
 would silently exceed an externally assumed maximum, which is exactly the

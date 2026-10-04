@@ -2,7 +2,7 @@
 
 This page documents the pre-dispatch `spendingBound()` results for the four
 exact grounded Laravel AI Profiles — `claude-chat` (Anthropic
-`claude-sonnet-5`), `openai-chat` (OpenAI `gpt-5.6-luna`),
+`claude-sonnet-5`), `openai-chat` (OpenAI `gpt-6-luna`),
 `gemini-grounded` (Gemini `gemini-3.6-flash`), and `openrouter-chat`
 (OpenRouter with the Exa engine — the shipped Profile default stays on the
 historical `openai/gpt-5.6-terra` route below; the reviewed
@@ -518,7 +518,7 @@ tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-t
 tools](https://platform.claude.com/docs/en/agents-and-tools/tool-use/server-tools),
 [Pricing](https://platform.claude.com/docs/en/about-claude/pricing).
 
-## `openai-chat` — OpenAI `gpt-5.6-luna`, web search enabled: `unknown`
+## `openai-chat` — OpenAI `gpt-6-luna`, web search enabled: `unknown`
 
 The grounded OpenAI route stays `unknown` under every configuration.
 `max_tool_calls` remains a supported run control, sent as the top-level
@@ -542,8 +542,8 @@ Sources: [Create a model
 response](https://developers.openai.com/api/reference/resources/responses/methods/create/),
 [Web search
 guide](https://developers.openai.com/api/docs/guides/tools-web-search),
-[Pricing](https://developers.openai.com/api/docs/pricing), [GPT-5.6
-Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna).
+[Pricing](https://developers.openai.com/api/docs/pricing), [GPT-6
+Luna](https://developers.openai.com/api/docs/models/gpt-6-luna).
 
 ## `gemini-grounded` — Gemini `gemini-3.6-flash`: remains `unknown`
 

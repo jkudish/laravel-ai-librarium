@@ -392,6 +392,7 @@ it('keeps the pinned OpenRouter endpoint routing off unconfigured requests', fun
 });
 
 it('never reroutes a budget on a non-bounded OpenRouter model to the pinned endpoint', function (): void {
+    config()->set('librarium.profiles.openrouter-grounded.model', 'openai/gpt-6-luna-pro');
     config()->set('librarium.profiles.openrouter-grounded.options', [
         'web_search' => true,
         'search_engine' => 'exa',
@@ -401,7 +402,7 @@ it('never reroutes a budget on a non-bounded OpenRouter model to the pinned endp
     Http::fake([
         'https://openrouter.ai/api/v1/chat/completions' => Http::response([
             'id' => 'gen-luna',
-            'model' => 'openai/gpt-5.6-luna',
+            'model' => 'openai/gpt-6-luna-pro',
             'choices' => [[
                 'message' => [
                     'role' => 'assistant',
@@ -430,7 +431,7 @@ it('never reroutes a budget on a non-bounded OpenRouter model to the pinned endp
     Http::assertSent(function (Request $request): bool {
         $body = $request->data();
 
-        return $body['model'] === 'openai/gpt-5.6-luna'
+        return $body['model'] === 'openai/gpt-6-luna-pro'
             && $body['max_tool_calls'] === 4
             && $body['provider'] === ['require_parameters' => true, 'allow_fallbacks' => false];
     });
@@ -594,7 +595,7 @@ it('keeps grounded OpenRouter configurations unknown until the budget contract i
     'missing explicit Exa search mode' => fn () => removeProfileOption('openrouter-chat', 'search_mode'),
     'fast Exa search mode' => fn () => config()->set('librarium.profiles.openrouter-chat.options.search_mode', 'fast'),
     'deep Exa search mode' => fn () => config()->set('librarium.profiles.openrouter-chat.options.search_mode', 'deep'),
-    'wrong model' => fn () => config()->set('librarium.profiles.openrouter-chat.model', 'openai/gpt-5.6-luna'),
+    'wrong model' => fn () => config()->set('librarium.profiles.openrouter-chat.model', 'openai/gpt-6-luna-pro'),
 ]);
 
 it('keeps the OpenRouter bound independent of the optional output-token run control', function (): void {
@@ -723,7 +724,7 @@ it('still enforces grounded OpenAI run controls while the bound stays unknown', 
         'https://api.openai.com/v1/responses' => Http::response([
             'id' => 'resp_grounded',
             'status' => 'completed',
-            'model' => 'gpt-5.6-luna',
+            'model' => 'gpt-6-luna',
             'output' => [[
                 'type' => 'message',
                 'status' => 'completed',
@@ -751,7 +752,7 @@ it('still enforces grounded OpenAI run controls while the bound stays unknown', 
         $body = $request->data();
 
         return $request->url() === 'https://api.openai.com/v1/responses'
-            && $body['model'] === 'gpt-5.6-luna'
+            && $body['model'] === 'gpt-6-luna'
             && $body['max_output_tokens'] === 32_768
             && $body['max_tool_calls'] === 3
             && $body['tool_choice'] === 'auto'
@@ -764,7 +765,7 @@ it('rejects OpenAI output-token controls below the documented Responses floor be
     try {
         groundedBoundDriver()->run(groundedBoundRequest(
             provider: 'openai',
-            model: 'gpt-5.6-luna',
+            model: 'gpt-6-luna',
             options: ['web_search' => true, 'max_tool_calls' => 3, 'max_output_tokens' => 15],
         ));
         $this->fail('An output-token control below the Responses floor should be rejected before execution.');
@@ -856,12 +857,12 @@ it('rejects grounded controls the exact provider request cannot honor before exe
     }
     Http::assertNothingSent();
 })->with([
-    'Anthropic-style search cap on OpenAI' => ['openai', 'gpt-5.6-luna', ['web_search' => true, 'max_searches' => 5]],
+    'Anthropic-style search cap on OpenAI' => ['openai', 'gpt-6-luna', ['web_search' => true, 'max_searches' => 5]],
     'Anthropic-style search cap on Gemini' => ['gemini', 'gemini-3.6-flash', ['web_search' => true, 'max_searches' => 5]],
     'OpenAI tool-call cap on Anthropic' => ['anthropic', 'claude-sonnet-5', ['web_search' => true, 'max_tool_calls' => 3]],
     'OpenAI tool-call cap on Gemini' => ['gemini', 'gemini-3.6-flash', ['web_search' => true, 'max_tool_calls' => 3]],
     'OpenRouter result cap on Anthropic' => ['anthropic', 'claude-sonnet-5', ['web_search' => true, 'max_results' => 5]],
-    'OpenRouter result cap on OpenAI' => ['openai', 'gpt-5.6-luna', ['web_search' => true, 'max_results' => 5]],
+    'OpenRouter result cap on OpenAI' => ['openai', 'gpt-6-luna', ['web_search' => true, 'max_results' => 5]],
     'search cap without web search' => ['anthropic', 'claude-sonnet-5', ['web_search' => false, 'max_searches' => 5]],
     'tool-call budget without web search' => ['openrouter', 'openai/gpt-5.6-terra', ['web_search' => false, 'search_engine' => 'exa', 'max_tool_calls' => 3]],
     'search mode without web search' => ['openrouter', 'openai/gpt-5.6-terra', ['web_search' => false, 'search_engine' => 'exa', 'search_mode' => 'auto']],
@@ -1426,7 +1427,7 @@ it('settles an ungrounded required-grounding response without raw capture as pos
         new TextResponse(
             'An answer without provider-reported evidence.',
             new AiUsage(inputTokens: 900, outputTokens: 120),
-            new Meta('openrouter', 'openai/gpt-5.6-luna'),
+            new Meta('openrouter', 'openai/gpt-6-luna'),
         ),
     ])->preventStrayPrompts();
 
@@ -1483,6 +1484,7 @@ it('keeps unpinned and non-bounded OpenRouter routes free of the revision check'
     // exact model + budget), neither revision check runs — no catalog GET is
     // made before dispatch and the served model is not revision-checked —
     // and the request keeps its default routing without max_price.
+    config()->set('librarium.profiles.openrouter-grounded.model', 'openai/gpt-6-luna-pro');
     config()->set('librarium.profiles.openrouter-grounded.options', [
         'web_search' => true,
         'search_engine' => 'exa',
@@ -1493,7 +1495,7 @@ it('keeps unpinned and non-bounded OpenRouter routes free of the revision check'
     Http::fake([
         'https://openrouter.ai/api/v1/chat/completions' => Http::response([
             'id' => 'gen-luna-unchecked',
-            'model' => 'openai/gpt-5.6-luna',
+            'model' => 'openai/gpt-6-luna-pro',
             'choices' => [[
                 'message' => [
                     'role' => 'assistant',
@@ -1514,7 +1516,7 @@ it('keeps unpinned and non-bounded OpenRouter routes free of the revision check'
         ->run();
 
     expect($response->status->value)->toBe('succeeded')
-        ->and($response->results->sole()->model)->toBe('openai/gpt-5.6-luna');
+        ->and($response->results->sole()->model)->toBe('openai/gpt-6-luna-pro');
     Http::assertSent(function (Request $request): bool {
         $provider = $request->data()['provider'];
 

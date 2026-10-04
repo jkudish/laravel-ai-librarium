@@ -44,9 +44,9 @@ final readonly class PerplexityAgentDriver implements DurableDriver
 
     private const string FROZEN_LOW_PROFILE = 'perplexity-low-frozen';
 
-    private const string FROZEN_LOW_MODEL = 'openai/gpt-5.6-luna';
+    private const string FROZEN_LOW_MODEL = 'openai/gpt-6-luna';
 
-    private const string FROZEN_LOW_REVISION = '2026-09-11';
+    private const string FROZEN_LOW_REVISION = '2026-10-03';
 
     public function __construct(private PerplexityAgentResultMapper $mapper) {}
 

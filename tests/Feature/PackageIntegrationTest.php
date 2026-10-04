@@ -99,12 +99,40 @@ it('resolves Laravel AI credentials after Laravel AI registers later', function 
         ->and(data_get($profile, 'credential'))->not->toBe("ai.providers.{$provider}.key");
 })->with([
     'Gemini grounded' => ['gemini-grounded', 'gemini', 'gemini-3.6-flash'],
-    'OpenRouter grounded' => ['openrouter-grounded', 'openrouter', 'openai/gpt-5.6-luna'],
+    'OpenRouter grounded' => ['openrouter-grounded', 'openrouter', 'openai/gpt-6-luna'],
     'OpenRouter chat' => ['openrouter-chat', 'openrouter', 'openai/gpt-5.6-terra'],
     'Claude chat' => ['claude-chat', 'anthropic', 'claude-sonnet-5'],
-    'OpenAI chat' => ['openai-chat', 'openai', 'gpt-5.6-luna'],
+    'OpenAI chat' => ['openai-chat', 'openai', 'gpt-6-luna'],
     'Gemini chat' => ['gemini-chat', 'gemini', 'gemini-3.7-flash'],
 ]);
+
+it('exposes matching GPT-6 Luna target and pricing bindings through the catalog', function (
+    string $profileId,
+    string $model,
+    string $pricingIdentity,
+    array $options,
+): void {
+    $availability = app(ProfileCatalog::class)->find($profileId);
+
+    expect($availability)->not->toBeNull()
+        ->and($availability?->reasons)->toBe([])
+        ->and($availability?->profile->model)->toBe($model)
+        ->and($availability?->profile->pricingIdentity?->key())->toBe($pricingIdentity)
+        ->and($availability?->profile->options)->toBe($options);
+})->with([
+    'OpenRouter grounded' => ['openrouter-grounded', 'openai/gpt-6-luna', 'openrouter:openai/gpt-6-luna', ['search_engine' => 'exa']],
+    'OpenAI chat' => ['openai-chat', 'gpt-6-luna', 'openai:gpt-6-luna', ['web_search' => true]],
+    'Perplexity frozen low' => ['perplexity-low-frozen', 'openai/gpt-6-luna', 'perplexity:openai/gpt-6-luna', ['configuration' => 'frozen-low-2026-10-03']],
+]);
+
+it('marks the retired frozen Perplexity configuration unavailable', function (): void {
+    config()->set('librarium.profiles.perplexity-low-frozen.options.configuration', 'frozen-low-2026-09-11');
+
+    $availability = app(ProfileCatalog::class)->find('perplexity-low-frozen');
+
+    expect($availability)->not->toBeNull()
+        ->and($availability?->reasons)->not->toBeEmpty();
+});
 
 it('keeps the Claude source model separate from its global-routing billing SKU', function (): void {
     $profile = config('librarium.profiles.claude-chat');
@@ -147,7 +175,7 @@ it('registers the accepted core HTTP Profiles with resolved credentials', functi
     'Exa Search' => ['exa', ExaSearchDriver::class, 'exa', null, 'search_results', 'none', 'search_endpoint', 'services.exa.key', 'exa:search'],
     'Kagi FastGPT' => ['kagi-fastgpt', KagiFastGptDriver::class, 'kagi-fastgpt', null, 'grounded_answer', 'required', 'search_endpoint', 'services.kagi.key', 'kagi:fastgpt'],
     'Perplexity Sonar Pro' => ['perplexity-sonar-pro', PerplexityAgentDriver::class, 'perplexity', null, 'grounded_answer', 'required', 'model_search_tool', 'services.perplexity.key', 'perplexity:agent-low'],
-    'Perplexity frozen low' => ['perplexity-low-frozen', PerplexityAgentDriver::class, 'perplexity', 'openai/gpt-5.6-luna', 'grounded_answer', 'required', 'model_search_tool', 'services.perplexity.key', 'perplexity:openai/gpt-5.6-luna'],
+    'Perplexity frozen low' => ['perplexity-low-frozen', PerplexityAgentDriver::class, 'perplexity', 'openai/gpt-6-luna', 'grounded_answer', 'required', 'model_search_tool', 'services.perplexity.key', 'perplexity:openai/gpt-6-luna'],
     'Grok web search' => ['grok', XaiGrokDriver::class, 'xai', 'grok-4.6', 'grounded_answer', 'required', 'model_search_tool', 'ai.providers.xai.key', 'xai:grok-4.6'],
     'OpenAI research' => ['openai-research', OpenAiResearchDriver::class, 'openai', 'gpt-5.6-sol', 'research_report', 'required', 'research_agent', 'ai.providers.openai.key', 'openai:gpt-5.6-sol'],
     'Perplexity Sonar Deep' => ['perplexity-sonar-deep', PerplexityAgentDriver::class, 'perplexity', null, 'research_report', 'required', 'research_agent', 'services.perplexity.key', 'perplexity:agent-high'],

@@ -40,7 +40,7 @@ it('runs the low preset inline with one exact POST and strictly normalizes repor
     expect($result->content)->toBe('A current answer [web:1] with another fact [news:story-2].')
         ->and($result->provider)->toBe('perplexity')
         ->and($result->profile)->toBe('perplexity-sonar-pro')
-        ->and($result->model)->toBe('openai/gpt-5.6-luna')
+        ->and($result->model)->toBe('openai/gpt-6-luna')
         ->and($result->provenance->resultKind)->toBe(ResultKind::GroundedAnswer)
         ->and($result->provenance->retrievalMethods->all())->toBe([RetrievalMethod::ModelSearchTool])
         ->and($result->citations)->toHaveCount(2)
@@ -84,13 +84,13 @@ it('runs the frozen low configuration separately without sending a managed prese
     $result = perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-low-frozen'));
 
     expect($result->profile)->toBe('perplexity-low-frozen')
-        ->and($result->model)->toBe('openai/gpt-5.6-luna');
+        ->and($result->model)->toBe('openai/gpt-6-luna');
     Http::assertSent(function (Request $request): bool {
         $payload = $request->data();
 
         return $request->method() === 'POST'
             && ! array_key_exists('preset', $payload)
-            && data_get($payload, 'model') === 'openai/gpt-5.6-luna'
+            && data_get($payload, 'model') === 'openai/gpt-6-luna'
             && data_get($payload, 'prompt_cache_key') === 'low'
             && data_get($payload, 'max_steps') === 5
             && data_get($payload, 'max_output_tokens') === 32768
@@ -582,7 +582,7 @@ it('rejects missing credentials, expired deadlines, and incompatible profile sem
     'missing credential' => [['credential' => null], 'perplexity.authentication'],
     'expired deadline' => [['deadline' => CarbonImmutable::parse('2026-08-20T11:59:59Z')], 'perplexity.deadline_exceeded'],
     'wrong provider' => [['provider' => 'other'], 'perplexity.invalid_profile'],
-    'provider-selected model forbidden' => [['model' => 'openai/gpt-5.6-luna'], 'perplexity.invalid_profile'],
+    'provider-selected model forbidden' => [['model' => 'openai/gpt-6-luna'], 'perplexity.invalid_profile'],
     'wrong result kind' => [['resultKind' => ResultKind::ResearchReport], 'perplexity.invalid_profile'],
     'wrong grounding' => [['grounding' => GroundingPolicy::Optional], 'perplexity.invalid_profile'],
     'wrong corpus' => [['corpora' => [Corpus::News]], 'perplexity.invalid_profile'],
@@ -600,10 +600,11 @@ it('rejects drift in the frozen low model or configuration before HTTP', functio
 
     Http::assertNothingSent();
 })->with([
-    'different model' => ['openai/gpt-5.6-terra', ['configuration' => 'frozen-low-2026-09-11']],
-    'missing model' => [null, ['configuration' => 'frozen-low-2026-09-11']],
-    'different revision' => ['openai/gpt-5.6-luna', ['configuration' => 'frozen-low-2026-09-10']],
-    'managed fields omitted' => ['openai/gpt-5.6-luna', []],
+    'different model' => ['openai/gpt-5.6-terra', ['configuration' => 'frozen-low-2026-10-03']],
+    'missing model' => [null, ['configuration' => 'frozen-low-2026-10-03']],
+    'retired revision with new model' => ['openai/gpt-6-luna', ['configuration' => 'frozen-low-2026-09-11']],
+    'different revision' => ['openai/gpt-6-luna', ['configuration' => 'frozen-low-2026-09-10']],
+    'managed fields omitted' => ['openai/gpt-6-luna', []],
 ]);
 
 function perplexityAgentDriver(): PerplexityAgentDriver
@@ -632,7 +633,7 @@ function perplexityAgentRequest(
         id: $profileId,
         driver: PerplexityAgentDriver::class,
         provider: $provider,
-        model: $frozen && func_num_args() < 6 ? 'openai/gpt-5.6-luna' : $model,
+        model: $frozen && func_num_args() < 6 ? 'openai/gpt-6-luna' : $model,
         resultKind: $resultKind ?? ($deep ? ResultKind::ResearchReport : ResultKind::GroundedAnswer),
         grounding: $grounding,
         observation: $observation,
@@ -640,7 +641,7 @@ function perplexityAgentRequest(
         retrievalMethods: collect($retrievalMethods ?? [$deep ? RetrievalMethod::ResearchAgent : RetrievalMethod::ModelSearchTool]),
         prompt: '{{ query }}',
         enabled: true,
-        options: $options ?? ($frozen ? ['configuration' => 'frozen-low-2026-09-11'] : []),
+        options: $options ?? ($frozen ? ['configuration' => 'frozen-low-2026-10-03'] : []),
         credential: $credential,
     );
 
@@ -663,7 +664,7 @@ function perplexityCompletedResponse(): array
         'id' => 'resp_private_1',
         'status' => 'completed',
         'completed_at' => CarbonImmutable::now()->getTimestamp(),
-        'model' => 'openai/gpt-5.6-luna',
+        'model' => 'openai/gpt-6-luna',
         'output' => [
             [
                 'type' => 'search_results',

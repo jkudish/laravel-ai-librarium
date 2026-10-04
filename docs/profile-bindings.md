@@ -56,7 +56,10 @@ core Profiles from a 47-Profile configured catalog.
 ## Provider-local PHP extension
 
 The enabled `perplexity-low-frozen` Profile preserves the reviewed
-`frozen-low-2026-09-11` Agent configuration. It is a PHP-only reproducibility
+`frozen-low-2026-10-03` Agent configuration, targeting `openai/gpt-6-luna`
+with pricing identity `perplexity:openai/gpt-6-luna`. The prior
+`frozen-low-2026-09-11` identifier is rejected, not reinterpreted. All other
+frozen payload controls are unchanged. It is a PHP-only reproducibility
 variant of the accepted `perplexity-sonar-pro/grounded` semantics and has
 offline coverage in `PerplexityAgentDriverTest`.
 
@@ -205,7 +208,7 @@ cost remains `null`, never zero.
 
 - **Workflow:** quick
 - **Semantics:** grounded_answer; required; api_output; web; model_search_tool/brokered; openrouter
-- **Target:** TypeScript default `openai/gpt-4o-mini`; approved PHP 1.0 default `openai/gpt-5.6-luna`
+- **Target:** TypeScript default `openai/gpt-4o-mini`; current PHP default `openai/gpt-6-luna`
 - **PHP path:** #2591 core SDK
 - **Binding:** Laravel AI OpenRouter, exact model, native `WebSearch`
 - **Execution:** inline; no provider-durable handle
@@ -241,7 +244,7 @@ cost remains `null`, never zero.
 
 - **Workflow:** none
 - **Semantics:** grounded_answer; optional; api_output; web; model_search_tool/direct; openai
-- **Target:** TypeScript default `gpt-5-mini`; approved PHP 1.0 default `gpt-5.6-luna`
+- **Target:** TypeScript default `gpt-5-mini`; current PHP default `gpt-6-luna`
 - **PHP path:** #2591 core SDK
 - **Binding:** Laravel AI OpenAI and native `WebSearch`, on by default; search-off becomes `model_answer`
 - **Execution:** inline; no provider-durable handle
