@@ -77,7 +77,6 @@ it('returns complete fixed billable quantities without consulting pricing or mak
     'SearchAPI Google request' => ['searchapi', 'searchapi:search', ['successful_search_request' => '1']],
     'SearchAPI ChatGPT request' => ['searchapi-chatgpt', 'searchapi:search', ['successful_search_request' => '1']],
     'SearchAPI Gemini request' => ['searchapi-gemini', 'searchapi:search', ['successful_search_request' => '1']],
-    'SearchAPI Perplexity request' => ['searchapi-perplexity', 'searchapi:search', ['successful_search_request' => '1']],
     'SearchAPI AI Mode request' => ['searchapi-google-ai-mode', 'searchapi:search', ['successful_search_request' => '1']],
     'SearchAPI Copilot request' => ['searchapi-bing-copilot', 'searchapi:search', ['successful_search_request' => '1']],
     'SearchAPI AI Overview maximum' => ['searchapi-google-ai-overview', 'searchapi:search', ['successful_search_request' => '2']],
@@ -228,8 +227,8 @@ it('classifies every shipped Profile as known or deliberately unknown', function
         ->filter(fn (string $profile): bool => Librarium::query('inventory')->using($profile)->spendingBound()->kind !== SpendingBoundKind::Unknown)
         ->values();
 
-    expect(config('librarium.profiles'))->toHaveCount(47)
-        ->and($known)->toHaveCount(21)
+    expect(config('librarium.profiles'))->toHaveCount(46)
+        ->and($known)->toHaveCount(20)
         ->and($known->all())->toBe([
             'dataforseo-chatgpt',
             'dataforseo-chatgpt-live',
@@ -242,7 +241,6 @@ it('classifies every shipped Profile as known or deliberately unknown', function
             'searchapi',
             'searchapi-chatgpt',
             'searchapi-gemini',
-            'searchapi-perplexity',
             'searchapi-google-ai-mode',
             'searchapi-bing-copilot',
             'searchapi-google-ai-overview',

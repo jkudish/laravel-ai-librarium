@@ -9,7 +9,6 @@ observe a cited answer rendered on a consumer AI product:
 | `searchapi` | `google` | Raw search results | none |
 | `searchapi-chatgpt` | `chatgpt` (web search on) | Surface observation | `searchapi` / `chatgpt` |
 | `searchapi-gemini` | `gemini` | Surface observation | `searchapi` / `gemini` |
-| `searchapi-perplexity` | `perplexity` | Surface observation | `searchapi` / `perplexity` |
 | `searchapi-google-ai-mode` | `google_ai_mode` | Surface observation | `searchapi` / `google_ai_mode` |
 | `searchapi-bing-copilot` | `bing_copilot` | Surface observation | `searchapi` / `bing_copilot` |
 | `searchapi-google-ai-overview` | `google`, then `google_ai_overview` only for a page token | Surface observation | `searchapi` / `google_ai_overview` |
@@ -33,3 +32,13 @@ parsing only, never a fetch: a `url` or `q` parameter that is a publisher URL
 becomes the citation; otherwise (Google's opaque `goto` tokens) the citation
 is the publisher origin from the link's `favicon` URL. The raw redirect is kept
 as the Source `provider_reference` when it fits 255 characters.
+
+## Retired: `searchapi-perplexity`
+
+SearchAPI has deprecated its `perplexity` engine. On 2026-10-09 it returned
+HTTP 503 "This API has been deprecated." and SearchAPI offers no replacement,
+so the package no longer ships the `searchapi-perplexity` Profile. Its ID is
+reserved: selecting it fails validation with a retirement reason instead of an
+unknown-Profile error. A copy left in a published `config/librarium.php` is
+reported unavailable for the same reason and is never sent. Remove that entry
+from your published configuration.

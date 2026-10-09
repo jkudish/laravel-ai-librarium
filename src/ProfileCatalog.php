@@ -34,13 +34,24 @@ final class ProfileCatalog
     private const array VISIBILITY = [
         'searchapi-chatgpt',
         'searchapi-gemini',
-        'searchapi-perplexity',
         'searchapi-google-ai-mode',
         'searchapi-bing-copilot',
         'searchapi-google-ai-overview',
         'perplexity-sonar-pro',
         'gemini-grounded',
         'grok',
+    ];
+
+    /**
+     * Profile IDs the package once shipped and has since retired. A retired ID
+     * stays reserved: callers that still select it, and applications whose
+     * published configuration still defines it, receive this reason instead of
+     * an unknown-Profile error or a request to a withdrawn provider endpoint.
+     *
+     * @var array<string, string>
+     */
+    private const array RETIRED = [
+        'searchapi-perplexity' => 'Profile is retired: SearchAPI deprecated its perplexity engine (observed 2026-10-09) and offers no replacement.',
     ];
 
     public function __construct(
@@ -145,7 +156,7 @@ final class ProfileCatalog
         foreach (array_values(array_unique($ids)) as $id) {
             $item = $catalog->get($id);
             if ($item === null) {
-                $unavailable[$id] = ['Profile is not configured.'];
+                $unavailable[$id] = [self::RETIRED[$id] ?? 'Profile is not configured.'];
             } elseif (! $item->isEligible()) {
                 $unavailable[$id] = $item->reasons;
             } else {
@@ -285,6 +296,10 @@ final class ProfileCatalog
     private function reasons(Profile $profile, bool $requiresCredential): array
     {
         $reasons = [];
+
+        if (array_key_exists($profile->id, self::RETIRED)) {
+            $reasons[] = self::RETIRED[$profile->id];
+        }
 
         if (! $profile->enabled) {
             $reasons[] = 'Profile is disabled.';

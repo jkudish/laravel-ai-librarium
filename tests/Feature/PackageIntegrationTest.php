@@ -270,7 +270,6 @@ it('resolves curated and derived groups from the complete built-in catalog', fun
     ])->and($catalog->group('visibility')['profiles']->pluck('id')->all())->toBe([
         'searchapi-chatgpt',
         'searchapi-gemini',
-        'searchapi-perplexity',
         'searchapi-google-ai-mode',
         'searchapi-bing-copilot',
         'searchapi-google-ai-overview',
@@ -307,7 +306,6 @@ it('resolves curated and derived groups from the complete built-in catalog', fun
         'searchapi',
         'searchapi-chatgpt',
         'searchapi-gemini',
-        'searchapi-perplexity',
         'searchapi-google-ai-mode',
         'searchapi-bing-copilot',
         'searchapi-google-ai-overview',
@@ -330,7 +328,7 @@ it('resolves curated and derived groups from the complete built-in catalog', fun
         'valyu-research',
     ]);
 
-    expect($catalog->all()->keys()->all())->toHaveCount(47)
+    expect($catalog->all()->keys()->all())->toHaveCount(46)
         ->and(array_keys($catalog->group('all')['unavailable']))->toBe([
             'dataforseo-chatgpt',
             'dataforseo-chatgpt-live',

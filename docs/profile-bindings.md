@@ -41,23 +41,24 @@ counts establishes live-provider acceptance or a published package channel.
 
 | PHP disposition | Count | Meaning |
 | --- | ---: | --- |
-| Landed in core | 38 | Six Laravel AI SDK Profiles and thirty-two focused HTTP Profiles are configured and covered offline. |
+| Landed in core | 37 | Six Laravel AI SDK Profiles and thirty-one focused HTTP Profiles are configured and covered offline. |
 | Landed in optional adapter | 1 | Firecrawl Search remains outside core under #2592 and is covered by the adapter package. |
-| Holdback | 0 | Every accepted TypeScript v2 Profile has a selectable PHP binding. |
+| Holdback | 0 | No accepted TypeScript v2 Profile is held back. |
+| Retired | 1 | `searchapi-perplexity` was retired after SearchAPI deprecated its `perplexity` engine. |
 | **Total** | **39** | Every implemented TypeScript Profile appears exactly once below. |
 
 The TypeScript inventory contains 14 grounded answers, 11 search-result
-Profiles, 8 durable research reports, and 6 surface observations. All 39 map to
-PHP core or the optional Firecrawl adapter. PHP additionally ships the frozen
+Profiles, 8 durable research reports, and 6 surface observations. Thirty-eight
+map to PHP core or the optional Firecrawl adapter; one is retired. PHP additionally ships the frozen
 Perplexity low Profile approved under #3653, six provider-local DataForSEO
 surface Profiles approved under #3481, and two SerpBase Profiles approved under
 #3650. The JavaScript SerpBase work was still unmerged at this baseline, so
 these nine additions are not part of the frozen 39-row reconciliation and do
 not rewrite it.
 
-`quick` has six curated members, `visibility` remains nine, `deep` derives its
-eight configured research Profiles, and `all` derives all 41 currently eligible
-core Profiles from a 47-Profile configured catalog.
+`quick` has six curated members, `visibility` has eight, `deep` derives its
+eight configured research Profiles, and `all` derives all 40 currently eligible
+core Profiles from a 46-Profile configured catalog.
 
 ## Provider-local PHP extension
 
@@ -126,7 +127,7 @@ not claimed here; the separately gated canary inventory is in
 | `searchapi/search` | Landed | `searchapi` | `SearchApiDriverTest` |
 | `searchapi-chatgpt/surface` | Landed | `searchapi-chatgpt` | `SearchApiDriverTest` |
 | `searchapi-gemini/surface` | Landed | `searchapi-gemini` | `SearchApiDriverTest` |
-| `searchapi-perplexity/surface` | Landed | `searchapi-perplexity` | `SearchApiDriverTest` |
+| `searchapi-perplexity/surface` | Retired | none; the ID is reserved and rejected | `SearchApiDriverTest` |
 | `searchapi-google-ai-mode/surface` | Landed | `searchapi-google-ai-mode` | `SearchApiDriverTest` |
 | `searchapi-bing-copilot/surface` | Landed | `searchapi-bing-copilot` | `SearchApiDriverTest` |
 | `searchapi-google-ai-overview/surface` | Landed | `searchapi-google-ai-overview` | `SearchApiDriverTest` |
@@ -396,15 +397,15 @@ cost remains `null`, never zero.
 
 ### `searchapi-perplexity/surface`
 
-- **Workflow:** visibility
+- **Workflow:** visibility in TypeScript; none in PHP
 - **Semantics:** surface_observation; optional; surface_snapshot; web; surface_collector/collected; perplexity via searchapi
 - **Target:** provider-managed and otherwise unaudited
-- **PHP path:** #2591 core HTTP under #2835; exact fallback identity remains #2830
-- **Binding:** SearchAPI `perplexity` engine
-- **Execution:** inline
-- **Terminal:** Surface snapshot
-- **Pricing:** configured-only request unit; unavailable until the application supplies a rate
-- **Test and proof:** Surface fixture; D + L + B
+- **PHP path:** retired; SearchAPI deprecated the `perplexity` engine (HTTP 503 "This API has been deprecated.", observed 2026-10-09) with no replacement
+- **Binding:** none; `ProfileCatalog` reserves the ID and rejects it with its retirement reason, including a copy left in a published configuration
+- **Execution:** never dispatched
+- **Terminal:** validation error before any provider call
+- **Pricing:** not applicable
+- **Test and proof:** retirement tests in `SearchApiDriverTest`; the C17 live pass on 2026-09-12 predates the deprecation
 
 ### `searchapi-google-ai-mode/surface`
 
@@ -689,7 +690,7 @@ this inventory until they have a real selectable binding.
 
 - Firecrawl remains #2592.
 - You.com remains #2694.
-- The six SearchAPI surface Profiles are owned by #2591, but cross-collector
+- The five shipped SearchAPI surface Profiles are owned by #2591, but cross-collector
   fallback stays disabled until exact measured-surface identity lands in #2830.
 - Provider network calls and paid calls require the independent approval gate
   documented in `live-provider-canaries.md`; this reconciliation made none.

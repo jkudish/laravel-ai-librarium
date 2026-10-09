@@ -144,12 +144,13 @@ it('locks the accepted TypeScript Profile inventory and its PHP classifications'
     $rows = array_column($matches, 'body', 'key');
 
     expect(array_filter($rows, fn (string $row): bool => str_contains($row, '**PHP path:** #2591 core SDK')))->toHaveCount(6)
-        ->and(array_filter($rows, fn (string $row): bool => str_contains($row, '**PHP path:** #2591 core HTTP')))->toHaveCount(14)
+        ->and(array_filter($rows, fn (string $row): bool => str_contains($row, '**PHP path:** #2591 core HTTP')))->toHaveCount(13)
+        ->and(array_filter($rows, fn (string $row): bool => str_contains($row, '**PHP path:** retired')))->toHaveCount(1)
         ->and(array_filter($rows, fn (string $row): bool => str_contains($row, '**PHP path:** #2592')))->toHaveCount(1)
         ->and(array_filter($rows, fn (string $row): bool => str_contains($row, '**PHP path:** #2694')))->toHaveCount(3)
         ->and(array_filter($rows, fn (string $row): bool => str_contains($row, '**PHP path:** #3604 core parity')))->toHaveCount(15)
         ->and(array_filter($rows, fn (string $row): bool => str_contains($row, '**PHP path:** explicit holdback')))->toBeEmpty()
-        ->and(array_filter($rows, fn (string $row): bool => str_contains($row, '#2830')))->toHaveCount(6);
+        ->and(array_filter($rows, fn (string $row): bool => str_contains($row, '#2830')))->toHaveCount(5);
 });
 
 it('reconciles every TypeScript matrix row with the landed PHP catalog', function (): void {
@@ -164,7 +165,7 @@ it('reconciles every TypeScript matrix row with the landed PHP catalog', functio
         $section,
     );
     preg_match_all(
-        '/^\| `(?<typescript>[^`]+\/[^`]+)` \| (?<disposition>Landed|Separate task|Holdback) \| (?<php>.*?) \|/m',
+        '/^\| `(?<typescript>[^`]+\/[^`]+)` \| (?<disposition>Landed|Separate task|Holdback|Retired) \| (?<php>.*?) \|/m',
         $section['body'] ?? '',
         $matches,
         PREG_SET_ORDER,
@@ -187,7 +188,6 @@ it('reconciles every TypeScript matrix row with the landed PHP catalog', functio
         'searchapi/search' => 'searchapi',
         'searchapi-chatgpt/surface' => 'searchapi-chatgpt',
         'searchapi-gemini/surface' => 'searchapi-gemini',
-        'searchapi-perplexity/surface' => 'searchapi-perplexity',
         'searchapi-google-ai-mode/surface' => 'searchapi-google-ai-mode',
         'searchapi-bing-copilot/surface' => 'searchapi-bing-copilot',
         'searchapi-google-ai-overview/surface' => 'searchapi-google-ai-overview',
@@ -298,7 +298,7 @@ it('reconciles every TypeScript matrix row with the landed PHP catalog', functio
 
     expect($matches)->toHaveCount(39)
         ->and($documentedLanded)->toBe($landed)
-        ->and($documentedAbsent)->toBe(['firecrawl-search/search'])
+        ->and($documentedAbsent)->toBe(['searchapi-perplexity/surface', 'firecrawl-search/search'])
         ->and($configuredProfiles)->toBe($expectedProfiles);
 });
 
@@ -322,6 +322,7 @@ it('keeps one separately gated live canary for every landed PHP Profile', functi
     $profiles = array_column($matches, 'profile');
     $configuredProfiles = array_keys(config('librarium.profiles'));
     $configuredProfiles[] = 'firecrawl-search';
+    $configuredProfiles[] = 'searchapi-perplexity';
     sort($profiles);
     sort($configuredProfiles);
 

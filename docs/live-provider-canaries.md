@@ -75,7 +75,7 @@ provider/model and truthful search-on terminal projection differ materially.
 | C14 | `searchapi` | SearchAPI Google raw search | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — raw google; passed 2026-09-12 under #2986 | Configured-only; external cap required |
 | C15 | `searchapi-chatgpt` | SearchAPI ChatGPT surface with web search | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — chatgpt; passed 2026-09-12 under #2986 | Configured-only; external cap required |
 | C16 | `searchapi-gemini` | SearchAPI Gemini surface | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — gemini; passed 2026-09-12 under #2986 | Configured-only; external cap required |
-| C17 | `searchapi-perplexity` | SearchAPI Perplexity surface | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — perplexity; passed 2026-09-12 under #2986 | Configured-only; external cap required |
+| C17 | `searchapi-perplexity` | **Retired.** SearchAPI deprecated its `perplexity` engine (HTTP 503 "This API has been deprecated.", observed 2026-10-09) with no replacement | `SEARCHAPI_KEY` | No dataset. It passed on 2026-09-12 under #2986, before the engine was retired. The Profile ID is now reserved and always rejected | Not runnable |
 | C18 | `searchapi-google-ai-mode` | SearchAPI Google AI Mode surface | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — google ai mode; passed 2026-09-12 under #2986 | Configured-only; external cap required |
 | C19 | `searchapi-bing-copilot` | SearchAPI Bing Copilot surface | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — bing copilot; passed 2026-09-12 under #2986 | Configured-only; external cap required |
 | C20 | `searchapi-google-ai-overview` | SearchAPI two-stage Google page token then AI Overview | `SEARCHAPI_KEY` | `SearchApiProfilesLiveTest` — google ai overview; passed 2026-09-12 under #2986 | Configured-only two-unit quote; external cap required |
@@ -110,7 +110,7 @@ provider/model and truthful search-on terminal projection differ materially.
 
 ## Narrow invocation
 
-For C01–C06, C14–C29, C30–C44, and C46–C48, invoke only the named dataset after
+For C01–C06, C14–C16, C18–C29, C30–C44, and C46–C48, invoke only the named dataset after
 approval rather than a bulk Composer script. Pass only the selected Profile
 credential to the child environment (`credential_name` must be the canonical
 name from the table):

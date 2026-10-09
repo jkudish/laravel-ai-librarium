@@ -116,7 +116,7 @@ Validation errors leave stdout empty and use bounded stderr messages.
 
 ## Profiles and groups
 
-The current source configures 47 core Profiles. Forty-one are enabled by
+The current source configures 46 core Profiles. Forty are enabled by
 default but still require valid configuration and credentials. Six DataForSEO
 Profiles are disabled until an application opts in. This count is separate
 from the frozen 39-row TypeScript/PHP release-contract snapshot.
@@ -124,7 +124,7 @@ from the frozen 39-row TypeScript/PHP release-contract snapshot.
 Built-in groups:
 
 - `quick`: six curated low-latency Profiles
-- `visibility`: six SearchAPI surface observations and three API baselines
+- `visibility`: five SearchAPI surface observations and three API baselines
 - `deep`: every configured `research_report` Profile
 - `all`: every configured Profile
 

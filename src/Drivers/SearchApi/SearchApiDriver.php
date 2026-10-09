@@ -49,7 +49,6 @@ final readonly class SearchApiDriver implements DefinesSpendingBound, Driver
         'searchapi' => ['mode' => 'search', 'engine' => 'google'],
         'searchapi-chatgpt' => ['mode' => 'surface', 'engine' => 'chatgpt', 'surface' => 'chatgpt', 'parameters' => ['web_search' => 'true']],
         'searchapi-gemini' => ['mode' => 'surface', 'engine' => 'gemini', 'surface' => 'gemini'],
-        'searchapi-perplexity' => ['mode' => 'surface', 'engine' => 'perplexity', 'surface' => 'perplexity'],
         'searchapi-google-ai-mode' => ['mode' => 'surface', 'engine' => 'google_ai_mode', 'surface' => 'google_ai_mode'],
         'searchapi-bing-copilot' => ['mode' => 'surface', 'engine' => 'bing_copilot', 'surface' => 'bing_copilot'],
         'searchapi-google-ai-overview' => ['mode' => 'overview', 'surface' => 'google_ai_overview'],

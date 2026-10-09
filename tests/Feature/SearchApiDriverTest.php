@@ -6,6 +6,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Drivers\SearchApi\SearchApiDriver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
@@ -29,7 +30,7 @@ afterEach(function (): void {
     CarbonImmutable::setTestNow();
 });
 
-it('registers the seven SearchAPI Profiles with explicit configured-only pricing assumptions', function (): void {
+it('registers the six SearchAPI Profiles with explicit configured-only pricing assumptions', function (): void {
     $profiles = app(ProfileCatalog::class)->all()
         ->filter(fn ($item): bool => $item->profile->driver === SearchApiDriver::class)
         ->mapWithKeys(fn ($item, string $id): array => [$id => [
@@ -42,19 +43,18 @@ it('registers the seven SearchAPI Profiles with explicit configured-only pricing
         'searchapi' => ['searchapi:search', ['successful_search_request' => '1'], true],
         'searchapi-chatgpt' => ['searchapi:search', ['successful_search_request' => '1'], true],
         'searchapi-gemini' => ['searchapi:search', ['successful_search_request' => '1'], true],
-        'searchapi-perplexity' => ['searchapi:search', ['successful_search_request' => '1'], true],
         'searchapi-google-ai-mode' => ['searchapi:search', ['successful_search_request' => '1'], true],
         'searchapi-bing-copilot' => ['searchapi:search', ['successful_search_request' => '1'], true],
         'searchapi-google-ai-overview' => ['searchapi:search', ['successful_search_request' => '2'], true],
     ]);
 });
 
-it('declares canonical surface semantics for all six SearchAPI surface Profiles', function (): void {
+it('declares canonical surface semantics for all five SearchAPI surface Profiles', function (): void {
     $profiles = app(ProfileCatalog::class)->group('visibility')['profiles']
         ->filter(fn ($profile): bool => $profile->driver === SearchApiDriver::class)
         ->filter(fn ($profile): bool => $profile->observation === ObservationMode::SurfaceSnapshot);
 
-    expect($profiles)->toHaveCount(6);
+    expect($profiles)->toHaveCount(5);
     $profiles->each(function ($profile): void {
         expect($profile->resultKind)->toBe(ResultKind::SurfaceObservation)
             ->and($profile->observation)->toBe(ObservationMode::SurfaceSnapshot)
@@ -116,7 +116,6 @@ it('sends one bearer-authenticated GET with the built-in engine and query and no
     'raw google' => ['searchapi', 'google'],
     'chatgpt' => ['searchapi-chatgpt', 'chatgpt'],
     'gemini' => ['searchapi-gemini', 'gemini'],
-    'perplexity' => ['searchapi-perplexity', 'perplexity'],
     'google ai mode' => ['searchapi-google-ai-mode', 'google_ai_mode'],
     'bing copilot' => ['searchapi-bing-copilot', 'bing_copilot'],
 ]);
@@ -480,7 +479,6 @@ it('registers the SearchAPI visibility surfaces in catalog order and keeps the r
         ->and($catalog->group('visibility')['profiles']->pluck('id')->all())->toBe([
             'searchapi-chatgpt',
             'searchapi-gemini',
-            'searchapi-perplexity',
             'searchapi-google-ai-mode',
             'searchapi-bing-copilot',
             'searchapi-google-ai-overview',
@@ -528,3 +526,31 @@ function searchApiFixture(string $name): array
 
     return is_array($decoded) ? $decoded : [];
 }
+
+it('rejects the retired SearchAPI Perplexity Profile with its retirement reason', function (): void {
+    expect(config('librarium.profiles'))->not->toHaveKey('searchapi-perplexity');
+
+    try {
+        Librarium::query('best pizza in Rome')->using('searchapi-perplexity')->preview();
+        $this->fail('The retired Profile should be rejected.');
+    } catch (ValidationException $exception) {
+        expect($exception->errors()['using'])->toBe([
+            'searchapi-perplexity: Profile is retired: SearchAPI deprecated its perplexity engine (observed 2026-10-09) and offers no replacement.',
+        ]);
+    }
+
+    Http::assertNothingSent();
+});
+
+it('keeps a retired SearchAPI Perplexity Profile from a published configuration ineligible', function (): void {
+    config()->set('librarium.profiles.searchapi-perplexity', [
+        ...config('librarium.profiles.searchapi-chatgpt'),
+        'credential' => 'testing-searchapi-key',
+    ]);
+
+    $availability = app(ProfileCatalog::class)->find('searchapi-perplexity');
+
+    expect($availability?->isEligible())->toBeFalse()
+        ->and($availability?->reasons)->toContain('Profile is retired: SearchAPI deprecated its perplexity engine (observed 2026-10-09) and offers no replacement.')
+        ->and(app(ProfileCatalog::class)->group('all')['unavailable'])->toHaveKey('searchapi-perplexity');
+});

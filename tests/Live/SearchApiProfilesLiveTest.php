@@ -56,7 +56,6 @@ it('runs a live SearchAPI query through each profile', function (string $profile
     'raw google' => ['searchapi'],
     'chatgpt' => ['searchapi-chatgpt'],
     'gemini' => ['searchapi-gemini'],
-    'perplexity' => ['searchapi-perplexity'],
     'google ai mode' => ['searchapi-google-ai-mode'],
     'bing copilot' => ['searchapi-bing-copilot'],
     'google ai overview' => ['searchapi-google-ai-overview'],
