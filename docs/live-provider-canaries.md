@@ -1,7 +1,8 @@
 # Live provider canary approval gates
 
 This is the inventory and operating policy for materially unique live checks
-for 47 core Profiles plus the optional Firecrawl Search adapter Profile. The
+for 46 core Profiles plus the optional Firecrawl Search adapter Profile. C17
+stays listed for its historical receipt, but its Profile is retired. The
 ordinary test suite remains network-free; every live execution still requires
 an explicit approval bound to its exact candidate, scope, and spend ceiling.
 

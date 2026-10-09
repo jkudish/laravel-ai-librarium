@@ -360,7 +360,7 @@ final readonly class TypeScriptRepin
     private function replaceDirectory(string $relative, array $files): void
     {
         $target = $this->root.'/'.$relative;
-        $staging = dirname($target).'/.'.basename($target).'-repin-'.bin2hex(random_bytes(4));
+        $staging = dirname($target).'/.'.basename($target).'-repin-'.sprintf('%x', random_int(0, PHP_INT_MAX));
         $retired = $staging.'-previous';
 
         foreach ($files as $path => $contents) {
@@ -484,7 +484,7 @@ final readonly class TypeScriptRepin
     /** @return list<list<string>> */
     private static function nodeInventory(string $checkout): array
     {
-        $directory = sys_get_temp_dir().'/librarium-inventory-'.bin2hex(random_bytes(6));
+        $directory = sys_get_temp_dir().'/librarium-inventory-'.sprintf('%x', random_int(0, PHP_INT_MAX));
         if (! mkdir($directory, 0700)) {
             throw new RuntimeException('Unable to create a temporary directory for the Profile inventory.');
         }
