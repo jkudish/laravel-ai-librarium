@@ -121,7 +121,7 @@ it('exposes matching GPT-6 Luna target and pricing bindings through the catalog'
         ->and($availability?->profile->options)->toBe($options);
 })->with([
     'OpenRouter grounded' => ['openrouter-grounded', 'openai/gpt-6-luna', 'openrouter:openai/gpt-6-luna', ['search_engine' => 'exa']],
-    'OpenAI chat' => ['openai-chat', 'gpt-6-luna', 'openai:gpt-6-luna', ['web_search' => true]],
+    'OpenAI chat' => ['openai-chat', 'gpt-6-luna', 'openai:gpt-6-luna-standard-short', ['web_search' => true]],
     'Perplexity frozen low' => ['perplexity-low-frozen', 'openai/gpt-6-luna', 'perplexity:openai/gpt-6-luna', ['configuration' => 'frozen-low-2026-10-03']],
 ]);
 

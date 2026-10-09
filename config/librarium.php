@@ -287,9 +287,14 @@ return [
             'enabled' => true,
             'options' => ['web_search' => true],
             'credential' => config('ai.providers.openai.key'),
+            // laravel-ai-pricing blocks the generic openai:gpt-6-luna identity
+            // because context length, region and service tier change its rate.
+            // The quote's 100,000 input tokens sit inside the standard tier's
+            // at-most-272,000-token billing basis; larger prompts bill at the
+            // -standard-long rate, which this estimate does not cover.
             'pricing' => [
                 'provider' => 'openai',
-                'model' => 'gpt-6-luna',
+                'model' => 'gpt-6-luna-standard-short',
                 'usage' => ['input_tokens' => 100_000, 'output_tokens' => 100_000, 'web_searches' => 100],
                 'conservative' => false,
             ],
