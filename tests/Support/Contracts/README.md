@@ -1,34 +1,40 @@
 # Development Contract Snapshot
 
-`v1/` is a development-only terminal snapshot derived from
-[`jkudish/librarium`](https://github.com/jkudish/librarium) candidate commit
-`889b0366b5baafff117198632e04b24e521ac93d`. The candidate's accepted domain
-corpus vocabulary in `src/contracts/domain/semantic.ts` adds `specialized`;
-this snapshot carries that value into the terminal schema and enum coverage
-fixture while retaining the candidate's terminal-only structure.
+`v1/` is a byte-for-byte copy of `contracts/v1` from
+[`jkudish/librarium`](https://github.com/jkudish/librarium/tree/4c0d3d6383e37d37972fd3fe5f947d5a3972bbb3) commit
+`4c0d3d6383e37d37972fd3fe5f947d5a3972bbb3`. It carries no PHP-local adjustments.
 
-Pinned facts:
+Pinned facts (from `tests/Support/typescript-pin.json`):
 
+- Upstream ref: `4c0d3d6383e37d37972fd3fe5f947d5a3972bbb3`
+- Release tag: `none`
+- Package version: `2.0.0`
 - Contract directory: `v1`
-- Snapshot version: `1`
 - Contract scope: terminal interchange only
-- Manifest SHA-256: `4b8667d98ea5334793e95ebf3c15c96518d42a5e0369ac5ed66fb599b0e1793f`
-- Checksum index SHA-256: `ba0ecf38a6ade68d3b49d4c0d8bbbae74f05202ed718dd319c0c1bb0d341415f`
-- Interchange schema SHA-256: `ef938d851eee61bb2ce96c11669b355179bbd4e6b82cea4a71914671ab3450a1`
+- Manifest SHA-256: `7afd208b5ed7598f7700f0c7f73bdd395431d8143e25a05a1a25aa14aa9c09ac`
+- Checksum index SHA-256: `0185cfba96f8c802879729d7981c03cdb479390d8032a5a255bc9c576d5c64a0`
+- Interchange schema SHA-256: `d1a3471c72175bc487d7c50c56031d78b7f3e4c7af8527d7c45c146313ed87a4`
 - Schemas: 1
 - Top-level schema definitions: 7
-- Valid fixtures: 17
-- Invalid fixtures: 40
+- Valid fixtures: 18
+- Invalid fixtures: 41
 - Semantic rules: 6
-- Manifest entries: 60, including `manifest.json`
-- Checksum entries: 60, including `manifest.json`
-- Total snapshot files: 61, including `checksums.sha256`
+- Manifest entries: 62, including `manifest.json`
+- Checksum entries: 62, including `manifest.json`
+- Total snapshot files: 63, including `checksums.sha256`
 
-The source generator prunes execution, lifecycle, artifact, and other runtime
-contracts from this terminal snapshot. The PHP verifier runs offline. It does
-not add a TypeScript, npm, or Node runtime dependency. The snapshot is test
-support only and is not part of the package's public API.
+Do not edit these files by hand. Regenerate the snapshot, the Profile
+inventory, and every pin with:
 
-This commit pin is a development baseline. Before the final package release,
-replace it with the accepted Librarium v2 Git tag and repin all SHA-256 values.
-A commit hash alone is not the release provenance gate.
+```bash
+composer typescript:repin -- /path/to/librarium <ref>
+```
+
+The checkout must be clean with `<ref>` checked out and its npm
+dependencies installed. The PHP verifier itself runs offline and adds no
+TypeScript, npm, or Node runtime dependency. The snapshot is test support
+only and is not part of the package's public API.
+
+This is a development pin to ref `4c0d3d6383e37d37972fd3fe5f947d5a3972bbb3`. Before the final package
+release, rerun `composer typescript:repin` against the accepted Librarium
+`v2.0.0` Git tag; the release check blocks until the pin names it.

@@ -3,9 +3,7 @@
     "target_version": "1.0.0",
     "typescript": {
         "version": "2.0.0",
-        "tag": null,
-        "commit": "889b0366b5baafff117198632e04b24e521ac93d",
-        "profile_snapshot_sha256": "83739ba138c2db2c4673aada5834a5586f085a6c971253b155339eb570dbb9f9"
+        "tag": "v2.0.0"
     },
     "gates": [
         {

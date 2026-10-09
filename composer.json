@@ -87,6 +87,7 @@
         "pr:check": "@php tools/pr-check.php",
         "pr:signoff": "@php tools/pr-signoff.php",
         "release:check": "@php tools/release-check.php",
+        "typescript:repin": "@php tools/repin-typescript.php",
         "check": [
             "@composer format:check",
             "@composer analyse",

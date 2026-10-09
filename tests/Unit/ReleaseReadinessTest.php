@@ -3,10 +3,42 @@
 declare(strict_types=1);
 
 use Jkudish\LaravelAiLibrarium\Tools\ReleaseReadiness;
+use Jkudish\LaravelAiLibrarium\Tools\TypeScriptPin;
 
 require_once dirname(__DIR__, 2).'/tools/ReleaseReadiness.php';
 
-const RELEASE_PROFILE_SNAPSHOT_SHA256 = '83739ba138c2db2c4673aada5834a5586f085a6c971253b155339eb570dbb9f9';
+function releaseReadinessPin(?string $tag = 'v2.0.0', string $packageVersion = '2.0.0'): TypeScriptPin
+{
+    return new TypeScriptPin(
+        ref: $tag ?? 'feature-branch',
+        tag: $tag,
+        commit: str_repeat('c', 40),
+        packageVersion: $packageVersion,
+        contractChecksumsSha256: str_repeat('d', 64),
+        contractManifestSha256: str_repeat('e', 64),
+        contractInterchangeSchemaSha256: str_repeat('f', 64),
+        contractTotals: [
+            'schemas' => 1,
+            'definitions' => 7,
+            'valid_fixtures' => 18,
+            'invalid_fixtures' => 41,
+            'semantic_rules' => 6,
+            'manifest_entries' => 62,
+            'checksum_entries' => 62,
+            'snapshot_files' => 63,
+        ],
+        profilesSha256: str_repeat('a', 64),
+        profileCount: 41,
+    );
+}
+
+/** @return array{0: TypeScriptPin, 1: string, 2: string} */
+function releaseReadinessPinned(?TypeScriptPin $pin = null): array
+{
+    $pin ??= releaseReadinessPin();
+
+    return [$pin, $pin->profilesSha256, $pin->contractChecksumsSha256];
+}
 
 /** @return array<string, mixed> */
 function releaseReadinessComposerFixture(): array
@@ -43,8 +75,6 @@ function releaseReadinessManifestFixture(): array
         'typescript' => [
             'version' => '2.0.0',
             'tag' => 'v2.0.0',
-            'commit' => '889b0366b5baafff117198632e04b24e521ac93d',
-            'profile_snapshot_sha256' => RELEASE_PROFILE_SNAPSHOT_SHA256,
         ],
         'gates' => [
             ['id' => 'php-8.4-lowest-compatibility', 'title' => 'PHP 8.4 lowest-dependency compatibility', 'status' => 'complete', 'evidence' => $evidence('compatibility-lowest')],
@@ -59,11 +89,40 @@ function releaseReadinessManifestFixture(): array
 }
 
 it('reports every current local and external 1.0 release blocker', function (): void {
-    expect((new ReleaseReadiness)->blockers())->toBe([
-        'CHANGELOG.md retains an Unreleased heading after the 1.0.0 release.',
-        'The accepted TypeScript v2 release tag is not recorded.',
-    ]);
+    $pin = TypeScriptPin::load(dirname(__DIR__, 2));
+
+    expect($pin->tag)->toBeNull()
+        ->and((new ReleaseReadiness)->blockers())->toBe([
+            "The accepted TypeScript v2.0.0 release tag is not pinned; the contract and Profile inventory are pinned to commit {$pin->commit} (ref {$pin->ref}). Rerun composer typescript:repin against v2.0.0.",
+        ]);
 });
+
+it('blocks until the TypeScript pin names the accepted release tag and package version', function (?string $tag, string $version, string $message): void {
+    $pin = releaseReadinessPin($tag, $version);
+
+    expect(ReleaseReadiness::evaluate(
+        releaseReadinessComposerFixture(),
+        "## 1.0.0 - 2026-10-09\n",
+        releaseReadinessManifestFixture(),
+        ...releaseReadinessPinned($pin),
+    ))->toBe([str_replace(['{commit}', '{ref}'], [$pin->commit, $pin->ref], $message)]);
+})->with([
+    'development commit' => [null, '2.0.0', 'The accepted TypeScript v2.0.0 release tag is not pinned; the contract and Profile inventory are pinned to commit {commit} (ref {ref}). Rerun composer typescript:repin against v2.0.0.'],
+    'wrong package version' => ['v2.0.0', '2.1.0', 'The TypeScript pin is package version 2.1.0, not the accepted 2.0.0.'],
+]);
+
+it('requires a single first-release changelog section', function (string $changelog, string $found): void {
+    expect(ReleaseReadiness::evaluate(
+        releaseReadinessComposerFixture(),
+        $changelog,
+        releaseReadinessManifestFixture(),
+        ...releaseReadinessPinned(),
+    ))->toBe(["CHANGELOG.md must contain only the first 1.0.0 release section; found [{$found}]."]);
+})->with([
+    'later major' => ["## 1.0.0 - 2026-10-09\n\n## 2.0.0 - 2026-09-26\n", '2.0.0'],
+    'bracketed prior version' => ["## [1.0.0] - 2026-10-09\n\n## [0.9.0] - 2026-08-01\n", '0.9.0'],
+    'repeated release' => ["## 1.0.0 - 2026-10-09\n\n## 1.0.0 - 2026-09-15\n", 'a repeated 1.0.0 section'],
+]);
 
 it('passes only stable versioned metadata with completed evidenced gates', function (): void {
     $composer = releaseReadinessComposerFixture();
@@ -73,7 +132,7 @@ it('passes only stable versioned metadata with completed evidenced gates', funct
         $composer,
         "# Changelog\n\n## [1.0.0] - 2026-09-11\n",
         $manifest,
-        RELEASE_PROFILE_SNAPSHOT_SHA256,
+        ...releaseReadinessPinned(),
     ))->toBe([]);
 });
 
@@ -86,7 +145,7 @@ it('blocks every Composer development or prerelease runtime constraint', functio
         $composer,
         "## 1.0.0 - 2026-09-11\n",
         $manifest,
-        RELEASE_PROFILE_SNAPSHOT_SHA256,
+        ...releaseReadinessPinned(),
     ))->toBe(["Runtime dependency example/package uses non-stable constraint [{$constraint}]."]);
 })->with([
     'development branch' => 'dev-main',
@@ -107,7 +166,7 @@ it('requires stable Composer minimum stability', function (string $stability): v
         $composer,
         "## 1.0.0 - 2026-09-11\n",
         releaseReadinessManifestFixture(),
-        RELEASE_PROFILE_SNAPSHOT_SHA256,
+        ...releaseReadinessPinned(),
     ))->toContain('Composer minimum-stability must remain [stable].');
 })->with(['dev', 'alpha', 'beta', 'RC']);
 
@@ -119,7 +178,7 @@ it('requires the exact supported PHP, Laravel, and Laravel AI compatibility poli
         $composer,
         "## 1.0.0 - 2026-09-11\n",
         releaseReadinessManifestFixture(),
-        RELEASE_PROFILE_SNAPSHOT_SHA256,
+        ...releaseReadinessPinned(),
     ))->toBe([$message]);
 })->with([
     'PHP floor' => ['require', 'php', '^8.3', 'Runtime dependency php must use the release compatibility constraint [^8.4].'],
@@ -139,7 +198,7 @@ it('rejects a completed gate without durable evidence', function (): void {
         releaseReadinessComposerFixture(),
         "## 1.0.0 - 2026-09-11\n",
         $manifest,
-        RELEASE_PROFILE_SNAPSHOT_SHA256,
+        ...releaseReadinessPinned(),
     ))->toBe(['Gate [2593] is missing evidence: SearchAPI and Firecrawl fidelity bake-off.']);
 });
 
@@ -151,7 +210,7 @@ it('rejects evidence that is not a durable HTTPS reference with a content digest
         releaseReadinessComposerFixture(),
         "## 1.0.0 - 2026-09-11\n",
         $manifest,
-        RELEASE_PROFILE_SNAPSHOT_SHA256,
+        ...releaseReadinessPinned(),
     ))->toThrow(RuntimeException::class, 'The release-readiness manifest contains an invalid gate.');
 })->with([
     'arbitrary text' => ['x'],
@@ -162,25 +221,32 @@ it('rejects evidence that is not a durable HTTPS reference with a content digest
     'malformed digest' => [['uri' => 'https://example.com/evidence', 'sha256' => 'abc123']],
 ]);
 
-it('rejects a Profile snapshot and manifest that drift together from the accepted digest', function (): void {
-    $manifest = releaseReadinessManifestFixture();
-    $manifest['typescript']['profile_snapshot_sha256'] = str_repeat('b', 64);
-
-    expect(fn (): array => ReleaseReadiness::evaluate(
-        releaseReadinessComposerFixture(),
-        "## 1.0.0 - 2026-09-11\n",
-        $manifest,
-        str_repeat('b', 64),
-    ))->toThrow(RuntimeException::class, 'The release-readiness manifest is malformed or does not match the accepted v2 Profile snapshot.');
-});
-
-it('rejects Profile file drift while the manifest retains the accepted digest', function (): void {
+it('rejects vendored files that drift from the TypeScript pin', function (string $profileHash, string $contractHash): void {
     expect(fn (): array => ReleaseReadiness::evaluate(
         releaseReadinessComposerFixture(),
         "## 1.0.0 - 2026-09-11\n",
         releaseReadinessManifestFixture(),
-        str_repeat('b', 64),
-    ))->toThrow(RuntimeException::class, 'The release-readiness manifest is malformed or does not match the accepted v2 Profile snapshot.');
+        releaseReadinessPin(),
+        $profileHash,
+        $contractHash,
+    ))->toThrow(RuntimeException::class, 'does not match tests/Support/typescript-pin.json');
+})->with([
+    'Profile inventory' => [str_repeat('b', 64), str_repeat('d', 64)],
+    'contract checksum index' => [str_repeat('a', 64), str_repeat('b', 64)],
+]);
+
+it('rejects a malformed or hand-edited TypeScript pin', function (): void {
+    $value = releaseReadinessPin()->toArray();
+    $value['commit'] = '889b036';
+
+    expect(fn (): TypeScriptPin => TypeScriptPin::fromArray($value))
+        ->toThrow(RuntimeException::class, 'The TypeScript pin is malformed.');
+});
+
+it('loads the committed pin in canonical form', function (): void {
+    $pin = TypeScriptPin::load(dirname(__DIR__, 2));
+
+    expect($pin->toJson())->toBe(file_get_contents(dirname(__DIR__, 2).'/'.TypeScriptPin::PATH));
 });
 
 it('rejects missing, replaced, or retitled canonical release gates', function (string $mutation): void {
@@ -204,11 +270,11 @@ it('rejects missing, replaced, or retitled canonical release gates', function (s
         releaseReadinessComposerFixture(),
         "## 1.0.0 - 2026-09-11\n",
         $manifest,
-        RELEASE_PROFILE_SNAPSHOT_SHA256,
+        ...releaseReadinessPinned(),
     ))->toThrow(RuntimeException::class, 'The release-readiness manifest must contain the canonical 1.0 release gates.');
 })->with(['missing', 'replaced', 'retitled']);
 
-it('rejects any TypeScript tag other than the exact accepted v2 release tag', function (): void {
+it('requires the manifest to name exactly the accepted TypeScript v2.0.0 release', function (): void {
     $manifest = releaseReadinessManifestFixture();
     $manifest['typescript']['tag'] = '2.0.0';
 
@@ -216,7 +282,7 @@ it('rejects any TypeScript tag other than the exact accepted v2 release tag', fu
         releaseReadinessComposerFixture(),
         "## 1.0.0 - 2026-09-11\n",
         $manifest,
-        RELEASE_PROFILE_SNAPSHOT_SHA256,
+        ...releaseReadinessPinned(),
     ))->toThrow(RuntimeException::class);
 });
 
@@ -225,7 +291,7 @@ it('rejects impossible changelog release dates', function (string $date): void {
         releaseReadinessComposerFixture(),
         "## 1.0.0 - {$date}\n",
         releaseReadinessManifestFixture(),
-        RELEASE_PROFILE_SNAPSHOT_SHA256,
+        ...releaseReadinessPinned(),
     ))->toBe(['CHANGELOG.md does not contain a dated 1.0.0 release heading.']);
 })->with(['2026-02-29', '2026-13-01', '2026-99-99']);
 
@@ -234,6 +300,6 @@ it('requires the Unreleased changelog section to be converted into the dated rel
         releaseReadinessComposerFixture(),
         "# Changelog\n\n## Unreleased\n\n- Pending.\n\n## [1.0.0] - 2026-09-11\n",
         releaseReadinessManifestFixture(),
-        RELEASE_PROFILE_SNAPSHOT_SHA256,
+        ...releaseReadinessPinned(),
     ))->toBe(['CHANGELOG.md retains an Unreleased heading after the 1.0.0 release.']);
 });

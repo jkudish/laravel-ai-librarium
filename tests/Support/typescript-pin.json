@@ -1,0 +1,27 @@
+{
+    "schema_version": 1,
+    "repository": "jkudish/librarium",
+    "ref": "4c0d3d6383e37d37972fd3fe5f947d5a3972bbb3",
+    "tag": null,
+    "commit": "4c0d3d6383e37d37972fd3fe5f947d5a3972bbb3",
+    "package_version": "2.0.0",
+    "contracts": {
+        "checksums_sha256": "0185cfba96f8c802879729d7981c03cdb479390d8032a5a255bc9c576d5c64a0",
+        "manifest_sha256": "7afd208b5ed7598f7700f0c7f73bdd395431d8143e25a05a1a25aa14aa9c09ac",
+        "interchange_schema_sha256": "d1a3471c72175bc487d7c50c56031d78b7f3e4c7af8527d7c45c146313ed87a4",
+        "totals": {
+            "schemas": 1,
+            "definitions": 7,
+            "valid_fixtures": 18,
+            "invalid_fixtures": 41,
+            "semantic_rules": 6,
+            "manifest_entries": 62,
+            "checksum_entries": 62,
+            "snapshot_files": 63
+        }
+    },
+    "profiles": {
+        "sha256": "3422efce54284997b6c8c483cbaffa00c1589bfc53d9d467943d90c1028218c6",
+        "count": 41
+    }
+}

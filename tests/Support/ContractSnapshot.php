@@ -6,6 +6,7 @@ namespace Jkudish\LaravelAiLibrarium\Tests\Support;
 
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
+use Jkudish\LaravelAiLibrarium\Tools\TypeScriptPin;
 use JsonException;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
@@ -17,32 +18,6 @@ final class ContractSnapshot
     public const string CONTRACT_VERSION = 'v1';
 
     public const int SNAPSHOT_VERSION = 1;
-
-    public const string UPSTREAM_COMMIT = '889b0366b5baafff117198632e04b24e521ac93d';
-
-    public const string MANIFEST_SHA256 = '4b8667d98ea5334793e95ebf3c15c96518d42a5e0369ac5ed66fb599b0e1793f';
-
-    public const string CHECKSUMS_SHA256 = 'ba0ecf38a6ade68d3b49d4c0d8bbbae74f05202ed718dd319c0c1bb0d341415f';
-
-    public const string INTERCHANGE_SCHEMA_SHA256 = 'ef938d851eee61bb2ce96c11669b355179bbd4e6b82cea4a71914671ab3450a1';
-
-    public const int SCHEMA_FILE_COUNT = 1;
-
-    public const int DEFINITION_COUNT = 7;
-
-    public const int VALID_FIXTURE_COUNT = 17;
-
-    public const int INVALID_FIXTURE_COUNT = 40;
-
-    public const int FIXTURE_COUNT = self::VALID_FIXTURE_COUNT + self::INVALID_FIXTURE_COUNT;
-
-    public const int SEMANTIC_RULE_COUNT = 6;
-
-    public const int MANIFEST_FILE_COUNT = 60;
-
-    public const int CHECKSUM_ENTRY_COUNT = 60;
-
-    public const int SNAPSHOT_FILE_COUNT = 61;
 
     /** @var list<string> */
     public const array DEFINITION_NAMES = [
@@ -67,14 +42,25 @@ final class ContractSnapshot
 
     private readonly string $directory;
 
-    public function __construct(string $directory)
+    private readonly TypeScriptPin $pin;
+
+    public function __construct(string $directory, ?TypeScriptPin $pin = null)
     {
         $this->directory = rtrim($directory, '/\\');
+        $this->pin = $pin ?? self::pin();
     }
 
     public static function vendored(): self
     {
         return new self(__DIR__.'/Contracts/'.self::CONTRACT_VERSION);
+    }
+
+    /** The accepted upstream snapshot, written only by composer typescript:repin. */
+    public static function pin(): TypeScriptPin
+    {
+        require_once dirname(__DIR__, 2).'/tools/TypeScriptPin.php';
+
+        return TypeScriptPin::load(dirname(__DIR__, 2));
     }
 
     /**
@@ -135,10 +121,10 @@ final class ContractSnapshot
             throw new UnexpectedValueException('Contract snapshot contains unexpected file(s): '.implode(', ', $unexpectedFiles).'.');
         }
 
-        if (count($actualFiles) !== self::SNAPSHOT_FILE_COUNT) {
+        if (count($actualFiles) !== $this->pin->contractTotals['snapshot_files']) {
             throw new UnexpectedValueException(
                 'Contract snapshot contains '.count($actualFiles)
-                .' files; expected '.self::SNAPSHOT_FILE_COUNT.'.'
+                .' files; expected '.$this->pin->contractTotals['snapshot_files'].'.'
             );
         }
 
@@ -158,7 +144,7 @@ final class ContractSnapshot
             }
         }
 
-        if (($checksums['manifest.json'] ?? null) !== self::MANIFEST_SHA256) {
+        if (($checksums['manifest.json'] ?? null) !== $this->pin->contractManifestSha256) {
             throw new UnexpectedValueException('Contract snapshot checksum index does not contain the pinned manifest checksum.');
         }
 
@@ -174,20 +160,11 @@ final class ContractSnapshot
         return [
             'contract_version' => self::CONTRACT_VERSION,
             'snapshot_version' => self::SNAPSHOT_VERSION,
-            'upstream_commit' => self::UPSTREAM_COMMIT,
-            'manifest_sha256' => self::MANIFEST_SHA256,
-            'checksums_sha256' => self::CHECKSUMS_SHA256,
-            'interchange_schema_sha256' => self::INTERCHANGE_SCHEMA_SHA256,
-            'totals' => [
-                'schemas' => self::SCHEMA_FILE_COUNT,
-                'definitions' => self::DEFINITION_COUNT,
-                'valid_fixtures' => self::VALID_FIXTURE_COUNT,
-                'invalid_fixtures' => self::INVALID_FIXTURE_COUNT,
-                'semantic_rules' => self::SEMANTIC_RULE_COUNT,
-                'manifest_entries' => self::MANIFEST_FILE_COUNT,
-                'checksum_entries' => self::CHECKSUM_ENTRY_COUNT,
-                'snapshot_files' => self::SNAPSHOT_FILE_COUNT,
-            ],
+            'upstream_commit' => $this->pin->commit,
+            'manifest_sha256' => $this->pin->contractManifestSha256,
+            'checksums_sha256' => $this->pin->contractChecksumsSha256,
+            'interchange_schema_sha256' => $this->pin->contractInterchangeSchemaSha256,
+            'totals' => $this->pin->contractTotals,
         ];
     }
 
@@ -202,11 +179,11 @@ final class ContractSnapshot
             'title' => ['required', 'string', Rule::in(['Librarium terminal interchange snapshot'])],
             'areas' => ['required', 'array', 'size:1'],
             'areas.*' => ['required', 'string', Rule::in(['interchange'])],
-            'semantic_rules' => ['required', 'array', 'size:'.self::SEMANTIC_RULE_COUNT],
+            'semantic_rules' => ['required', 'array', 'size:'.$this->pin->contractTotals['semantic_rules']],
             'semantic_rules.*' => ['required', 'array:rule_id,description'],
             'semantic_rules.*.rule_id' => ['required', 'string', 'distinct'],
             'semantic_rules.*.description' => ['required', 'string'],
-            'files' => ['required', 'array', 'size:'.self::MANIFEST_FILE_COUNT],
+            'files' => ['required', 'array', 'size:'.$this->pin->contractTotals['manifest_entries']],
             'files.*' => ['required', 'array:path,role,areas'],
             'files.*.path' => ['required', 'string', 'distinct'],
             'files.*.role' => ['required', 'string', Rule::in(['schema', 'fixture_index', 'fixture', 'manifest'])],
@@ -241,10 +218,10 @@ final class ContractSnapshot
             throw new UnexpectedValueException('Unable to hash contract snapshot checksum index.');
         }
 
-        if (! hash_equals(self::CHECKSUMS_SHA256, $actualChecksum)) {
+        if (! hash_equals($this->pin->contractChecksumsSha256, $actualChecksum)) {
             throw new UnexpectedValueException(
                 'Contract snapshot checksum index does not match the pinned upstream baseline: '
-                .'expected '.self::CHECKSUMS_SHA256.", got {$actualChecksum}."
+                .'expected '.$this->pin->contractChecksumsSha256.", got {$actualChecksum}."
             );
         }
     }
@@ -258,10 +235,10 @@ final class ContractSnapshot
             throw new UnexpectedValueException('Unable to hash contract snapshot interchange schema.');
         }
 
-        if (! hash_equals(self::INTERCHANGE_SCHEMA_SHA256, $actualChecksum)) {
+        if (! hash_equals($this->pin->contractInterchangeSchemaSha256, $actualChecksum)) {
             throw new UnexpectedValueException(
                 'Contract snapshot interchange schema does not match the pinned upstream baseline: '
-                .'expected '.self::INTERCHANGE_SCHEMA_SHA256.", got {$actualChecksum}."
+                .'expected '.$this->pin->contractInterchangeSchemaSha256.", got {$actualChecksum}."
             );
         }
     }
@@ -299,10 +276,10 @@ final class ContractSnapshot
             $checksums[$relativePath] = $matches[1];
         }
 
-        if (count($checksums) !== self::CHECKSUM_ENTRY_COUNT) {
+        if (count($checksums) !== $this->pin->contractTotals['checksum_entries']) {
             throw new UnexpectedValueException(
                 'Contract snapshot checksum index contains '.count($checksums)
-                .' entries; expected '.self::CHECKSUM_ENTRY_COUNT.'.'
+                .' entries; expected '.$this->pin->contractTotals['checksum_entries'].'.'
             );
         }
 
@@ -393,10 +370,10 @@ final class ContractSnapshot
 
         $roleTotals = array_count_values(array_column($manifestFiles, 'role'));
         $expectedRoleTotals = [
-            'fixture' => self::FIXTURE_COUNT,
+            'fixture' => $this->fixtureCount(),
             'fixture_index' => 1,
             'manifest' => 1,
-            'schema' => self::SCHEMA_FILE_COUNT,
+            'schema' => $this->pin->contractTotals['schemas'],
         ];
         ksort($roleTotals);
 
@@ -418,7 +395,7 @@ final class ContractSnapshot
     {
         $fixtureIndex = $this->decodeJsonFile('fixtures/index.json');
         $validator = Validator::make($fixtureIndex, [
-            'fixtures' => ['required', 'array', 'size:'.self::FIXTURE_COUNT],
+            'fixtures' => ['required', 'array', 'size:'.$this->fixtureCount()],
             'fixtures.*' => ['required', 'array:id,path,valid,area,schema_path,schema_ref,enforcement,semantic_rule_id'],
             'fixtures.*.id' => ['required', 'string', 'distinct'],
             'fixtures.*.path' => ['required', 'string', 'distinct'],
@@ -500,10 +477,10 @@ final class ContractSnapshot
             throw new UnexpectedValueException('Contract snapshot fixture index does not match the manifest fixture inventory.');
         }
 
-        if ($validFixtureCount !== self::VALID_FIXTURE_COUNT || $invalidFixtureCount !== self::INVALID_FIXTURE_COUNT) {
+        if ($validFixtureCount !== $this->pin->contractTotals['valid_fixtures'] || $invalidFixtureCount !== $this->pin->contractTotals['invalid_fixtures']) {
             throw new UnexpectedValueException(
                 "Contract snapshot fixture index contains {$validFixtureCount} valid and {$invalidFixtureCount} invalid fixtures; "
-                .'expected '.self::VALID_FIXTURE_COUNT.' valid and '.self::INVALID_FIXTURE_COUNT.' invalid fixtures.'
+                .'expected '.$this->pin->contractTotals['valid_fixtures'].' valid and '.$this->pin->contractTotals['invalid_fixtures'].' invalid fixtures.'
             );
         }
 
@@ -524,7 +501,7 @@ final class ContractSnapshot
             '$schema' => ['required', 'string', Rule::in(['https://json-schema.org/draft/2020-12/schema'])],
             '$id' => ['required', 'string', Rule::in(['https://librarium.dev/contracts/v1/interchange'])],
             'title' => ['required', 'string', Rule::in(['Librarium terminal interchange'])],
-            '$defs' => ['required', 'array', 'size:'.self::DEFINITION_COUNT],
+            '$defs' => ['required', 'array', 'size:'.$this->pin->contractTotals['definitions']],
         ]);
 
         if ($validator->fails()) {
@@ -539,6 +516,11 @@ final class ContractSnapshot
         if ($definitionNames !== self::DEFINITION_NAMES) {
             throw new UnexpectedValueException('Contract snapshot schema does not contain the accepted definition inventory.');
         }
+    }
+
+    private function fixtureCount(): int
+    {
+        return $this->pin->contractTotals['valid_fixtures'] + $this->pin->contractTotals['invalid_fixtures'];
     }
 
     private function isUnsafePath(string $relativePath): bool

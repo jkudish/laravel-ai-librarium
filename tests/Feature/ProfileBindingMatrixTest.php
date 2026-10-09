@@ -3,6 +3,10 @@
 declare(strict_types=1);
 
 use Jkudish\LaravelAiLibrarium\ProfileCatalog;
+use Jkudish\LaravelAiLibrarium\Tests\Support\ContractSnapshot;
+use Jkudish\LaravelAiLibrarium\Tools\TypeScriptRepin;
+
+require_once dirname(__DIR__, 2).'/tools/TypeScriptRepin.php';
 
 /**
  * @return array<string, array{
@@ -27,22 +31,24 @@ function acceptedTypeScriptProfiles(): array
         throw new RuntimeException('The accepted TypeScript Profile snapshot is unreadable.');
     }
 
-    if (! hash_equals('83739ba138c2db2c4673aada5834a5586f085a6c971253b155339eb570dbb9f9', hash('sha256', $contents))) {
-        throw new RuntimeException('The accepted TypeScript Profile snapshot checksum has drifted.');
+    $pin = ContractSnapshot::pin();
+
+    if (! hash_equals($pin->profilesSha256, hash('sha256', $contents))) {
+        throw new RuntimeException('The accepted TypeScript Profile snapshot checksum has drifted from the pin.');
     }
 
     $lines = explode("\n", rtrim($contents, "\n"));
     $metadata = array_splice($lines, 0, 6);
     $header = array_shift($lines);
 
-    if ($metadata !== [
+    if (array_slice($metadata, 0, 4) !== [
         '# schema-version: 1',
         '# repository: jkudish/librarium',
-        '# commit: 889b0366b5baafff117198632e04b24e521ac93d',
-        '# package-version: 2.0.0',
-        '# catalog: src/core/provider-profiles.ts sha256:0a3fbf912a7c6029f9b7656c4f3f4a15de2aaecb3fc1d6571024e845fba027d4',
-        '# bindings: src/core/profile-bindings.ts sha256:77c6ff20ed47d3f4697ed2dc9b5ff3456c1c411cbf82cc11e1920f15d225e2fe',
-    ] || $header !== "profile\tresult_kind\tgrounding\tobservation\tcorpora\tretrieval_methods\tinvocation\tresumability\tworkflows\ttarget") {
+        "# commit: {$pin->commit}",
+        "# package-version: {$pin->packageVersion}",
+    ] || preg_match('/\A# catalog: src\/core\/provider-profiles\.ts sha256:[a-f0-9]{64}\z/D', $metadata[4] ?? '') !== 1
+        || preg_match('/\A# bindings: src\/core\/profile-bindings\.ts sha256:[a-f0-9]{64}\z/D', $metadata[5] ?? '') !== 1
+        || $header !== "profile\tresult_kind\tgrounding\tobservation\tcorpora\tretrieval_methods\tinvocation\tresumability\tworkflows\ttarget") {
         throw new RuntimeException('The accepted TypeScript Profile snapshot metadata is invalid.');
     }
 
@@ -79,8 +85,8 @@ function acceptedTypeScriptProfiles(): array
     $sortedProfiles = $profiles;
     ksort($sortedProfiles);
 
-    if ($profiles !== $sortedProfiles || count($profiles) !== 39) {
-        throw new RuntimeException('The accepted TypeScript Profile snapshot must contain 39 sorted unique Profiles.');
+    if ($profiles !== $sortedProfiles || count($profiles) !== $pin->profileCount) {
+        throw new RuntimeException("The accepted TypeScript Profile snapshot must contain {$pin->profileCount} sorted unique Profiles.");
     }
 
     return $profiles;
@@ -92,12 +98,12 @@ it('locks the accepted TypeScript Profile inventory and its PHP classifications'
     expect($matrix)->not->toBeFalse();
     assert(is_string($matrix));
 
+    $pin = ContractSnapshot::pin();
+
     expect($matrix)
-        ->toContain('889b0366b5baafff117198632e04b24e521ac93d')
+        ->toContain(TypeScriptRepin::docsBlock($pin))
         ->toContain('`laravel/ai` v0.10.3 at `c3848aae389f45c605eefb0dda5bd5fa7df76eaa`')
-        ->toContain('| `serpbase-search` | `serpbase/search` |')
-        ->toContain('| `serpbase-news` | `serpbase/news` |')
-        ->toContain('not part of the frozen 39-row');
+        ->toContain("| **Total** | **{$pin->profileCount}** |");
 
     preg_match_all(
         '/^### `(?<key>[^`]+\/[^`]+)`\R(?<body>.*?)(?=^### |^## |\z)/ms',
@@ -115,7 +121,7 @@ it('locks the accepted TypeScript Profile inventory and its PHP classifications'
     sort($expectedKeys);
 
     expect($actualKeys)
-        ->toHaveCount(39)
+        ->toHaveCount($pin->profileCount)
         ->toBe($uniqueKeys)
         ->toBe($expectedKeys);
 
@@ -149,6 +155,7 @@ it('locks the accepted TypeScript Profile inventory and its PHP classifications'
         ->and(array_filter($rows, fn (string $row): bool => str_contains($row, '**PHP path:** #2592')))->toHaveCount(1)
         ->and(array_filter($rows, fn (string $row): bool => str_contains($row, '**PHP path:** #2694')))->toHaveCount(3)
         ->and(array_filter($rows, fn (string $row): bool => str_contains($row, '**PHP path:** #3604 core parity')))->toHaveCount(15)
+        ->and(array_filter($rows, fn (string $row): bool => str_contains($row, '**PHP path:** #3650 core parity')))->toHaveCount(2)
         ->and(array_filter($rows, fn (string $row): bool => str_contains($row, '**PHP path:** explicit holdback')))->toBeEmpty()
         ->and(array_filter($rows, fn (string $row): bool => str_contains($row, '#2830')))->toHaveCount(5);
 });
@@ -209,6 +216,8 @@ it('reconciles every TypeScript matrix row with the landed PHP catalog', functio
         'parallel/research' => 'parallel-research',
         'valyu/search' => 'valyu-search',
         'valyu/research' => 'valyu-research',
+        'serpbase/news' => 'serpbase-news',
+        'serpbase/search' => 'serpbase-search',
     ];
 
     $documentedLanded = [];
@@ -234,8 +243,6 @@ it('reconciles every TypeScript matrix row with the landed PHP catalog', functio
         'dataforseo-gemini-live',
         'dataforseo-google-ai-mode',
         'dataforseo-google-ai-mode-live',
-        'serpbase-search',
-        'serpbase-news',
     ];
     sort($expectedProfiles);
 
@@ -296,7 +303,7 @@ it('reconciles every TypeScript matrix row with the landed PHP catalog', functio
         );
     }
 
-    expect($matches)->toHaveCount(39)
+    expect($matches)->toHaveCount(ContractSnapshot::pin()->profileCount)
         ->and($documentedLanded)->toBe($landed)
         ->and($documentedAbsent)->toBe(['searchapi-perplexity/surface', 'firecrawl-search/search'])
         ->and($configuredProfiles)->toBe($expectedProfiles);

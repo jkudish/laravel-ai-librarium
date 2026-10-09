@@ -180,7 +180,7 @@ it('round-trips You.com terminal metadata through the accepted offline conforman
     expect(json_encode($roundTrip->toArray(), JSON_THROW_ON_ERROR))
         ->toBe(json_encode($result->toArray(), JSON_THROW_ON_ERROR))
         ->and(ContractSnapshot::vendored()->verify()['upstream_commit'])
-        ->toBe(ContractSnapshot::UPSTREAM_COMMIT);
+        ->toBe(ContractSnapshot::pin()->commit);
 });
 
 /** @return array<string, mixed> */

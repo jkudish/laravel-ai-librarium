@@ -8,10 +8,10 @@ use DateTimeImmutable;
 use JsonException;
 use RuntimeException;
 
+require_once __DIR__.'/TypeScriptPin.php';
+
 final readonly class ReleaseReadiness
 {
-    private const string PROFILE_SNAPSHOT_SHA256 = '83739ba138c2db2c4673aada5834a5586f085a6c971253b155339eb570dbb9f9';
-
     /** @var list<array{id: string, title: string}> */
     private const array GATES = [
         ['id' => 'php-8.4-lowest-compatibility', 'title' => 'PHP 8.4 lowest-dependency compatibility'],
@@ -54,12 +54,14 @@ final readonly class ReleaseReadiness
             throw new RuntimeException('CHANGELOG.md is unreadable.');
         }
 
-        $snapshotHash = hash_file('sha256', $this->root.'/tests/Support/Profiles/v2/catalog.tsv');
-        if (! is_string($snapshotHash)) {
-            throw new RuntimeException('The accepted TypeScript Profile snapshot is unreadable.');
+        $pin = TypeScriptPin::load($this->root);
+        $profileHash = is_file($this->root.'/'.TypeScriptPin::PROFILES_PATH) ? hash_file('sha256', $this->root.'/'.TypeScriptPin::PROFILES_PATH) : false;
+        $contractHash = is_file($this->root.'/'.TypeScriptPin::CONTRACTS_PATH.'/checksums.sha256') ? hash_file('sha256', $this->root.'/'.TypeScriptPin::CONTRACTS_PATH.'/checksums.sha256') : false;
+        if (! is_string($profileHash) || ! is_string($contractHash)) {
+            throw new RuntimeException('The pinned TypeScript Profile inventory or contract checksum index is unreadable.');
         }
 
-        return self::evaluate($composer, $changelog, $manifest, $snapshotHash);
+        return self::evaluate($composer, $changelog, $manifest, $pin, $profileHash, $contractHash);
     }
 
     public function check(): void
@@ -72,6 +74,9 @@ final readonly class ReleaseReadiness
     }
 
     /**
+     * The pin record must describe the vendored files exactly. A file that
+     * drifted from its pin is an integrity failure, not a release blocker.
+     *
      * @param  array<string, mixed>  $composer
      * @param  array<string, mixed>  $manifest
      * @return list<string>
@@ -80,9 +85,16 @@ final readonly class ReleaseReadiness
         array $composer,
         string $changelog,
         array $manifest,
+        TypeScriptPin $pin,
         string $profileSnapshotHash,
+        string $contractChecksumsHash,
     ): array {
-        self::validateManifest($manifest, $profileSnapshotHash);
+        self::validateManifest($manifest);
+
+        if (! hash_equals($pin->profilesSha256, $profileSnapshotHash) || ! hash_equals($pin->contractChecksumsSha256, $contractChecksumsHash)) {
+            throw new RuntimeException('The vendored TypeScript Profile inventory or contract snapshot does not match tests/Support/typescript-pin.json; regenerate it with composer typescript:repin.');
+        }
+
         $blockers = [];
         $requirements = $composer['require'] ?? null;
         $developmentRequirements = $composer['require-dev'] ?? null;
@@ -123,10 +135,21 @@ final readonly class ReleaseReadiness
             $blockers[] = 'CHANGELOG.md retains an Unreleased heading after the 1.0.0 release.';
         }
 
-        /** @var array<string, mixed> $typescript */
+        preg_match_all('/^## \[?(\d+\.\d+\.\d+[^\]\s]*)\]?/m', $changelog, $versions);
+        $otherVersions = array_values(array_unique(array_diff($versions[1], ['1.0.0'])));
+        if ($otherVersions !== [] || count(array_keys($versions[1], '1.0.0', true)) > 1) {
+            $found = $otherVersions === [] ? 'a repeated 1.0.0 section' : implode(', ', $otherVersions);
+            $blockers[] = "CHANGELOG.md must contain only the first 1.0.0 release section; found [{$found}].";
+        }
+
+        /** @var array{version: string, tag: string} $typescript */
         $typescript = $manifest['typescript'];
-        if ($typescript['tag'] === null) {
-            $blockers[] = 'The accepted TypeScript v2 release tag is not recorded.';
+        if ($pin->packageVersion !== $typescript['version']) {
+            $blockers[] = "The TypeScript pin is package version {$pin->packageVersion}, not the accepted {$typescript['version']}.";
+        }
+
+        if ($pin->tag !== $typescript['tag']) {
+            $blockers[] = "The accepted TypeScript {$typescript['tag']} release tag is not pinned; the contract and Profile inventory are pinned to commit {$pin->commit} (ref {$pin->ref}). Rerun composer typescript:repin against {$typescript['tag']}.";
         }
 
         /** @var list<array{id: string, title: string, status: string, evidence: mixed}> $gates */
@@ -149,7 +172,7 @@ final readonly class ReleaseReadiness
     /**
      * @param  array<string, mixed>  $manifest
      */
-    private static function validateManifest(array $manifest, string $profileSnapshotHash): void
+    private static function validateManifest(array $manifest): void
     {
         $typescript = $manifest['typescript'] ?? null;
         $gates = $manifest['gates'] ?? null;
@@ -159,17 +182,12 @@ final readonly class ReleaseReadiness
             || $manifest['schema_version'] !== 1
             || $manifest['target_version'] !== '1.0.0'
             || ! is_array($typescript)
-            || array_keys($typescript) !== ['version', 'tag', 'commit', 'profile_snapshot_sha256']
-            || $typescript['version'] !== '2.0.0'
-            || ! in_array($typescript['tag'], [null, 'v2.0.0'], true)
-            || $typescript['commit'] !== '889b0366b5baafff117198632e04b24e521ac93d'
-            || $profileSnapshotHash !== self::PROFILE_SNAPSHOT_SHA256
-            || $typescript['profile_snapshot_sha256'] !== self::PROFILE_SNAPSHOT_SHA256
+            || $typescript !== ['version' => '2.0.0', 'tag' => 'v2.0.0']
             || ! is_array($gates)
             || ! array_is_list($gates)
             || $gates === []
         ) {
-            throw new RuntimeException('The release-readiness manifest is malformed or does not match the accepted v2 Profile snapshot.');
+            throw new RuntimeException('The release-readiness manifest is malformed or does not require the accepted TypeScript v2.0.0 release.');
         }
 
         $ids = [];

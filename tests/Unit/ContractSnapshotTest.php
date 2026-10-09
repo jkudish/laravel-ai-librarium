@@ -32,28 +32,35 @@ afterEach(function (): void {
     File::deleteDirectory($this->workingSnapshotDirectory);
 });
 
-it('verifies the accepted candidate-derived snapshot offline and reports machine-readable totals', function (): void {
+it('verifies the pinned upstream snapshot offline and reports machine-readable totals', function (): void {
+    $pin = ContractSnapshot::pin();
     $report = ContractSnapshot::vendored()->verify();
 
     expect($report)->toBe([
         'contract_version' => 'v1',
         'snapshot_version' => 1,
-        'upstream_commit' => '889b0366b5baafff117198632e04b24e521ac93d',
-        'manifest_sha256' => '4b8667d98ea5334793e95ebf3c15c96518d42a5e0369ac5ed66fb599b0e1793f',
-        'checksums_sha256' => 'ba0ecf38a6ade68d3b49d4c0d8bbbae74f05202ed718dd319c0c1bb0d341415f',
-        'interchange_schema_sha256' => 'ef938d851eee61bb2ce96c11669b355179bbd4e6b82cea4a71914671ab3450a1',
-        'totals' => [
-            'schemas' => 1,
-            'definitions' => 7,
-            'valid_fixtures' => 17,
-            'invalid_fixtures' => 40,
-            'semantic_rules' => 6,
-            'manifest_entries' => 60,
-            'checksum_entries' => 60,
-            'snapshot_files' => 61,
-        ],
-    ])->and(json_decode(json_encode($report, JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR))
+        'upstream_commit' => $pin->commit,
+        'manifest_sha256' => $pin->contractManifestSha256,
+        'checksums_sha256' => $pin->contractChecksumsSha256,
+        'interchange_schema_sha256' => $pin->contractInterchangeSchemaSha256,
+        'totals' => $pin->contractTotals,
+    ])->and(hash_file('sha256', __DIR__.'/../Support/Contracts/v1/checksums.sha256'))
+        ->toBe($pin->contractChecksumsSha256)
+        ->and(json_decode(json_encode($report, JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR))
         ->toBe($report);
+});
+
+it('documents the pinned snapshot in its generated README', function (): void {
+    $pin = ContractSnapshot::pin();
+    $readme = File::get(__DIR__.'/../Support/Contracts/README.md');
+
+    expect($readme)->toContain("`{$pin->commit}`")
+        ->toContain("Checksum index SHA-256: `{$pin->contractChecksumsSha256}`")
+        ->toContain("Manifest SHA-256: `{$pin->contractManifestSha256}`")
+        ->toContain("Interchange schema SHA-256: `{$pin->contractInterchangeSchemaSha256}`")
+        ->toContain("Valid fixtures: {$pin->contractTotals['valid_fixtures']}")
+        ->toContain("Invalid fixtures: {$pin->contractTotals['invalid_fixtures']}")
+        ->toContain('It carries no PHP-local adjustments.');
 });
 
 it('accepts a snapshot directory with a trailing separator', function (): void {
@@ -229,10 +236,12 @@ it('pins all fixtures and semantic rules in the generated inventories', function
     $semanticRuleIds = array_column($manifest['semantic_rules'], 'rule_id');
     sort($semanticRuleIds);
 
-    expect($manifest['files'])->toHaveCount(60)
-        ->and($fixtureIndex['fixtures'])->toHaveCount(57)
-        ->and($validFixtures)->toHaveCount(17)
-        ->and($invalidFixtures)->toHaveCount(40)
+    $totals = ContractSnapshot::pin()->contractTotals;
+
+    expect($manifest['files'])->toHaveCount($totals['manifest_entries'])
+        ->and($fixtureIndex['fixtures'])->toHaveCount($totals['valid_fixtures'] + $totals['invalid_fixtures'])
+        ->and($validFixtures)->toHaveCount($totals['valid_fixtures'])
+        ->and($invalidFixtures)->toHaveCount($totals['invalid_fixtures'])
         ->and($semanticRuleIds)->toBe(ContractSnapshot::SEMANTIC_RULE_IDS);
 });
 

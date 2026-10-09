@@ -8,21 +8,26 @@ No row authorizes a provider request or a paid call.
 
 ## Authority and inventory
 
-- TypeScript catalog: [`jkudish/librarium` at `889b0366b5baafff117198632e04b24e521ac93d`](https://github.com/jkudish/librarium/tree/889b0366b5baafff117198632e04b24e521ac93d)
+<!-- typescript-pin:start -->
+- TypeScript catalog: [`jkudish/librarium` at `4c0d3d6383e37d37972fd3fe5f947d5a3972bbb3`](https://github.com/jkudish/librarium/tree/4c0d3d6383e37d37972fd3fe5f947d5a3972bbb3), ref `4c0d3d6383e37d37972fd3fe5f947d5a3972bbb3`, package version `2.0.0`, no release tag yet; the release check blocks until the pin names the accepted tag
 - Catalog source: `src/core/provider-profiles.ts` and its exact profile bindings
 - Vendored inventory: `tests/Support/Profiles/v2/catalog.tsv`, SHA-256
-  `83739ba138c2db2c4673aada5834a5586f085a6c971253b155339eb570dbb9f9`
-- Implemented TypeScript inventory: **33 providers and 39 Profiles**
+  `3422efce54284997b6c8c483cbaffa00c1589bfc53d9d467943d90c1028218c6`, 41 implemented Profiles
+- Pin record: `tests/Support/typescript-pin.json`, written only by `composer typescript:repin`
+<!-- typescript-pin:end -->
+- Implemented TypeScript inventory: **34 providers and 41 Profiles**
 - Planned or non-selectable catalog declarations: **0**
 - Laravel AI SDK: [`laravel/ai` v0.10.3 at `c3848aae389f45c605eefb0dda5bd5fa7df76eaa`](https://github.com/laravel/ai/tree/c3848aae389f45c605eefb0dda5bd5fa7df76eaa)
 - SDK evidence: exact package source plus the [Laravel 13 AI SDK documentation](https://laravel.com/docs/13.x/ai-sdk)
 
-The vendored inventory was generated from the accepted TypeScript catalog and
-pins its catalog and binding source hashes, every implemented key, semantic
-fields, workflow membership, lifecycle, and target. The committed Pest test
-checks its checksum, reconciles all 39 matrix rows, and compares PHP result,
-grounding, observation, corpora, retrieval, and workflow semantics without a
-TypeScript runtime or network dependency.
+`composer typescript:repin` generates the vendored inventory from the pinned
+TypeScript catalog (`BUILTIN_PROVIDER_CATALOG`, implemented Profiles only,
+sorted by key). It pins the catalog and binding source hashes, every
+implemented key, semantic fields, workflow membership, lifecycle, and target.
+The committed Pest test checks the inventory against the pin record, reconciles
+every matrix row, and compares PHP result, grounding, observation, corpora,
+retrieval, and workflow semantics without a TypeScript runtime or network
+dependency.
 
 Target defaults are intentionally allowed to differ after explicit PHP review.
 At the pinned TypeScript commit, `gemini-grounded/grounded` defaults to
@@ -31,30 +36,28 @@ At the pinned TypeScript commit, `gemini-grounded/grounded` defaults to
 `gemini-3.6-flash`. The PHP defaults below are newer reviewed targets. All
 three xAI Profiles already use `grok-4.6` in the pinned TypeScript source.
 
-This is historical inventory, not the current JavaScript shipping count. The
-unreleased JS v2 catalog now contains 39 profiles: the old `tavily/research` and
-`parallel/chat` entries were removed and `parallel/turbo` was added. PHP has 23
-baseline bindings plus six disabled DataForSEO profiles. None of those catalog
-counts establishes live-provider acceptance or a published package channel.
+The pin is a development candidate until it names the accepted JS `v2.0.0`
+tag. JavaScript is retiring `searchapi-perplexity/surface` in parallel (#4769),
+so the next repin is expected to carry 40 shared Profiles. None of these
+catalog counts establishes live-provider acceptance or a published package
+channel.
 
 ## Summary
 
 | PHP disposition | Count | Meaning |
 | --- | ---: | --- |
-| Landed in core | 37 | Six Laravel AI SDK Profiles and thirty-one focused HTTP Profiles are configured and covered offline. |
+| Landed in core | 39 | Six Laravel AI SDK Profiles and thirty-three focused HTTP Profiles are configured and covered offline. |
 | Landed in optional adapter | 1 | Firecrawl Search remains outside core under #2592 and is covered by the adapter package. |
 | Holdback | 0 | No accepted TypeScript v2 Profile is held back. |
 | Retired | 1 | `searchapi-perplexity` was retired after SearchAPI deprecated its `perplexity` engine. |
-| **Total** | **39** | Every implemented TypeScript Profile appears exactly once below. |
+| **Total** | **41** | Every implemented TypeScript Profile appears exactly once below. |
 
-The TypeScript inventory contains 14 grounded answers, 11 search-result
-Profiles, 8 durable research reports, and 6 surface observations. Thirty-eight
-map to PHP core or the optional Firecrawl adapter; one is retired. PHP additionally ships the frozen
-Perplexity low Profile approved under #3653, six provider-local DataForSEO
-surface Profiles approved under #3481, and two SerpBase Profiles approved under
-#3650. The JavaScript SerpBase work was still unmerged at this baseline, so
-these nine additions are not part of the frozen 39-row reconciliation and do
-not rewrite it.
+The TypeScript inventory contains 14 grounded answers, 13 search-result
+Profiles, 8 durable research reports, and 6 surface observations. Forty map to
+PHP core or the optional Firecrawl adapter; one is retired. PHP additionally
+ships the frozen Perplexity low Profile approved under #3653 and six
+provider-local DataForSEO surface Profiles approved under #3481. These seven
+are PHP-only extensions and are not rows in the TypeScript inventory.
 
 `quick` has six curated members, `visibility` has eight, `deep` derives its
 eight configured research Profiles, and `all` derives all 40 currently eligible
@@ -71,7 +74,7 @@ variant of the accepted `perplexity-sonar-pro/grounded` semantics and has
 offline coverage in `PerplexityAgentDriverTest`.
 
 The following disabled-by-default Profiles implement DataForSEO collection
-modes that are not rows in the frozen TypeScript inventory above:
+modes that are not rows in the TypeScript inventory above:
 
 | PHP Profile | Surface and mode | Offline evidence |
 | --- | --- | --- |
@@ -86,19 +89,6 @@ All six are `surface_observation` / `surface_snapshot` Profiles collected by
 `dataforseo`. They do not join `quick` or `visibility`; enabled Profiles join
 the derived `all` group. See [`dataforseo-profiles.md`](dataforseo-profiles.md)
 for the endpoint, configuration, polling, pricing, and worker-loss contracts.
-
-The two enabled post-baseline SerpBase Profiles are likewise PHP catalog
-extensions relative to the frozen baseline. Their JavaScript counterparts have
-now merged in [librarium #172](https://github.com/jkudish/librarium/pull/172):
-
-| PHP Profile | Semantic identity | Offline evidence |
-| --- | --- | --- |
-| `serpbase-search` | `serpbase/search` | `SerpBaseDriverTest` |
-| `serpbase-news` | `serpbase/news` | `SerpBaseDriverTest` |
-
-They preserve ranked Search and News results respectively. Search can opt into
-bounded rich-result text, but undocumented rich child schemas are not treated
-as interchange contracts and receive no inferred citations.
 
 ## Landed PHP reconciliation
 
@@ -150,6 +140,8 @@ not claimed here; the separately gated canary inventory is in
 | `parallel/research` | Landed | `parallel-research` | `ParallelResearchDriverTest` |
 | `valyu/search` | Landed | `valyu-search` | `ValyuSearchDriverTest` |
 | `valyu/research` | Landed | `valyu-research` | `ValyuResearchDriverTest` |
+| `serpbase/news` | Landed | `serpbase-news` | `SerpBaseDriverTest` |
+| `serpbase/search` | Landed | `serpbase-search` | `SerpBaseDriverTest` |
 
 ## How to read each row
 
@@ -680,6 +672,38 @@ and provenance semantics.
 - **Terminal:** HTTP report
 - **Pricing:** standard base plus explicit optional units quoted through `laravel-ai-pricing`
 - **Test and proof:** Durable fake with private best-effort cancellation and ambiguous-submit no-retry; D + L
+
+## #3650 SerpBase: landed parity Profiles (2)
+
+PHP shipped these first as provider-local extensions. The JavaScript
+counterparts merged in [librarium #172](https://github.com/jkudish/librarium/pull/172),
+so they are now part of the shared inventory. See
+[`serpbase-profiles.md`](serpbase-profiles.md) for request, limit, and privacy
+details.
+
+### `serpbase/news`
+
+- **Workflow:** none
+- **Semantics:** search_results; none; api_output; news; search_endpoint/direct; serpbase
+- **Target:** not applicable
+- **PHP path:** #3650 core parity
+- **Binding:** one SerpBase Google News POST, one page, no retry or pagination
+- **Execution:** inline
+- **Terminal:** HTTP search; relative news dates stay unstructured text
+- **Pricing:** account-configured credit rate; unavailable until the application supplies it
+- **Test and proof:** HTTP fake; D + L
+
+### `serpbase/search`
+
+- **Workflow:** none
+- **Semantics:** search_results; none; api_output; web; search_endpoint/direct; serpbase
+- **Target:** not applicable
+- **PHP path:** #3650 core parity
+- **Binding:** one SerpBase Google Search POST, one page, no retry or pagination; opt-in bounded rich-result text receives no inferred citations
+- **Execution:** inline
+- **Terminal:** HTTP search
+- **Pricing:** account-configured credit rate; unavailable until the application supplies it
+- **Test and proof:** HTTP fake; D + L
 
 ## Planned or non-selectable declarations
 

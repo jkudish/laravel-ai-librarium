@@ -14,9 +14,11 @@ composer release:check
 ```
 
 The command is expected to fail until every entry in
-`tools/release-readiness.json` is complete, the accepted TypeScript v2 tag is
-recorded, `laravel-ai-pricing` uses a stable constraint, and `CHANGELOG.md` has
-a dated 1.0.0 heading. It also pins the release compatibility policy to PHP
+`tools/release-readiness.json` is complete, `tests/Support/typescript-pin.json`
+pins the accepted TypeScript `v2.0.0` tag, `laravel-ai-pricing` uses a stable
+constraint, and `CHANGELOG.md` has exactly one section, a dated 1.0.0 heading.
+It fails closed if the vendored contract or Profile inventory drifts from the
+pin record. It also pins the release compatibility policy to PHP
 8.4+, Laravel 13, Testbench 11, and the reviewed Laravel AI 1.0 range.
 
 A gate may be marked `complete` only with an `https` evidence URI without
@@ -94,16 +96,24 @@ composer test:conformance
 It verifies three independent boundaries:
 
 1. the checksum-pinned terminal interchange schema and semantic fixtures;
-2. the checksum-pinned 39-Profile TypeScript v2 inventory against the PHP
+2. the checksum-pinned TypeScript v2 Profile inventory against the PHP
    matrix, landed Profile semantics, and `quick`, `visibility`, and `deep`
    memberships; and
 3. an application-defined Driver executing through the public Laravel query
    runtime without provider access.
 
-The accepted TypeScript inventory is frozen at commit
-`889b0366b5baafff117198632e04b24e521ac93d`. PHP-only DataForSEO,
-`perplexity-low-frozen`, and SerpBase Profiles remain explicit post-baseline
-extensions; they must not be inserted into the frozen 39-row parity claim.
+`tests/Support/typescript-pin.json` records the pinned `jkudish/librarium`
+ref, commit, tag, and every digest. Repin the contract snapshot, the Profile
+inventory, the snapshot README, and the matrix authority block together from a
+clean checkout with its npm dependencies installed:
+
+```bash
+composer typescript:repin -- /path/to/librarium <ref>
+```
+
+The PHP-only DataForSEO Profiles and `perplexity-low-frozen` remain explicit
+extensions and are not rows in the TypeScript inventory. SerpBase Search and
+News are shared parity rows.
 
 ## Complete external gates
 
@@ -115,9 +125,9 @@ Before creating the final package candidate:
   `live-provider-canaries.md`, each with separate approval and spend controls;
 - publish a stable `laravel-ai-pricing` release, then replace `dev-main` with
   its compatible stable constraint;
-- record the final accepted TypeScript v2 tag, commit, and matching Profile
-  snapshot checksum; and
-- convert the Unreleased changelog into a dated 1.0.0 entry.
+- repin against the accepted TypeScript `v2.0.0` tag with
+  `composer typescript:repin`; and
+- set the final publication date on the single 1.0.0 changelog section.
 
 These are completion gates, not authorization to perform them. A canary approval
 does not authorize a retry or another Profile. Publication and GitHub writes
