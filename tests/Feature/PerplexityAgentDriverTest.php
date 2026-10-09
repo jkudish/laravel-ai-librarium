@@ -8,8 +8,10 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
 use Jkudish\LaravelAiLibrarium\Drivers\Perplexity\PerplexityAgentDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Perplexity\PerplexityResearchConfiguration;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
+use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\Profile;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
@@ -26,6 +28,73 @@ beforeEach(function (): void {
 
 afterEach(function (): void {
     CarbonImmutable::setTestNow();
+});
+
+it('runs frozen research depth and model pairs inline without a preset or fallback', function (string $depth, int $steps, int $output, string $effort, string $alias, string $model): void {
+    $id = 'perplexity-research-'.$depth.'-'.$alias;
+    $response = perplexityCompletedResponse();
+    $response['model'] = $model;
+    Http::fake(['https://api.perplexity.ai/v1/agent' => Http::response($response)]);
+    $result = perplexityAgentDriver()->run(perplexityAgentRequest($id, model: $model, options: PerplexityResearchConfiguration::profiles()[$id]['options']));
+    expect($result->model)->toBe($model)->and($result->usage?->actualCost)->toBe('0.0125');
+    Http::assertSent(fn (Request $request): bool => $request->data() === [
+        'model' => $model,
+        'input' => 'Research current agent APIs.',
+        'max_steps' => $steps,
+        'max_output_tokens' => $output,
+        'reasoning' => ['effort' => $effort],
+        'service_tier' => 'default',
+        'instructions' => PerplexityResearchConfiguration::INSTRUCTIONS,
+        'tools' => [
+            ['type' => 'web_search', 'search_type' => 'fast', 'max_results' => 15, 'max_tokens' => 2_000, 'max_tokens_per_page' => 2_000],
+            ['type' => 'fetch_url', 'max_urls' => 1],
+        ],
+    ]);
+    Http::assertSentCount(1);
+})->with([
+    ['medium', 15, 16_000, 'medium'],
+    ['high', 15, 32_000, 'high'],
+    ['deep', 30, 32_000, 'high'],
+])->with([
+    ['luna', 'openai/gpt-6-luna'],
+    ['sol', 'openai/gpt-6.1-sol'],
+    ['sonnet', 'anthropic/claude-sonnet-5'],
+    ['gemini', 'google/gemini-3.8-flash'],
+]);
+
+it('refuses research model and configuration drift and oversized prompts before HTTP', function (string $mutation): void {
+    Http::fake();
+    $id = 'perplexity-research-high-sol';
+    $options = PerplexityResearchConfiguration::profiles()[$id]['options'];
+    $model = 'openai/gpt-6.1-sol';
+    match ($mutation) {
+        'unreviewed model' => $model = 'openai/gpt-6-sol',
+        'allowed but wrong model' => $model = 'openai/gpt-6-luna',
+        'changed steps' => $options['max_steps'] = 100,
+        'changed revision' => $options['configuration'] = 'research-high-2026-10-10',
+        'changed hash' => $options['configuration_sha256'] = str_repeat('0', 64),
+        'unknown option' => $options['sandbox'] = true,
+        'oversized prompt' => null,
+    };
+    $request = perplexityAgentRequest($id, model: $model, options: $options);
+    if ($mutation === 'oversized prompt') {
+        $request = new DriverRequest(requestId: 'long', requestedProfile: $request->profile, profile: $request->profile, prompt: str_repeat('a', 501), deadline: $request->deadline, progressCallback: static function (): void {});
+    }
+    expect(fn () => perplexityAgentDriver()->run($request))->toThrow(DriverException::class);
+    Http::assertNothingSent();
+})->with(['unreviewed model', 'allowed but wrong model', 'changed steps', 'changed revision', 'changed hash', 'unknown option', 'oversized prompt']);
+
+it('compiles an explicitly registered research template without claiming a spending bound', function (): void {
+    $id = 'perplexity-research-high-sol';
+    $profile = PerplexityResearchConfiguration::profiles()[$id];
+    $profile['enabled'] = true;
+    $profile['credential'] = 'test-key';
+    config()->set("librarium.profiles.{$id}", $profile);
+    $query = Librarium::query('Research current agent APIs.')->using($id);
+
+    expect($query->preview()->profiles)->toHaveCount(1)
+        ->and($query->spendingBound()->toArray())->toBe(['kind' => 'unknown']);
+    Http::assertNothingSent();
 });
 
 it('runs the low preset inline with one exact POST and strictly normalizes reported facts', function (): void {
