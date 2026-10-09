@@ -101,7 +101,7 @@ it('rejects an unexpected SDK provider identity for an exact built-in Profile', 
     ResearchAgent::fake([
         new TextResponse(
             'A misdirected grounded answer.',
-            new AiUsage(promptTokens: 10, completionTokens: 6),
+            new AiUsage(inputTokens: 10, outputTokens: 6),
             new Meta('anthropic', 'claude-sonnet-5', collect([
                 new UrlCitation('https://example.com/source', 'Example source'),
             ])),
