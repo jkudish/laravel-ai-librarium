@@ -523,8 +523,8 @@ final readonly class DataForSeoDriver implements DefinesSpendingBound, DurableDr
             ? $request->prompt
             : data_get($receipt, 'data.keyword');
         $acceptedKeywords = is_string($expectedKeyword) ? [$expectedKeyword] : [];
-        if ($request instanceof DriverRequest && is_string($expectedKeyword)) {
-            $acceptedKeywords[] = rawurlencode($expectedKeyword);
+        if ($request instanceof DriverRequest) {
+            $acceptedKeywords[] = rawurlencode($request->prompt);
         } elseif (is_string($expectedKeyword)) {
             $decodedKeyword = rawurldecode($expectedKeyword);
             if (rawurlencode($decodedKeyword) === $expectedKeyword) {
