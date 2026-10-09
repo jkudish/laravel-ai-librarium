@@ -19,7 +19,8 @@ pins the accepted TypeScript `v2.0.0` tag, `laravel-ai-pricing` uses a stable
 constraint, and `CHANGELOG.md` has exactly one section, a dated 1.0.0 heading.
 It fails closed if the vendored contract or Profile inventory drifts from the
 pin record. It also pins the release compatibility policy to PHP
-8.4+, Laravel 13, Testbench 11, and the reviewed Laravel AI 1.0 range.
+8.4+, Laravel 13.35+, Testbench 11.3+, `laravel-ai-pricing` 0.2.2+, and
+Laravel AI SDK 1.2+.
 
 A gate may be marked `complete` only with an `https` evidence URI without
 userinfo, a query string, or a fragment, plus the lowercase SHA-256 digest of
@@ -59,8 +60,8 @@ composer compatibility:check
 composer show --direct
 ```
 
-The resolved inventory must include Laravel 13, Laravel AI SDK 1.0.1, and the
-lowest compatible direct dependencies. `prefer-lowest` is the resolver input;
+The resolved inventory must include Laravel 13.35, Laravel AI SDK 1.2.0,
+`laravel-ai-pricing` 0.2.2, and the lowest compatible direct dependencies. `prefer-lowest` is the resolver input;
 inspect the resulting inventory rather than assuming it selected the intended
 floor. If another constraint raises a package above its declared minimum,
 record the effective floor and reconcile `composer.json` before release. Keep
@@ -78,7 +79,7 @@ composer compatibility:check
 composer show --direct
 ```
 
-This lane must exercise the latest allowed Laravel 13 and Laravel AI SDK 1.0.x.
+This lane must exercise the latest allowed Laravel 13 and Laravel AI SDK 1.x.
 Neither lane may add `composer.lock` to Git. Dependency resolution may access
 Composer repositories during setup; `compatibility:check` itself runs only the
 installed platform check, test suite, static analysis, and formatting check.
