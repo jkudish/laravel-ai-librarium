@@ -408,7 +408,7 @@ it('rejects changed profile binding or credential after process reconstruction b
     Http::assertNothingSent();
 })->with([
     'credential' => ['librarium.profiles.exa-research.credential', 'rotated-exa-key'],
-    'profile semantics' => ['librarium.profiles.exa-research.options', ['effort' => 'max']],
+    'profile semantics' => ['librarium.profiles.exa-research.options', ['effort' => 'ultra']],
 ]);
 
 it('keeps durable handles valid across non-semantic Profile maintenance', function (string $path, mixed $replacement): void {

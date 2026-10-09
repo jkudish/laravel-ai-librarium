@@ -41,7 +41,10 @@ final readonly class ExaResearchDriver implements DefinesSpendingBound, DurableD
     private const int POLL_INTERVAL_SECONDS = 1;
 
     /** @var list<string> */
-    private const array EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'auto', 'max'];
+    private const array EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'auto', 'ultra'];
+
+    /** @var list<string> */
+    private const array METERED_EFFORTS = ['auto', 'ultra'];
 
     /** @var list<string> */
     private const array STATUSES = ['queued', 'running', 'completed', 'failed', 'cancelled'];
@@ -52,6 +55,7 @@ final readonly class ExaResearchDriver implements DefinesSpendingBound, DurableD
     public static function profileOptionRules(): array
     {
         return [
+            'configuration' => ['sometimes', 'string', 'in:'.implode(',', ExaResearchConfiguration::configurations())],
             'effort' => ['sometimes', 'string', 'in:'.implode(',', self::EFFORTS)],
             'system_prompt' => ['sometimes', 'string', 'min:1'],
             'output_schema' => ['sometimes', 'array', 'min:1'],
@@ -66,6 +70,13 @@ final readonly class ExaResearchDriver implements DefinesSpendingBound, DurableD
                         $fail("The {$attribute} field must be a finite number between 1 and 100.");
                     }
                 },
+            ],
+            'max_duration_seconds' => [
+                'sometimes',
+                'integer:strict',
+                'min:300',
+                'max:10800',
+                'prohibited_unless:options.effort,ultra',
             ],
         ];
     }
@@ -118,7 +129,7 @@ final readonly class ExaResearchDriver implements DefinesSpendingBound, DurableD
         if (! $this->compatibleProfile($request)
             || ! $this->validOptions($options)
             || trim($request->prompt) === ''
-            || ! in_array($effort, ['auto', 'max'], true)
+            || ! in_array($effort, self::METERED_EFFORTS, true)
             || (! is_int($maximum) && ! is_float($maximum))) {
             return SpendingBound::unknown();
         }
@@ -219,7 +230,7 @@ final readonly class ExaResearchDriver implements DefinesSpendingBound, DurableD
     /** @param array<string, mixed> $options */
     private function validOptions(array $options): bool
     {
-        if (array_diff(array_keys($options), ['effort', 'system_prompt', 'output_schema', 'max_cost_dollars']) !== []) {
+        if (array_diff(array_keys($options), ['configuration', 'effort', 'system_prompt', 'output_schema', 'max_cost_dollars', 'max_duration_seconds']) !== []) {
             return false;
         }
 
@@ -240,6 +251,13 @@ final readonly class ExaResearchDriver implements DefinesSpendingBound, DurableD
             return false;
         }
 
+        if (array_key_exists('max_duration_seconds', $options)) {
+            $duration = $options['max_duration_seconds'];
+            if (! is_int($duration) || $duration < 300 || $duration > 10_800 || $effort !== 'ultra') {
+                return false;
+            }
+        }
+
         if (! array_key_exists('max_cost_dollars', $options)) {
             return true;
         }
@@ -250,14 +268,20 @@ final readonly class ExaResearchDriver implements DefinesSpendingBound, DurableD
             && $cost >= 1
             && $cost <= 100
             && (! is_float($cost) || is_finite($cost))
-            && in_array($effort, ['auto', 'max'], true);
+            && in_array($effort, self::METERED_EFFORTS, true);
     }
 
     private function compatibleProfile(DriverRequest|RecoveryRequest $request): bool
     {
         $profile = $request->profile;
+        // A frozen research level must match its reviewed template exactly;
+        // the general Profile cannot claim a reviewed configuration.
+        $template = ExaResearchConfiguration::profiles()[$profile->id] ?? null;
+        $identity = $template === null
+            ? $profile->id === 'exa-research' && ! array_key_exists('configuration', $profile->options)
+            : $profile->options === $template['options'] && $profile->prompt === $template['prompt'];
 
-        return $profile->id === 'exa-research'
+        return $identity
             && $profile->provider === 'exa'
             && $profile->model === null
             && $profile->resultKind === ResultKind::ResearchReport
@@ -307,6 +331,9 @@ final readonly class ExaResearchDriver implements DefinesSpendingBound, DurableD
         }
         if (isset($options['max_cost_dollars'])) {
             $payload['budget'] = ['maxCostDollars' => $options['max_cost_dollars']];
+        }
+        if (isset($options['max_duration_seconds'])) {
+            $payload['budget']['maxDurationSeconds'] = $options['max_duration_seconds'];
         }
 
         try {
@@ -401,10 +428,6 @@ final readonly class ExaResearchDriver implements DefinesSpendingBound, DurableD
             ->withOptions(['allow_redirects' => false])
             ->connectTimeout(min(self::CONNECT_TIMEOUT_SECONDS, $remaining))
             ->timeout(min(self::REQUEST_TIMEOUT_SECONDS, $remaining));
-
-        if ($method === 'post' && ($payload['effort'] ?? null) === 'max') {
-            $pending->withHeaders(['Exa-Beta' => 'agent-max-effort-2026-07-27']);
-        }
 
         try {
             $response = $method === 'post'

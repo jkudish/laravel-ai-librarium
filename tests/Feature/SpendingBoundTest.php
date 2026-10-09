@@ -81,6 +81,7 @@ it('returns complete fixed billable quantities without consulting pricing or mak
     'SearchAPI AI Mode request' => ['searchapi-google-ai-mode', 'searchapi:search', ['successful_search_request' => '1']],
     'SearchAPI Copilot request' => ['searchapi-bing-copilot', 'searchapi:search', ['successful_search_request' => '1']],
     'SearchAPI AI Overview maximum' => ['searchapi-google-ai-overview', 'searchapi:search', ['successful_search_request' => '2']],
+    'Parallel pro Research run' => ['parallel-research', 'parallel:research-pro', ['processor_requests' => '1']],
 ]);
 
 it('returns the exact explicit Exa native ceiling independently of pricing estimates', function (string $effort, int|float $maximum, string $expected): void {
@@ -103,7 +104,7 @@ it('returns the exact explicit Exa native ceiling independently of pricing estim
     Http::assertNothingSent();
 })->with([
     'minimum auto cap' => ['auto', 1, '1'],
-    'fractional max cap' => ['max', 17.25, '17.25'],
+    'fractional ultra cap' => ['ultra', 17.25, '17.25'],
     'maximum auto cap' => ['auto', 100, '100'],
 ]);
 
@@ -120,7 +121,6 @@ it('returns unknown when no driver proves every billed dimension', function (str
     'search-enabled Claude' => 'claude-chat',
     'Brave Answers retrieved context' => 'brave-answers',
     'model and search-tool dimensions' => 'gemini-grounded',
-    'provider-managed research task' => 'parallel-research',
     'partial retrieval ceiling' => 'valyu-search',
     'unproven token conversion' => 'jina-search',
 ]);
@@ -229,7 +229,7 @@ it('classifies every shipped Profile as known or deliberately unknown', function
         ->values();
 
     expect(config('librarium.profiles'))->toHaveCount(47)
-        ->and($known)->toHaveCount(21)
+        ->and($known)->toHaveCount(22)
         ->and($known->all())->toBe([
             'dataforseo-chatgpt',
             'dataforseo-chatgpt-live',
@@ -252,6 +252,7 @@ it('classifies every shipped Profile as known or deliberately unknown', function
             'serpapi',
             'serpbase-search',
             'serpbase-news',
+            'parallel-research',
         ]);
     Http::assertNothingSent();
 });

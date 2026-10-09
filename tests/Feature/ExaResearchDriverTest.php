@@ -8,6 +8,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
+use Jkudish\LaravelAiLibrarium\Drivers\Exa\ExaResearchConfiguration;
 use Jkudish\LaravelAiLibrarium\Drivers\Exa\ExaResearchDriver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
@@ -50,7 +51,7 @@ it('submits, polls a known private handle, and freshly retrieves the completed r
 
     $driver = exaResearchDriver();
     $request = exaResearchRequest(options: [
-        'effort' => 'max',
+        'effort' => 'ultra',
         'system_prompt' => 'Prefer primary sources.',
         'output_schema' => [
             'type' => 'object',
@@ -65,11 +66,11 @@ it('submits, polls a known private handle, and freshly retrieves the completed r
         return $request->method() === 'POST'
             && $request->url() === 'https://api.exa.ai/agent/runs'
             && $request->hasHeader('x-api-key', 'testing-exa-key')
-            && $request->hasHeader('Exa-Beta', 'agent-max-effort-2026-07-27')
+            && ! $request->hasHeader('Exa-Beta')
             && ! $request->hasHeader('Authorization')
             && $request->data() === [
                 'query' => 'Compare durable research systems.',
-                'effort' => 'max',
+                'effort' => 'ultra',
                 'systemPrompt' => 'Prefer primary sources.',
                 'outputSchema' => [
                     'type' => 'object',
@@ -114,7 +115,7 @@ it('submits, polls a known private handle, and freshly retrieves the completed r
         ->and(data_get($result->providerMeta, 'exa:research'))->toBe([
             'execution' => 'background',
             'resumability' => 'durable_provider_task',
-            'effort' => 'max',
+            'effort' => 'ultra',
             'stop_reason' => 'schema_satisfied',
             'source_count' => 2,
             'usage' => [
@@ -304,6 +305,10 @@ it('rejects invalid credentials, input, options, and deadlines before dispatch',
     'below provider minimum' => [['options' => ['max_cost_dollars' => 0.99]], 'exa_research.invalid_request'],
     'above provider maximum' => [['options' => ['max_cost_dollars' => 100.01]], 'exa_research.invalid_request'],
     'budget on fixed effort' => [['options' => ['effort' => 'high', 'max_cost_dollars' => 1]], 'exa_research.invalid_request'],
+    'retired max effort' => [['options' => ['effort' => 'max', 'max_cost_dollars' => 5]], 'exa_research.invalid_request'],
+    'duration on auto' => [['options' => ['effort' => 'auto', 'max_cost_dollars' => 1, 'max_duration_seconds' => 3000]], 'exa_research.invalid_request'],
+    'duration below provider minimum' => [['options' => ['effort' => 'ultra', 'max_cost_dollars' => 5, 'max_duration_seconds' => 299]], 'exa_research.invalid_request'],
+    'duration above provider maximum' => [['options' => ['effort' => 'ultra', 'max_cost_dollars' => 5, 'max_duration_seconds' => 10_801]], 'exa_research.invalid_request'],
     'expired deadline' => [['deadline' => CarbonImmutable::parse('2026-09-10T11:59:59Z')], 'exa_research.deadline_exceeded'],
 ]);
 
@@ -315,7 +320,67 @@ it('rejects configured options that runtime preflight would reject', function (a
     'string budget' => [['max_cost_dollars' => '1.00']],
     'non-finite budget' => [['max_cost_dollars' => INF]],
     'budget with fixed effort' => [['effort' => 'high', 'max_cost_dollars' => 1]],
+    'retired max effort' => [['effort' => 'max']],
+    'duration without ultra' => [['effort' => 'auto', 'max_duration_seconds' => 3000]],
+    'unknown configuration' => [['configuration' => 'research-deep-2026-10-09']],
 ]);
+
+it('sends each frozen research level exactly and proves its native cap before HTTP', function (string $id, array $payload, string $cap): void {
+    Http::fake(['https://api.exa.ai/agent/runs*' => Http::sequence()
+        ->push(exaResearchRun('completed', output: ['text' => 'stale', 'structured' => null, 'grounding' => []], completedAt: '2026-09-10T12:03:04Z'))
+        ->push(exaResearchCompletedRun())]);
+    $template = ExaResearchConfiguration::profiles()[$id];
+    $request = exaResearchRequest(options: $template['options'], id: $id);
+    $driver = exaResearchDriver();
+
+    $bound = $driver->spendingBound($request);
+    Http::assertNothingSent();
+    $result = $driver->run($request);
+
+    expect($bound->kind)->toBe(SpendingBoundKind::NativeMonetaryCeiling)
+        ->and((string) $bound->maximumCost?->amount)->toBe($cap)
+        ->and($bound->maximumCost?->currency)->toBe('USD')
+        ->and($template['enabled'])->toBeFalse()
+        ->and($template['credential'])->toBeNull()
+        ->and($result->profile)->toBe($id);
+    Http::assertSent(fn (Request $sent): bool => $sent->method() === 'POST'
+        && ! $sent->hasHeader('Exa-Beta')
+        && $sent->data() === ['query' => 'Compare durable research systems.', ...$payload]);
+})->with([
+    'auto, USD 1' => ['exa-research-auto', ['effort' => 'auto', 'budget' => ['maxCostDollars' => 1]], '1'],
+    'ultra, USD 5' => ['exa-research-ultra', ['effort' => 'ultra', 'budget' => ['maxCostDollars' => 5, 'maxDurationSeconds' => 3000]], '5'],
+]);
+
+it('refuses a frozen research level whose options differ from its reviewed template', function (string $id, array $options): void {
+    Http::fake();
+    $request = exaResearchRequest(options: $options, id: $id);
+
+    expect(exaResearchDriver()->spendingBound($request)->kind)->toBe(SpendingBoundKind::Unknown);
+    expect(fn () => exaResearchDriver()->run($request))
+        ->toThrow(fn (DriverException $exception) => expect($exception->errorCode)->toBe('exa_research.invalid_profile'));
+    Http::assertNothingSent();
+})->with([
+    'auto above its USD 1 cap' => ['exa-research-auto', ['configuration' => 'research-auto-2026-10-09', 'effort' => 'auto', 'max_cost_dollars' => 2]],
+    'ultra above its USD 5 cap' => ['exa-research-ultra', ['configuration' => 'research-ultra-2026-10-09', 'effort' => 'ultra', 'max_cost_dollars' => 6, 'max_duration_seconds' => 3000]],
+    'ultra without its duration' => ['exa-research-ultra', ['configuration' => 'research-ultra-2026-10-09', 'effort' => 'ultra', 'max_cost_dollars' => 5]],
+    'swapped configuration' => ['exa-research-auto', ['configuration' => 'research-ultra-2026-10-09', 'effort' => 'auto', 'max_cost_dollars' => 1]],
+    'general profile claiming a configuration' => ['exa-research', ['configuration' => 'research-auto-2026-10-09', 'effort' => 'auto', 'max_cost_dollars' => 1]],
+    'unreviewed level' => ['exa-research-deep', ['effort' => 'ultra', 'max_cost_dollars' => 5]],
+]);
+
+it('maps a run that stopped at its time limit as a completed report', function (): void {
+    Http::fake(['https://api.exa.ai/agent/runs*' => Http::sequence()
+        ->push(exaResearchRun('running'))
+        ->push(exaResearchCompletedRun(extra: ['stopReason' => 'time_limit_reached']))
+        ->push(exaResearchCompletedRun(extra: ['stopReason' => 'time_limit_reached']))]);
+    $options = ExaResearchConfiguration::profiles()['exa-research-ultra']['options'];
+
+    $result = exaResearchDriver()->run(exaResearchRequest(options: $options, id: 'exa-research-ultra'));
+
+    expect(data_get($result->providerMeta, 'exa:research.stop_reason'))->toBe('time_limit_reached')
+        ->and(data_get($result->providerMeta, 'exa:research.effort'))->toBe('ultra')
+        ->and($result->usage?->actualCost)->toBe('0.37');
+});
 
 it('maps terminal provider failure without exposing provider error details', function (string $status): void {
     $failed = exaResearchRun($status);
@@ -515,8 +580,11 @@ function exaResearchDriver(): ExaResearchDriver
     return app(ExaResearchDriver::class);
 }
 
-/** @return array<string, mixed> */
-function exaResearchCompletedRun(?string $id = null): array
+/**
+ * @param  array<string, mixed>  $extra
+ * @return array<string, mixed>
+ */
+function exaResearchCompletedRun(?string $id = null, array $extra = []): array
 {
     return exaResearchRun(
         status: 'completed',
@@ -552,6 +620,7 @@ function exaResearchCompletedRun(?string $id = null): array
                 'emails' => 0,
                 'phoneNumbers' => 0,
             ],
+            ...$extra,
         ],
     );
 }
@@ -600,9 +669,10 @@ function exaResearchRequest(
     ObservationMode $observation = ObservationMode::ApiOutput,
     array $corpora = [Corpus::Web],
     array $retrievalMethods = [RetrievalMethod::ResearchAgent],
+    string $id = 'exa-research',
 ): DriverRequest {
     $profile = new Profile(
-        id: 'exa-research',
+        id: $id,
         driver: ExaResearchDriver::class,
         provider: $provider,
         model: $model,
