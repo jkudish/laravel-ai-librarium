@@ -3,10 +3,7 @@
 Research queries for Laravel applications, built on the official
 [Laravel AI SDK](https://github.com/laravel/ai).
 
-> The package is under active development and does not have a stable release.
-> The Composer command below applies after a compatible package release.
-
-## Install after release
+## Install
 
 ```bash
 composer require jkudish/laravel-ai-librarium
@@ -18,6 +15,25 @@ Requirements:
 - PHP 8.4+
 - Laravel 13
 - Laravel AI SDK `^1.0.1`
+
+Provider credentials come from Laravel AI's `config/ai.php` and your
+`config/services.php`. A Profile without its credential is reported
+unavailable instead of being called. Previews make no provider call; only
+running or queueing a query does.
+
+### Optional Firecrawl adapter
+
+Firecrawl search and surface collection live in a separate package so its SDK
+stays out of core:
+
+```bash
+composer require jkudish/laravel-ai-librarium-firecrawl
+```
+
+It provides two opt-in Profiles: Firecrawl surface collection and raw
+`firecrawl-search`. See the
+[adapter README](https://github.com/jkudish/laravel-ai-librarium-firecrawl)
+for its configuration.
 
 ## Run a query
 
@@ -118,8 +134,9 @@ Validation errors leave stdout empty and use bounded stderr messages.
 
 The current source configures 46 core Profiles. Forty are enabled by
 default but still require valid configuration and credentials. Six DataForSEO
-Profiles are disabled until an application opts in. This count is separate
-from the frozen 39-row TypeScript/PHP release-contract snapshot.
+Profiles are disabled until an application opts in. Of the 41 Profiles in the
+pinned TypeScript v2 inventory, 39 are in core, one is in the Firecrawl adapter,
+and `searchapi-perplexity` is retired because SearchAPI withdrew its engine.
 
 Built-in groups:
 
