@@ -65,7 +65,9 @@ PROMPT;
                         'max_tokens' => 2_000,
                         'max_prompt_bytes' => 500,
                     ],
-                    'credential' => config('services.perplexity.key'),
+                    // Consumers supply credentials when registering the
+                    // templates; request definitions also load without an app.
+                    'credential' => null,
                     'pricing' => [
                         'provider' => 'perplexity',
                         'model' => 'research-'.$alias.'-'.self::REVISION,
