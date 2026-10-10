@@ -172,7 +172,7 @@ final readonly class ResearchResultMapper
             serverToolSearchRequests: $this->serverToolSearchRequests($response),
             toolUseTokens: $this->toolUseTokens($response),
             actualCost: $actualCost,
-            currency: $actualCost !== null ? $cost?->currency : null,
+            currency: $actualCost !== null ? $cost->currency : null,
         );
     }
 
