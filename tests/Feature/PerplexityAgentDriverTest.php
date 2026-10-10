@@ -58,7 +58,6 @@ it('runs frozen research depth and model pairs inline without a preset or fallba
 ])->with([
     ['luna', 'openai/gpt-6-luna'],
     ['sol', 'openai/gpt-6.1-sol'],
-    ['sonnet', 'anthropic/claude-sonnet-5'],
     ['gemini', 'google/gemini-3.8-flash'],
 ]);
 

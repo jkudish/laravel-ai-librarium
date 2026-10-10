@@ -13,10 +13,10 @@ final class PerplexityResearchConfiguration
 {
     public const string REVISION = '2026-10-09';
 
+    /** Claude is never routed through Perplexity: Anthropic models are called directly (ARV2-TC-D19). */
     public const array MODELS = [
         'luna' => 'openai/gpt-6-luna',
         'sol' => 'openai/gpt-6.1-sol',
-        'sonnet' => 'anthropic/claude-sonnet-5',
         'gemini' => 'google/gemini-3.8-flash',
     ];
 

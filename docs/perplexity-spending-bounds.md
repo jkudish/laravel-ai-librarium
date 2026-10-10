@@ -255,12 +255,14 @@ required.
 
 ## Frozen research diagnostics (2026-10-09)
 
-`PerplexityResearchConfiguration::profiles()` returns twelve opt-in disabled
+`PerplexityResearchConfiguration::profiles()` returns nine opt-in disabled
 Profile templates; consumers register them explicitly, and no shipped catalog
 or group changes:
-`perplexity-research-{medium,high,deep}-{luna,sol,sonnet,gemini}`.
-The model roster is `openai/gpt-6-luna`, `openai/gpt-6.1-sol`,
-`anthropic/claude-sonnet-5`, and `google/gemini-3.8-flash`.
+`perplexity-research-{medium,high,deep}-{luna,sol,gemini}`.
+The model roster is `openai/gpt-6-luna`, `openai/gpt-6.1-sol` and
+`google/gemini-3.8-flash`. Anthropic models are never routed through
+Perplexity (owner rule ARV2-TC-D19, 2026-10-10); consumers call Claude
+directly.
 Each Profile pins `configuration: research-{depth}-2026-10-09`, model,
 steps, output, search context, and the 500-byte local prompt limit.
 `configuration_sha256` hashes the JSON request with empty `input` (including
