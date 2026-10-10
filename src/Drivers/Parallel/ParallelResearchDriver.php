@@ -9,6 +9,7 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Sleep;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
+use Jkudish\LaravelAiLibrarium\Contracts\DefinesSpendingBound;
 use Jkudish\LaravelAiLibrarium\Contracts\DurableDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
 use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
@@ -28,9 +29,12 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\SourceKind;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 use Jkudish\LaravelAiLibrarium\Responses\ResultProvenance;
 use Jkudish\LaravelAiLibrarium\Responses\Source;
+use Jkudish\LaravelAiLibrarium\SpendingBound;
+use Jkudish\LaravelAiPricing\ValueObjects\ModelIdentity;
+use Jkudish\LaravelAiPricing\ValueObjects\Usage as PricingUsage;
 
 /** Runs one durable Parallel Task API deep-research job to completion. */
-final readonly class ParallelResearchDriver implements DurableDriver
+final readonly class ParallelResearchDriver implements DefinesSpendingBound, DurableDriver
 {
     private const string ENDPOINT = 'https://api.parallel.ai/v1/tasks/runs';
 
@@ -45,6 +49,30 @@ final readonly class ParallelResearchDriver implements DurableDriver
     public static function profileOptionRules(): array
     {
         return ParallelOptions::researchRules();
+    }
+
+    /**
+     * Parallel charges one processor fee per successful Task Run, whatever
+     * the output size. The driver submits exactly one run, never resubmits,
+     * and sends no pay-per-use data sources or MCP servers, which are the
+     * only documented surcharges. Polling and result retrieval are free.
+     */
+    public function spendingBound(DriverRequest $request): SpendingBound
+    {
+        $processor = $this->processor($request);
+        if ($processor === null || ! $this->validInput($request)) {
+            return SpendingBound::unknown();
+        }
+        try {
+            ParallelOptions::research($request->profile->options);
+        } catch (DriverException) {
+            return SpendingBound::unknown();
+        }
+
+        return SpendingBound::billableQuantities(
+            new ModelIdentity('parallel', 'research-'.$processor),
+            new PricingUsage(['processor_requests' => 1]),
+        );
     }
 
     public function run(DriverRequest $request): ResearchResult
@@ -126,32 +154,42 @@ final readonly class ParallelResearchDriver implements DurableDriver
 
     private function validateProfile(DriverRequest|RecoveryRequest $request): string
     {
-        $profile = $request->profile;
-        if ($profile->id !== 'parallel-research'
-            || $profile->provider !== 'parallel'
-            || ! in_array($profile->model, self::PROCESSORS, true)
-            || $profile->resultKind !== ResultKind::ResearchReport
-            || $profile->grounding !== GroundingPolicy::Required
-            || $profile->observation !== ObservationMode::ApiOutput
-            || $profile->corpora->values()->all() !== [Corpus::Web]
-            || $profile->retrievalMethods->values()->all() !== [RetrievalMethod::ResearchAgent]
-        ) {
-            throw new DriverException(
-                'parallel.invalid_profile',
-                'The Parallel Research Profile has incompatible identity, processor, or provenance semantics.',
-                false,
-            );
-        }
-        if (blank($profile->credential)) {
+        $processor = $this->processor($request) ?? throw new DriverException(
+            'parallel.invalid_profile',
+            'The Parallel Research Profile has incompatible identity, processor, or provenance semantics.',
+            false,
+        );
+        if (blank($request->profile->credential)) {
             throw new DriverException('parallel.authentication', 'The Parallel provider is not configured.');
         }
-        if ($request instanceof DriverRequest
-            && (trim($request->prompt) === '' || mb_strlen($request->prompt) > 15_000)) {
+        if ($request instanceof DriverRequest && ! $this->validInput($request)) {
             throw new DriverException('parallel.invalid_request', 'The Parallel Research input is invalid.', false);
         }
         $this->transport->remainingSeconds($request);
 
-        return $profile->model;
+        return $processor;
+    }
+
+    private function processor(DriverRequest|RecoveryRequest $request): ?string
+    {
+        $profile = $request->profile;
+
+        return $profile->id === 'parallel-research'
+            && $profile->provider === 'parallel'
+            && is_string($profile->model)
+            && in_array($profile->model, self::PROCESSORS, true)
+            && $profile->resultKind === ResultKind::ResearchReport
+            && $profile->grounding === GroundingPolicy::Required
+            && $profile->observation === ObservationMode::ApiOutput
+            && $profile->corpora->values()->all() === [Corpus::Web]
+            && $profile->retrievalMethods->values()->all() === [RetrievalMethod::ResearchAgent]
+                ? $profile->model
+                : null;
+    }
+
+    private function validInput(DriverRequest $request): bool
+    {
+        return trim($request->prompt) !== '' && mb_strlen($request->prompt) <= 15_000;
     }
 
     /**

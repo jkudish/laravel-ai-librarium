@@ -54,7 +54,9 @@ pre-dispatch quantity maximum.
 | --- | --- |
 | `claude-chat` | `anthropic:claude-sonnet-5-global` input/output quantities only when `web_search` is `false`, `max_steps` is `1`, `max_output_tokens` is explicitly set from 1 through 128,000, and `max_prompt_bytes` is an explicit positive limit that the rendered prompt satisfies. The billing SKU records the Claude API's default global routing while the source-native request and result model remains `claude-sonnet-5`; generic and US-only identities do not use this rate. The input maximum is the model's 1M-token context ceiling; the output maximum is the request's `max_tokens`. Search-enabled requests remain `unknown` because search-result context is billed as input and `max_uses` does not bound its aggregate tokens. |
 | `openrouter-chat` | Bounded for exactly two model identities — `openrouter:openai/gpt-5.6-terra-272k` and `openrouter:openai/gpt-6-luna-272k` — under the same required controls: `web_search` is `true`, `search_engine` is `exa`, `search_mode` is exactly `auto`, `max_tool_calls` is 1 through 30, `max_results` is 1 through 10, `max_steps` is `1`, `max_prompt_bytes` is a satisfied positive limit, and `max_searches` is an explicit positive integer: `(max_tool_calls + 1)` completions at the pinned endpoint's 1,050,000-token context (reserved entirely in the cache-write partition, the most expensive exclusive input partition) and 128,000-token per-completion output maximum, plus `exa_search_requests` equal to `max_searches` (emitted as `max_uses`). Search count is independent of the loop-turn budget. Each identity's routing (`order`/`ignore`/`max_price`) and revision binding are per-model facts in the driver's bounded-model table. Legacy requests without the search cap, any other configuration, and any OpenRouter model absent from that table return `unknown`. See [Grounded Laravel AI spending bounds](grounded-spending-bounds.md). |
-| `exa-research` | Native USD ceiling only for `auto` or `max` with an explicit `max_cost_dollars` from 1 through 100. The same value is sent as `budget.maxCostDollars`. No configured cap returns `unknown`; provider defaults are not pinned. Fixed efforts return `unknown` and reject a budget. |
+| `exa-research` | Native USD ceiling only for `auto` or `ultra` with an explicit `max_cost_dollars` from 1 through 100. The same value is sent as `budget.maxCostDollars`. No configured cap returns `unknown`; provider defaults are not pinned. Fixed efforts return `unknown` and reject a budget. |
+| `exa-research-auto`, `exa-research-ultra` | Opt-in frozen templates: USD 1 (`auto`) and USD 5 (`ultra`, 3,000-second duration ceiling). Any drift from the template returns `unknown`. See [Exa and Parallel research bounds](exa-parallel-research-bounds.md). |
+| `parallel-research` | One `processor_requests` unit under `parallel:research-pro`. See [Exa and Parallel research bounds](exa-parallel-research-bounds.md). |
 | Six `dataforseo-*` Profiles | One `requests` unit under the exact Standard or Live pricing identity. Polling and retrieval do not add task units. |
 | `searchapi`, five one-stage surface Profiles | One `successful_search_request`. |
 | `searchapi-google-ai-overview` | Two `successful_search_request` units. This remains the pre-dispatch maximum if stage two fails; the bound is not a claim that two successful receipts were observed. |
@@ -80,7 +82,7 @@ account-rate semantics do not currently prove all-dimensional bounds. This
 includes other Laravel AI model Profiles, You.com, Perplexity Agent
 ([evidence](perplexity-spending-bounds.md)), xAI Grok
 ([evidence](xai-grok-spending-bounds.md)), OpenAI Research, Jina, Gemini Deep
-Research, Parallel, and Valyu. `unknown` records absent documentation or
+Research, and Valyu. `unknown` records absent documentation or
 controls, not impossibility; each linked page lists the provider guarantee
 that would change its verdict.
 

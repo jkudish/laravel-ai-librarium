@@ -44,7 +44,7 @@ final readonly class ExaResearchResultMapper
         $totalCost = $costs['total'] ?? null;
         $stopReason = data_get($run, 'stopReason');
         if ($stopReason !== null && (! is_string($stopReason)
-            || ! in_array($stopReason, ['schema_satisfied', 'budget_reached', 'stopped', 'error', 'cancelled'], true))) {
+            || ! in_array($stopReason, ['schema_satisfied', 'budget_reached', 'time_limit_reached', 'stopped', 'error', 'cancelled'], true))) {
             throw $this->invalidResponse();
         }
 
