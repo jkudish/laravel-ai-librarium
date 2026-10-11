@@ -7,6 +7,7 @@ namespace Jkudish\LaravelAiLibrarium\Drivers\Valyu;
 use Carbon\CarbonImmutable;
 use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
 use Jkudish\LaravelAiLibrarium\Responses\Usage;
+use stdClass;
 
 final class ValyuSupport
 {
@@ -112,17 +113,24 @@ final class ValyuSupport
      * Replaces the PDF bearer link and the private task handle in a captured
      * Valyu body, so evidence and diagnostics retain neither. The handle is
      * the body's own deepresearch_id and the task the request addressed.
-     * Known spellings are replaced in place. When that leaves a JSON body
-     * reflecting either value under another valid escape spelling, the
-     * decoded body is redacted and re-encoded instead.
+     * A JSON body is captured as its redacted re-encoding, so no escape
+     * spelling, duplicate member or object key keeps either value; any other
+     * body has each value replaced in place.
      */
     public static function capturedBody(string $body, ?string $taskId = null): string
     {
-        $json = self::decode($body);
+        try {
+            $json = json_decode($body, false, 512, JSON_THROW_ON_ERROR | JSON_BIGINT_AS_STRING);
+            $isJson = true;
+        } catch (\JsonException) {
+            $json = null;
+            $isJson = false;
+        }
+
         $values = [$taskId];
-        if (is_array($json)) {
-            $values[] = $json['pdf_url'] ?? null;
-            $values[] = $json['deepresearch_id'] ?? null;
+        if ($json instanceof stdClass) {
+            $values[] = $json->pdf_url ?? null;
+            $values[] = $json->deepresearch_id ?? null;
         }
         $values = array_values(array_unique(array_filter($values, static fn (mixed $value): bool => is_string($value) && $value !== '')));
         if ($values === []) {
@@ -131,36 +139,9 @@ final class ValyuSupport
         // The link contains the task handle, so the longest value is replaced first.
         usort($values, static fn (string $a, string $b): int => strlen($b) <=> strlen($a));
 
-        $forms = [];
-        foreach ($values as $value) {
-            $forms[] = $value;
-            $forms[] = substr((string) json_encode($value), 1, -1);
-            $forms[] = substr((string) json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), 1, -1);
-        }
-        $forms = array_values(array_unique(array_filter($forms, static fn (string $form): bool => $form !== '')));
-        usort($forms, static fn (string $a, string $b): int => strlen($b) <=> strlen($a));
-        $redacted = str_replace($forms, '[REDACTED]', $body);
-        if ($json === null) {
-            return $redacted;
-        }
-
-        // In-place replacement is exact only when it decodes to the same
-        // value as redacting the decoded body; otherwise an unlisted escape
-        // spelling left a value, or a fragment of the link, behind.
-        $expected = self::redactDecoded($json, $values);
-
-        return self::decode($redacted) === $expected
-            ? $redacted
-            : (string) json_encode($expected, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION);
-    }
-
-    private static function decode(string $body): mixed
-    {
-        try {
-            return json_decode($body, true, 512, JSON_THROW_ON_ERROR | JSON_BIGINT_AS_STRING);
-        } catch (\JsonException) {
-            return null;
-        }
+        return $isJson
+            ? (string) json_encode(self::redactDecoded($json, $values), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION)
+            : str_replace($values, '[REDACTED]', $body);
     }
 
     /** @param list<string> $values */
@@ -169,16 +150,19 @@ final class ValyuSupport
         if (is_string($decoded)) {
             return str_replace($values, '[REDACTED]', $decoded);
         }
-        if (! is_array($decoded)) {
-            return $decoded;
+
+        if ($decoded instanceof stdClass) {
+            $redacted = new stdClass;
+            foreach (get_object_vars($decoded) as $key => $item) {
+                $redacted->{str_replace($values, '[REDACTED]', (string) $key)} = self::redactDecoded($item, $values);
+            }
+
+            return $redacted;
         }
 
-        $redacted = [];
-        foreach ($decoded as $key => $item) {
-            $redacted[is_string($key) ? str_replace($values, '[REDACTED]', $key) : $key] = self::redactDecoded($item, $values);
-        }
-
-        return $redacted;
+        return is_array($decoded)
+            ? array_map(static fn (mixed $item): mixed => self::redactDecoded($item, $values), $decoded)
+            : $decoded;
     }
 
     /** @return array{scheme?: string, host?: string, port?: int, user?: string, pass?: string, path?: string, query?: string, fragment?: string}|null */

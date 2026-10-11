@@ -10,7 +10,9 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
 use Jkudish\LaravelAiLibrarium\Collection\SensitiveProviderResponse;
 use Jkudish\LaravelAiLibrarium\Drivers\Valyu\ValyuResearchDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Valyu\ValyuSupport;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
+use Jkudish\LaravelAiLibrarium\Exceptions\RecoveryException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\Profile;
@@ -534,6 +536,8 @@ it('rejects a result that reflects the PDF link anywhere but the artifact', func
     'linked in the report' => ['# Report\n\n[Download]({pdf})'],
     'nested in another URL' => ['[Download](https://attacker.example/?next={pdf})'],
     'extended link' => ['[Download]({pdf}&extra=value)'],
+    'bare link as the report' => ['{pdf}'],
+    'bare extended link as the report' => ['{pdf}&extra=value'],
 ]);
 
 it('keeps the PDF link through public durable retrieval', function (): void {
@@ -580,6 +584,27 @@ it('redacts the task handle and PDF link from captured bodies under any valid JS
         ->and($decoded)->not->toContain(valyuPdfAssetId())
         ->and($decoded)->not->toContain('c3ludGhldGljLXNpZ25hdHVyZQ');
 })->with(['redacted collection' => false, 'sensitive collection' => true]);
+
+it('never keeps a task handle that only a lossy JSON decoding would hide', function (string $body, string $taskId): void {
+    $captured = ValyuSupport::capturedBody($body, $taskId);
+
+    expect($captured)->not->toContain($taskId)
+        ->and($captured)->not->toContain('\\u0064');
+})->with([
+    'escaped handle in an overwritten duplicate member' => ['{"deepresearch_id":"dr-pdf-private","echo":"\\u0064r-pdf-private","echo":"ok"}', 'dr-pdf-private'],
+    'numeric handle as an object member name' => ['{"deepresearch_id":"123","123":"echo"}', '123'],
+]);
+
+it('rejects a durable result that reflects the handle outside the PDF artifact', function (): void {
+    config()->set('services.valyu.key', 'testing-valyu-key');
+    Http::fake(['https://api.valyu.ai/v1/deepresearch/tasks*' => Http::sequence()
+        ->push(valyuResearchSubmission('dr-durable-pdf', 'standard'), 202)
+        ->push([...valyuResearchCompleted('dr-durable-pdf', 'standard'), 'output' => valyuPdfUrl('dr-durable-pdf').'&extra=value'])]);
+
+    $submitted = Librarium::query('clinical question')->using('valyu-research')->submit();
+
+    expect(fn () => Librarium::retrieve($submitted->handle))->toThrow(RecoveryException::class);
+});
 
 it('keeps max mode out of every built-in group while explicit and custom selection still work', function (string $mode, bool $grouped): void {
     config()->set('services.valyu.key', 'testing-valyu-key');

@@ -13,11 +13,11 @@ use stdClass;
 final class TerminalRedaction
 {
     /**
-     * When $taskHandle names the private task, a whole string value that is
-     * that task's validated Valyu asset link may contain it (see
-     * ValyuSupport::isTaskAssetLink()). The handle anywhere else, including
-     * a link embedded in other text or another URL, and every other private
-     * value still reject the result.
+     * When $taskHandle names the private task, the Valyu PDF artifact's
+     * url may contain it if ValyuSupport::isTaskAssetLink() validates that
+     * whole value for the task. The handle in any other field, including the
+     * same link in report text, and every other private value still reject
+     * the result.
      *
      * @param  list<string>  $privateValues
      */
@@ -31,8 +31,12 @@ final class TerminalRedaction
             $privateValues,
             static fn (string $value): bool => $value !== '',
         ));
+        $value = $result->toArray();
+        if ($taskHandle !== null) {
+            $value = self::withoutTaskAssetLinks($value, $taskHandle, $privateValues);
+        }
 
-        if ($checked !== [] && self::contains($result->toArray(), $checked, $privateValues, $taskHandle)) {
+        if ($checked !== [] && self::contains($value, $checked)) {
             if ($failure === null) {
                 throw new DriverException(
                     'librarium.unsafe_result',
@@ -52,18 +56,50 @@ final class TerminalRedaction
     }
 
     /**
-     * @param  list<string>  $checked
+     * A copy of the serialized result without the validated PDF artifact
+     * urls under provider_meta["valyu:research"].artifacts.
+     *
+     * @param  array<string, mixed>  $value
      * @param  list<string>  $privateValues
+     * @return array<string, mixed>
      */
-    private static function contains(mixed $value, array $checked, array $privateValues, ?string $taskHandle): bool
+    private static function withoutTaskAssetLinks(array $value, string $taskHandle, array $privateValues): array
+    {
+        $meta = $value['provider_meta'] ?? null;
+        if (! $meta instanceof stdClass) {
+            return $value;
+        }
+
+        $meta = get_object_vars($meta);
+        $research = $meta['valyu:research'] ?? null;
+        $artifacts = is_array($research) ? ($research['artifacts'] ?? null) : null;
+        if (! is_array($research) || ! is_array($artifacts)) {
+            return $value;
+        }
+
+        $kept = [];
+        foreach ($artifacts as $index => $artifact) {
+            if (is_array($artifact)
+                && ($artifact['kind'] ?? null) === 'pdf'
+                && is_string($artifact['url'] ?? null)
+                && ValyuSupport::isTaskAssetLink($artifact['url'], $taskHandle, $privateValues)) {
+                unset($artifact['url']);
+            }
+            $kept[$index] = $artifact;
+        }
+        $research['artifacts'] = $kept;
+        $meta['valyu:research'] = $research;
+        $value['provider_meta'] = $meta;
+
+        return $value;
+    }
+
+    /** @param list<string> $privateValues */
+    private static function contains(mixed $value, array $privateValues): bool
     {
         if (is_string($value)) {
-            if ($taskHandle !== null && ValyuSupport::isTaskAssetLink($value, $taskHandle, $privateValues)) {
-                return false;
-            }
-
             return array_any(
-                $checked,
+                $privateValues,
                 static fn (string $privateValue): bool => str_contains($value, $privateValue),
             );
         }
@@ -73,6 +109,6 @@ final class TerminalRedaction
         }
 
         return is_array($value)
-            && array_any($value, static fn (mixed $item): bool => self::contains($item, $checked, $privateValues, $taskHandle));
+            && array_any($value, static fn (mixed $item): bool => self::contains($item, $privateValues));
     }
 }

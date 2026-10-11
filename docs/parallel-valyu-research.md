@@ -178,8 +178,9 @@ for it. Store and share it like a credential.
   documents no separate expiry field.
 - Before a provider response is captured, the driver replaces every
   occurrence of the URL and of the task ID with `[REDACTED]`, including the
-  `deepresearch_id` of submission and status bodies, under any valid JSON
-  escape spelling. Redacted evidence,
+  `deepresearch_id` of submission and status bodies. JSON bodies are captured
+  as their redacted re-encoding, so no escape spelling, duplicate member, or
+  object key keeps either value. Redacted evidence,
   sensitive collections, operational diagnostics, and error messages
   therefore contain neither. Only the result carries the link, including
   `--agent` result JSON. The durable handle your application stores is the
