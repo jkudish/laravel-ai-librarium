@@ -33,7 +33,10 @@ final readonly class ReleaseReadiness
         'illuminate/support' => '^13.35',
         'illuminate/validation' => '^13.35',
         'jkudish/laravel-ai-pricing' => '^0.2.2',
-        'laravel/ai' => '^1.2',
+        'laravel/ai' => '^1.0.1',
+        'laravel/prompts' => '^0.3.15',
+        'league/commonmark' => '^2.10.2',
+        'standard-webhooks/standard-webhooks' => '^1.0',
     ];
 
     /** @var array<string, string> */

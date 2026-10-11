@@ -8,7 +8,10 @@ First stable release.
 
 ### Requirements
 
-- PHP 8.4 or later, Laravel 13.35 or later, and Laravel AI SDK `^1.2`.
+- PHP 8.4 or later, Laravel 13.35 or later, and Laravel AI SDK `^1.0.1`.
+  Laravel Prompts `^0.3.15`, CommonMark `^2.10.2`, and Standard Webhooks
+  `^1.0` are the lowest versions that pass the lowest-dependency lane. Laravel
+  stays at 13.35 because the latest Pest and Testbench allow nothing lower.
   Laravel AI SDK 1.0.0 is excluded because of
   [GHSA-6qhr-3g93-pxhw](https://github.com/laravel/ai/security/advisories/GHSA-6qhr-3g93-pxhw)
   (SSRF via client-supplied file URLs in the SDK's Vercel AI and AG-UI

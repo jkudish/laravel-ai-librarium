@@ -53,7 +53,10 @@ function releaseReadinessComposerFixture(): array
             'illuminate/support' => '^13.35',
             'illuminate/validation' => '^13.35',
             'jkudish/laravel-ai-pricing' => '^0.2.2',
-            'laravel/ai' => '^1.2',
+            'laravel/ai' => '^1.0.1',
+            'laravel/prompts' => '^0.3.15',
+            'league/commonmark' => '^2.10.2',
+            'standard-webhooks/standard-webhooks' => '^1.0',
         ],
         'require-dev' => [
             'orchestra/testbench' => '^11.3',
@@ -186,8 +189,10 @@ it('requires the exact supported PHP, Laravel, and Laravel AI compatibility poli
     'Laravel floor' => ['require', 'illuminate/support', '^13.0', 'Runtime dependency illuminate/support must use the release compatibility constraint [^13.35].'],
     'pricing without tiered Luna identities' => ['require', 'jkudish/laravel-ai-pricing', '^0.2.0', 'Runtime dependency jkudish/laravel-ai-pricing must use the release compatibility constraint [^0.2.2].'],
     'pricing legacy range' => ['require', 'jkudish/laravel-ai-pricing', '^0.1.1 || ^0.2.0', 'Runtime dependency jkudish/laravel-ai-pricing must use the release compatibility constraint [^0.2.2].'],
-    'Laravel AI range' => ['require', 'laravel/ai', '^0.11.0 || ^0.10.3', 'Runtime dependency laravel/ai must use the release compatibility constraint [^1.2].'],
-    'Laravel AI vulnerable floor' => ['require', 'laravel/ai', '^1.0', 'Runtime dependency laravel/ai must use the release compatibility constraint [^1.2].'],
+    'Laravel AI range' => ['require', 'laravel/ai', '^0.11.0 || ^0.10.3', 'Runtime dependency laravel/ai must use the release compatibility constraint [^1.0.1].'],
+    'Laravel AI vulnerable floor' => ['require', 'laravel/ai', '^1.0', 'Runtime dependency laravel/ai must use the release compatibility constraint [^1.0.1].'],
+    'Laravel AI above the tested floor' => ['require', 'laravel/ai', '^1.2', 'Runtime dependency laravel/ai must use the release compatibility constraint [^1.0.1].'],
+    'Prompts below the tested floor' => ['require', 'laravel/prompts', '^0.3.11', 'Runtime dependency laravel/prompts must use the release compatibility constraint [^0.3.15].'],
     'Testbench major' => ['require-dev', 'orchestra/testbench', '^10.0', 'Development dependency orchestra/testbench must use the release compatibility constraint [^11.3].'],
 ]);
 
