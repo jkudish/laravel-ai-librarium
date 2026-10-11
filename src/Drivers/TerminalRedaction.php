@@ -31,12 +31,16 @@ final class TerminalRedaction
             $privateValues,
             static fn (string $value): bool => $value !== '',
         ));
+        if ($checked === []) {
+            return $result;
+        }
+
         $value = $result->toArray();
         if ($taskHandle !== null) {
             $value = self::withoutTaskAssetLinks($value, $taskHandle, $privateValues);
         }
 
-        if ($checked !== [] && self::contains($value, $checked)) {
+        if (self::contains($value, $checked)) {
             if ($failure === null) {
                 throw new DriverException(
                     'librarium.unsafe_result',
