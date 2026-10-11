@@ -2,12 +2,12 @@
 
 This page documents the pre-dispatch `spendingBound()` results for the four
 exact grounded Laravel AI Profiles — `claude-chat` (Anthropic
-`claude-sonnet-5`), `openai-chat` (OpenAI `gpt-6-luna`),
-`gemini-grounded` (Gemini `gemini-3.6-flash`), and `openrouter-chat`
-(OpenRouter with the Exa engine — the shipped Profile default stays on the
-historical `openai/gpt-5.6-terra` route below; the reviewed
-`openai/gpt-6-luna` canary route is a per-model driver route the Platform
-canary selects through an explicit derived model override). The result
+`claude-sonnet-5-5`), `openai-chat` (OpenAI `gpt-6-luna`),
+`gemini-grounded` (Gemini `gemini-3.8-flash`), and `openrouter-chat`
+(OpenRouter with the Exa engine — the shipped Profile default is
+`openai/gpt-6-luna`, the reviewed Luna route below; the historical
+`openai/gpt-5.6-terra` route stays available through an explicit model
+override). The result
 contract, ownership, and revalidation rules are
 defined in
 [Exact-request spending bounds](spending-bounds.md).
@@ -48,11 +48,10 @@ or reuse historical dispatch authority: a consumer that recomputes an old
 bound should now refuse it. Stored evidence and settled charges remain valid
 records of what happened.
 
-## `openrouter-chat` — OpenRouter `openai/gpt-6-luna` (canary via explicit model override), Exa engine: bounded
+## `openrouter-chat` — OpenRouter `openai/gpt-6-luna` (shipped default), Exa engine: bounded
 
-The current reviewed canary is **regular** `openai/gpt-6-luna` (not Luna
-Pro), selected on `openrouter-chat` through an explicit model override —
-the shipped Profile default remains `openai/gpt-5.6-terra` — with every
+The current reviewed route is **regular** `openai/gpt-6-luna` (not Luna
+Pro), the shipped `openrouter-chat` default since October 11, 2026 — with every
 safeguard of the historical route preserved: the same option gate,
 server-tool budget authority, fail-closed catalog revision check, response
 model compatibility check, no-catalog-evidence settlement semantics,
@@ -249,10 +248,10 @@ facts, bound, routing, catalog preflight, and settlement semantics remain
 preserved. Its response model check has the same bounded compatibility as
 Luna: exact requested alias or reviewed dated revision. The route remains
 fully covered by
-`tests/Feature/GroundedLaravelAiSpendingBoundTest.php` (running against the
-shipped Terra default, including the assertion that Terra emits no
-`reasoning` key). It remains the shipped `openrouter-chat` Profile model;
-the Luna canary above is selected only through an explicit model override.
+`tests/Feature/GroundedLaravelAiSpendingBoundTest.php` (which selects Terra
+through an explicit model override, including the assertion that Terra emits
+no `reasoning` key). Since October 11, 2026 the shipped `openrouter-chat`
+model is Luna; Terra is selected only through an explicit model override.
 The section below is the reviewed Terra authority, and the Luna section
 above inherits every mechanism it describes, with Luna's facts.
 
@@ -482,7 +481,7 @@ endpoint catalog for
 variant at $1/$6 excluded by pinning; alias `canonical_slug`
 `openai/gpt-5.6-terra-20260709`).
 
-## `claude-chat` — Anthropic `claude-sonnet-5`, web search enabled: `unknown`
+## `claude-chat` — Anthropic `claude-sonnet-5-5`, web search enabled: `unknown`
 
 The grounded Anthropic route stays `unknown` under every configuration. The
 `max_searches` option remains a supported run control and is enforced on the
@@ -545,7 +544,7 @@ guide](https://developers.openai.com/api/docs/guides/tools-web-search),
 [Pricing](https://developers.openai.com/api/docs/pricing), [GPT-6
 Luna](https://developers.openai.com/api/docs/models/gpt-6-luna).
 
-## `gemini-grounded` — Gemini `gemini-3.6-flash`: remains `unknown`
+## `gemini-grounded` — Gemini `gemini-3.8-flash`: remains `unknown`
 
 Gemini grounding cannot be completely bounded, so this Profile returns
 `unknown` under every configuration, and Gemini has no `max_searches`,
@@ -570,8 +569,10 @@ request, and output — including thinking tokens — is capped at 65,536.
 Sources: [Gemini Developer API
 pricing](https://ai.google.dev/gemini-api/docs/pricing), [Grounding with
 Google Search](https://ai.google.dev/gemini-api/docs/generate-content/google-search),
-[Tool reference](https://ai.google.dev/api/generate-content), [Gemini 3.6
-Flash](https://ai.google.dev/gemini-api/docs/models/gemini-3.6-flash).
+[Tool reference](https://ai.google.dev/api/generate-content), [Gemini 3.8
+Flash](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash) (same
+1,048,576-token input and 65,536-token output limits as Gemini 3.6 Flash,
+read 2026-10-11).
 
 Smallest necessary external or product decision: either Google ships a
 per-request search-query cap for the `google_search` tool (or documents a

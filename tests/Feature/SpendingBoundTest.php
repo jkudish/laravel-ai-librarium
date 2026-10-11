@@ -137,7 +137,7 @@ it('bounds exact no-search Claude input and configured output quantities offline
         ->spendingBound();
 
     expect($bound->kind)->toBe(SpendingBoundKind::BillableQuantities)
-        ->and($bound->pricingIdentity?->key())->toBe('anthropic:claude-sonnet-5-global')
+        ->and($bound->pricingIdentity?->key())->toBe('anthropic:claude-sonnet-5-5-global-standard')
         ->and($bound->quantities?->toArray())->toBe([
             'input_tokens' => '1000000',
             'output_tokens' => '64000',

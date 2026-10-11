@@ -1,13 +1,19 @@
 # xAI Grok spending bounds
 
 This page records why the xAI Grok Profiles keep an `unknown` pre-dispatch
-spending bound. It covers the exact shipped `grok` Profile: model `grok-4.6`,
+spending bound. It covers the exact shipped `grok` Profile: model `grok-4.7`,
 the web-only corpus, `model_search_tool` retrieval, and the
 `POST /v1/responses` route with the `web_search` server-side tool. See
 `docs/spending-bounds.md` for the capability contract itself.
 
-All sources were read on September 18, 2026; each lists its official URL and
-the page's own last-updated date where published.
+All sources were read on September 18, 2026, against `grok-4.6`, each with its
+official URL and the page's own last-updated date where published. The shipped
+default moved to `grok-4.7` on October 11, 2026. Its
+[model page](https://docs.x.ai/developers/models/grok-4.7) and the
+[pricing page](https://docs.x.ai/developers/pricing), read that day, give it
+the same 500,000-token context window, the same token rates and 200k
+long-context tier, and the same Web Search and X Search tool prices, so the
+analysis below applies unchanged.
 
 ## Verdict
 

@@ -52,13 +52,16 @@ final readonly class SpendingBoundResolver
             throw new LogicException("The rendered prompt for Profile [{$profile->id}] is missing.");
         }
 
+        $admittedAt = CarbonImmutable::now();
+        $deadline = $admittedAt->addSeconds($plan->timeout);
+
         return $driver->spendingBound(new DriverRequest(
             requestId: $plan->requestId,
             requestedProfile: $profile,
             profile: $profile,
             prompt: $prompt,
-            deadline: CarbonImmutable::now()->addSeconds($plan->timeout),
+            deadline: $deadline,
             progressCallback: static fn (): null => null,
-        ));
+        ))->pricedBetween($admittedAt, $deadline);
     }
 }

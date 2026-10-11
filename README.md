@@ -64,6 +64,11 @@ $response = $research->run();    // May make paid provider calls.
 Unknown cost stays unknown. `maxCost()` rejects a request unless every
 reachable quote is complete, current, conservative, and in one currency. It is
 a pre-dispatch check, not a provider-enforced ceiling or final-bill guarantee.
+Quotes cover the run from compile time until its deadline (`pricedAt` and
+`pricedUntil` on the preview), so a price that changes on a known date, such as
+Gemini Flash on 2027-01-01, is quoted at its higher rate when the run can reach
+it. A queued run that starts later than its compile time can bill past that
+interval; compile it again close to dispatch when the date matters.
 See [exact-request spending bounds](docs/spending-bounds.md) for the separate
 single-Profile bound API.
 

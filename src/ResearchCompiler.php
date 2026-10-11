@@ -77,16 +77,23 @@ final readonly class ResearchCompiler
             ]);
         }
 
+        // Dated rate windows price an estimate at the highest rate in effect
+        // between admission and the run's deadline, so a run that crosses a
+        // price change is never quoted at the earlier rate alone. Pricing is
+        // still checked before the timeout, so an out-of-range timeout only
+        // clamps the interval here and fails its own validation below.
+        $configuredTimeout = $this->config->get('librarium.timeout', 6900);
+        $timeout = $research->timeoutSeconds() ?? (is_int($configuredTimeout) ? $configuredTimeout : 6900);
+        $pricedAt = CarbonImmutable::now();
+        $pricedUntil = $pricedAt->addSeconds(max(0, $timeout));
         $pricing = $resolvePricing
-            ? $this->pricing($profiles, $fallbacks, $research->maximumCost())
+            ? $this->pricing($profiles, $fallbacks, $research->maximumCost(), $pricedAt, $pricedUntil)
             : null;
         $all = $profiles->concat($fallbacks);
         $prompts = $all->mapWithKeys(fn (Profile $profile): array => [
             $profile->id => $profile->renderPrompt($research->input),
         ]);
 
-        $configuredTimeout = $this->config->get('librarium.timeout', 6900);
-        $timeout = $research->timeoutSeconds() ?? (is_int($configuredTimeout) ? $configuredTimeout : 6900);
         if ($timeout < 1 || $timeout > 86400) {
             throw ValidationException::withMessages(['timeout' => 'The configured timeout must be between 1 and 86400 seconds.']);
         }
@@ -124,6 +131,8 @@ final readonly class ResearchCompiler
                 maximumEstimatedCost: $pricing['maximum_estimated_cost'] ?? null,
                 currency: $pricing['currency'] ?? null,
                 costEstimateComplete: $pricing['preflight_cost_check_available'] ?? false,
+                pricedAt: $pricing === null ? null : $pricedAt,
+                pricedUntil: $pricing === null ? null : $pricedUntil,
             ),
             timeout: $timeout,
             jobTimeout: $jobTimeout,
@@ -256,8 +265,13 @@ final readonly class ResearchCompiler
      *     currency: string|null
      * }
      */
-    private function pricing(Collection $profiles, Collection $fallbacks, ?array $maximum): array
-    {
+    private function pricing(
+        Collection $profiles,
+        Collection $fallbacks,
+        ?array $maximum,
+        CarbonImmutable $pricedAt,
+        CarbonImmutable $pricedUntil,
+    ): array {
         $maxAgeDays = $this->config->get('librarium.pricing.max_age_days', 30);
         if (! is_int($maxAgeDays) || $maxAgeDays < 1 || $maxAgeDays > 3650) {
             throw ValidationException::withMessages([
@@ -265,12 +279,14 @@ final readonly class ResearchCompiler
             ]);
         }
 
-        $cutoff = CarbonImmutable::now()->subDays($maxAgeDays);
+        $cutoff = $pricedAt->subDays($maxAgeDays);
         $quotes = $profiles->map(fn (Profile $profile): array => $this->pricingEntry(
             profile: $profile,
             role: 'primary',
             reachableFrom: [$profile->id],
             cutoff: $cutoff,
+            pricedAt: $pricedAt,
+            pricedUntil: $pricedUntil,
         ));
 
         foreach ($fallbacks as $fallback) {
@@ -285,6 +301,8 @@ final readonly class ResearchCompiler
                 role: 'fallback',
                 reachableFrom: $reachableFrom,
                 cutoff: $cutoff,
+                pricedAt: $pricedAt,
+                pricedUntil: $pricedUntil,
             ));
         }
 
@@ -365,13 +383,21 @@ final readonly class ResearchCompiler
      *     freshness: string
      * }
      */
-    private function pricingEntry(Profile $profile, string $role, array $reachableFrom, CarbonImmutable $cutoff): array
-    {
+    private function pricingEntry(
+        Profile $profile,
+        string $role,
+        array $reachableFrom,
+        CarbonImmutable $cutoff,
+        CarbonImmutable $pricedAt,
+        CarbonImmutable $pricedUntil,
+    ): array {
         $quote = $profile->pricingIdentity === null || $profile->pricingUsage === null
             ? CostQuote::unavailable()
             : $this->costResolver->resolve(new PricingObservation(
                 identity: $profile->pricingIdentity,
                 usage: $profile->pricingUsage,
+                pricedAt: $pricedAt,
+                pricedUntil: $pricedUntil,
             ));
 
         return [

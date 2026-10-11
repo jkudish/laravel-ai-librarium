@@ -23,7 +23,7 @@ it('runs one live OpenAI background research request', function (): void {
     $configuredModel = getenv('OPENAI_RESEARCH_MODEL');
     $model = is_string($configuredModel) && trim($configuredModel) !== ''
         ? trim($configuredModel)
-        : 'gpt-5.6-sol';
+        : 'gpt-6.1-sol';
     $profile = new Profile(
         id: 'openai-research',
         driver: OpenAiResearchDriver::class,

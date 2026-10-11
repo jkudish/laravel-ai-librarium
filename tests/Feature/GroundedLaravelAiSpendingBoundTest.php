@@ -37,6 +37,9 @@ use Laravel\Ai\Responses\TextResponse;
 beforeEach(function (): void {
     app()->forgetInstance(AiManager::class);
     Ai::clearResolvedInstance(AiManager::class);
+    // These cases exercise the historical Terra bounded route explicitly;
+    // the shipped GPT-6 Luna default is covered by LunaBoundedCanaryTest.
+    config()->set('librarium.profiles.openrouter-chat.model', 'openai/gpt-5.6-terra');
 });
 
 it('bounds exact grounded OpenRouter quantities from the documented server-tool budget', function (int $budget, string $inputTokens, string $outputTokens, string $searchRequests): void {
@@ -684,7 +687,7 @@ it('still enforces grounded Claude run controls when the provider continues past
         $body = $request->data();
 
         return $request->url() === 'https://api.anthropic.com/v1/messages'
-            && $body['model'] === 'claude-sonnet-5'
+            && $body['model'] === 'claude-sonnet-5-5'
             && $body['max_tokens'] === 64_000
             && $body['tools'] === [[
                 'type' => 'web_search_20250305',
@@ -840,7 +843,7 @@ it('still enforces Gemini token controls on the real outbound request while the 
         $body = $request->data();
 
         return $request->url() === 'https://generativelanguage.googleapis.com/v1beta/interactions'
-            && data_get($body, 'model') === 'gemini-3.6-flash'
+            && data_get($body, 'model') === 'gemini-3.8-flash'
             && data_get($body, 'generation_config.max_output_tokens') === 4_096
             && data_get($body, 'tools.0.type') === 'google_search';
     });
@@ -1554,7 +1557,7 @@ it('preserves the bounded no-search Claude path beside the withdrawn grounded au
         ->spendingBound();
 
     expect($bound->kind)->toBe(SpendingBoundKind::BillableQuantities)
-        ->and($bound->pricingIdentity?->key())->toBe('anthropic:claude-sonnet-5-global')
+        ->and($bound->pricingIdentity?->key())->toBe('anthropic:claude-sonnet-5-5-global-standard')
         ->and($bound->quantities?->toArray())->toBe([
             'input_tokens' => '1000000',
             'output_tokens' => '64000',

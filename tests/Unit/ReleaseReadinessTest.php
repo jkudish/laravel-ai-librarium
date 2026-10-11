@@ -52,7 +52,7 @@ function releaseReadinessComposerFixture(): array
             'illuminate/routing' => '^13.35',
             'illuminate/support' => '^13.35',
             'illuminate/validation' => '^13.35',
-            'jkudish/laravel-ai-pricing' => '^0.2.2',
+            'jkudish/laravel-ai-pricing' => '^0.3',
             'laravel/ai' => '^1.2',
         ],
         'require-dev' => [
@@ -94,6 +94,7 @@ it('reports every current local and external 1.0 release blocker', function (): 
     expect($pin->tag)->toBeNull()
         ->and((new ReleaseReadiness)->blockers())->toBe([
             "The accepted TypeScript v2.0.0 release tag is not pinned; the contract and Profile inventory are pinned to commit {$pin->commit} (ref {$pin->ref}). Rerun composer typescript:repin against v2.0.0.",
+            'Gate [stable-pricing-release] is pending: Stable laravel-ai-pricing release and constraint.',
         ]);
 });
 
@@ -184,8 +185,8 @@ it('requires the exact supported PHP, Laravel, and Laravel AI compatibility poli
     'PHP floor' => ['require', 'php', '^8.3', 'Runtime dependency php must use the release compatibility constraint [^8.4].'],
     'Laravel major' => ['require', 'illuminate/support', '^12.0', 'Runtime dependency illuminate/support must use the release compatibility constraint [^13.35].'],
     'Laravel floor' => ['require', 'illuminate/support', '^13.0', 'Runtime dependency illuminate/support must use the release compatibility constraint [^13.35].'],
-    'pricing without tiered Luna identities' => ['require', 'jkudish/laravel-ai-pricing', '^0.2.0', 'Runtime dependency jkudish/laravel-ai-pricing must use the release compatibility constraint [^0.2.2].'],
-    'pricing legacy range' => ['require', 'jkudish/laravel-ai-pricing', '^0.1.1 || ^0.2.0', 'Runtime dependency jkudish/laravel-ai-pricing must use the release compatibility constraint [^0.2.2].'],
+    'pricing without rate windows' => ['require', 'jkudish/laravel-ai-pricing', '^0.2.2', 'Runtime dependency jkudish/laravel-ai-pricing must use the release compatibility constraint [^0.3].'],
+    'pricing legacy range' => ['require', 'jkudish/laravel-ai-pricing', '^0.1.1 || ^0.2.0', 'Runtime dependency jkudish/laravel-ai-pricing must use the release compatibility constraint [^0.3].'],
     'Laravel AI range' => ['require', 'laravel/ai', '^0.11.0 || ^0.10.3', 'Runtime dependency laravel/ai must use the release compatibility constraint [^1.2].'],
     'Laravel AI vulnerable floor' => ['require', 'laravel/ai', '^1.0', 'Runtime dependency laravel/ai must use the release compatibility constraint [^1.2].'],
     'Testbench major' => ['require-dev', 'orchestra/testbench', '^10.0', 'Development dependency orchestra/testbench must use the release compatibility constraint [^11.3].'],

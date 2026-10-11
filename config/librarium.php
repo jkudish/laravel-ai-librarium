@@ -197,7 +197,7 @@ return [
         'gemini-grounded' => [
             'driver' => LaravelAiDriver::class,
             'provider' => 'gemini',
-            'model' => 'gemini-3.6-flash',
+            'model' => 'gemini-3.8-flash',
             'result_kind' => 'grounded_answer',
             'grounding' => 'required',
             'observation' => 'api_output',
@@ -207,9 +207,12 @@ return [
             'enabled' => true,
             'options' => [],
             'credential' => config('ai.providers.gemini.key'),
+            // gemini-3.8-flash-standard carries Google's dated rate windows:
+            // its rates double from 2027-01-01T00:00Z, and an estimate whose
+            // run deadline reaches 2027 prices at the higher rate.
             'pricing' => [
                 'provider' => 'gemini',
-                'model' => 'gemini-3.6-flash',
+                'model' => 'gemini-3.8-flash-standard',
                 'usage' => ['input_tokens' => 100_000, 'output_tokens' => 100_000, 'web_searches' => 100],
                 'conservative' => false,
             ],
@@ -237,7 +240,7 @@ return [
         'openrouter-chat' => [
             'driver' => LaravelAiDriver::class,
             'provider' => 'openrouter',
-            'model' => 'openai/gpt-5.6-terra',
+            'model' => 'openai/gpt-6-luna',
             'result_kind' => 'grounded_answer',
             'grounding' => 'optional',
             'observation' => 'api_output',
@@ -249,7 +252,7 @@ return [
             'credential' => config('ai.providers.openrouter.key'),
             'pricing' => [
                 'provider' => 'openrouter',
-                'model' => 'openai/gpt-5.6-terra',
+                'model' => 'openai/gpt-6-luna',
                 'usage' => ['input_tokens' => 100_000, 'output_tokens' => 100_000, 'web_searches' => 100],
                 'conservative' => false,
             ],
@@ -257,7 +260,7 @@ return [
         'claude-chat' => [
             'driver' => LaravelAiDriver::class,
             'provider' => 'anthropic',
-            'model' => 'claude-sonnet-5',
+            'model' => 'claude-sonnet-5-5',
             'result_kind' => 'grounded_answer',
             'grounding' => 'optional',
             'observation' => 'api_output',
@@ -265,11 +268,20 @@ return [
             'retrieval_methods' => ['model_search_tool'],
             'prompt' => '{{ query }}',
             'enabled' => true,
-            'options' => ['web_search' => true],
+            // Sonnet 5.5 rejects thinking "disabled"; use "between_tools" (only
+            // at effort high or below) to turn off up-front thinking.
+            'options' => [
+                'web_search' => true,
+                'effort' => 'high',
+                'thinking' => 'adaptive',
+                'max_output_tokens' => 64_000,
+            ],
             'credential' => config('ai.providers.anthropic.key'),
+            // The global-geography standard basis matches the Claude API's
+            // default routing; US-only inference bills at 1.1x.
             'pricing' => [
                 'provider' => 'anthropic',
-                'model' => 'claude-sonnet-5-global',
+                'model' => 'claude-sonnet-5-5-global-standard',
                 'usage' => ['input_tokens' => 100_000, 'output_tokens' => 100_000, 'web_searches' => 100],
                 'conservative' => false,
             ],
@@ -302,7 +314,7 @@ return [
         'gemini-chat' => [
             'driver' => LaravelAiDriver::class,
             'provider' => 'gemini',
-            'model' => 'gemini-3.7-flash',
+            'model' => 'gemini-3.8-flash',
             'result_kind' => 'grounded_answer',
             'grounding' => 'optional',
             'observation' => 'api_output',
@@ -314,7 +326,7 @@ return [
             'credential' => config('ai.providers.gemini.key'),
             'pricing' => [
                 'provider' => 'gemini',
-                'model' => 'gemini-3.7-flash',
+                'model' => 'gemini-3.8-flash-standard',
                 'usage' => ['input_tokens' => 100_000, 'output_tokens' => 100_000, 'web_searches' => 100],
                 'conservative' => false,
             ],
@@ -482,7 +494,7 @@ return [
         'grok' => [
             'driver' => XaiGrokDriver::class,
             'provider' => 'xai',
-            'model' => 'grok-4.6',
+            'model' => 'grok-4.7',
             'result_kind' => 'grounded_answer',
             'grounding' => 'required',
             'observation' => 'api_output',
@@ -498,7 +510,7 @@ return [
             // pricing usage since xAI's September 21, 2026 change.
             'pricing' => [
                 'provider' => 'xai',
-                'model' => 'grok-4.6',
+                'model' => 'grok-4.7',
                 'usage' => ['input_tokens' => 100_000, 'output_tokens' => 100_000, 'searches' => 100],
                 'conservative' => false,
             ],
@@ -506,7 +518,7 @@ return [
         'openai-research' => [
             'driver' => OpenAiResearchDriver::class,
             'provider' => 'openai',
-            'model' => 'gpt-5.6-sol',
+            'model' => 'gpt-6.1-sol',
             'result_kind' => 'research_report',
             'grounding' => 'required',
             'observation' => 'api_output',
@@ -514,11 +526,17 @@ return [
             'retrieval_methods' => ['research_agent'],
             'prompt' => '{{ query }}',
             'enabled' => true,
+            // Defaults: reasoning_effort high and return_token_budget default.
+            // max_tool_calls is unset unless configured.
             'options' => [],
             'credential' => config('ai.providers.openai.key'),
+            // laravel-ai-pricing blocks the generic openai:gpt-6.1-sol
+            // identity. The quote's 100,000 input tokens sit inside the
+            // standard tier's at-most-272,000-token basis; a research run
+            // whose prompt grows past it bills at -standard-long.
             'pricing' => [
                 'provider' => 'openai',
-                'model' => 'gpt-5.6-sol',
+                'model' => 'gpt-6.1-sol-standard-short',
                 'usage' => ['input_tokens' => 100_000, 'output_tokens' => 100_000, 'web_searches' => 100],
                 'conservative' => false,
             ],
@@ -859,7 +877,7 @@ return [
         'grok-x-only' => [
             'driver' => XaiGrokDriver::class,
             'provider' => 'xai',
-            'model' => 'grok-4.6',
+            'model' => 'grok-4.7',
             'result_kind' => 'grounded_answer',
             'grounding' => 'required',
             'observation' => 'api_output',
@@ -879,7 +897,7 @@ return [
         'grok-combined' => [
             'driver' => XaiGrokDriver::class,
             'provider' => 'xai',
-            'model' => 'grok-4.6',
+            'model' => 'grok-4.7',
             'result_kind' => 'grounded_answer',
             'grounding' => 'required',
             'observation' => 'api_output',

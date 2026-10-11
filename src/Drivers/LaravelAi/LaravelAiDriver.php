@@ -26,13 +26,40 @@ use Laravel\Ai\Exceptions\InsufficientCreditsException;
 use Laravel\Ai\Exceptions\ProviderOverloadedException;
 use Laravel\Ai\Exceptions\RateLimitedException;
 use Laravel\Ai\Responses\AgentResponse;
+use Laravel\Ai\Responses\Data\FinishReason;
 use Throwable;
 
 final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
 {
-    private const int CLAUDE_SONNET_5_CONTEXT_TOKENS = 1_000_000;
+    private const int CLAUDE_SONNET_5_5_CONTEXT_TOKENS = 1_000_000;
 
-    private const int CLAUDE_SONNET_5_MAX_OUTPUT_TOKENS = 128_000;
+    private const int CLAUDE_SONNET_5_5_MAX_OUTPUT_TOKENS = 128_000;
+
+    /** @var list<string> */
+    private const array ANTHROPIC_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+    /**
+     * Claude Sonnet 5.5 rejects thinking "disabled" and points to
+     * "between_tools", which it accepts only at high effort or below.
+     *
+     * @var list<string>
+     */
+    private const array ANTHROPIC_THINKING_MODES = ['adaptive', 'between_tools'];
+
+    /** @var list<string> */
+    private const array ANTHROPIC_BETWEEN_TOOLS_EFFORTS = ['low', 'medium', 'high'];
+
+    /** @var list<string> */
+    private const array OPENROUTER_REASONING_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+
+    /** @var list<string> */
+    private const array OPENROUTER_DATA_COLLECTION = ['allow', 'deny'];
+
+    /** @var list<string> */
+    private const array OPENROUTER_ROUTING_OPTIONS = ['provider_order', 'allow_fallbacks', 'require_parameters', 'data_collection', 'zdr'];
+
+    /** @var list<string> */
+    private const array OPENROUTER_REASONING_OPTIONS = ['reasoning_effort', 'reasoning_max_tokens', 'reasoning_exclude'];
 
     /**
      * The OpenAI Responses API rejects max_output_tokens below 16 for every
@@ -188,12 +215,23 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
             'web_search' => ['sometimes', 'boolean'],
             'search_engine' => ['sometimes', 'string', 'in:'.implode(',', self::OPENROUTER_SEARCH_ENGINES)],
             'search_mode' => ['sometimes', 'string', 'in:'.implode(',', self::OPENROUTER_EXA_SEARCH_MODES)],
-            'max_output_tokens' => ['sometimes', 'integer', 'min:1', 'max:'.self::CLAUDE_SONNET_5_MAX_OUTPUT_TOKENS],
+            'max_output_tokens' => ['sometimes', 'integer', 'min:1', 'max:'.self::CLAUDE_SONNET_5_5_MAX_OUTPUT_TOKENS],
             'max_steps' => ['sometimes', 'integer', 'min:1'],
             'max_prompt_bytes' => ['sometimes', 'integer', 'min:1'],
             'max_searches' => ['sometimes', 'integer', 'min:1'],
             'max_tool_calls' => ['sometimes', 'integer', 'min:1'],
             'max_results' => ['sometimes', 'integer', 'min:1', 'max:'.self::OPENROUTER_EXA_MAX_RESULTS_LIMIT],
+            'effort' => ['sometimes', 'string', 'in:'.implode(',', self::ANTHROPIC_EFFORTS)],
+            'thinking' => ['sometimes', 'string', 'in:'.implode(',', self::ANTHROPIC_THINKING_MODES)],
+            'provider_order' => ['sometimes', 'array', 'list', 'min:1'],
+            'provider_order.*' => ['string', 'min:1', 'distinct'],
+            'allow_fallbacks' => ['sometimes', 'boolean:strict'],
+            'require_parameters' => ['sometimes', 'boolean:strict'],
+            'data_collection' => ['sometimes', 'string', 'in:'.implode(',', self::OPENROUTER_DATA_COLLECTION)],
+            'zdr' => ['sometimes', 'boolean:strict'],
+            'reasoning_effort' => ['sometimes', 'string', 'in:'.implode(',', self::OPENROUTER_REASONING_EFFORTS)],
+            'reasoning_max_tokens' => ['sometimes', 'integer:strict', 'min:1'],
+            'reasoning_exclude' => ['sometimes', 'boolean:strict'],
         ];
     }
 
@@ -229,6 +267,99 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
         return self::OPENROUTER_BOUNDED_MODEL_FACTS[$model] ?? null;
     }
 
+    /**
+     * Whether the options override a control that the pinned bounded
+     * OpenRouter route fixes from its reviewed per-model facts: the provider
+     * order, the exact-routing defaults, or the reasoning controls.
+     *
+     * @param  array<string, mixed>  $options
+     */
+    private static function overridesPinnedOpenRouterControls(array $options): bool
+    {
+        return array_key_exists('provider_order', $options)
+            || ($options['allow_fallbacks'] ?? false) !== false
+            || ($options['require_parameters'] ?? true) !== true
+            || array_intersect(array_keys($options), self::OPENROUTER_REASONING_OPTIONS) !== [];
+    }
+
+    /**
+     * The provider-specific Claude and OpenRouter controls, checked strictly.
+     * Returns the reason the options are invalid, or null when they are valid.
+     *
+     * @param  array<string, mixed>  $options
+     */
+    private static function providerControlError(string $provider, array $options, bool $usesWebSearch): ?string
+    {
+        $effort = $options['effort'] ?? null;
+        $thinking = $options['thinking'] ?? null;
+
+        if (($effort !== null || $thinking !== null) && $provider !== 'anthropic') {
+            return 'The effort and thinking controls are supported only by Anthropic Profiles.';
+        }
+
+        if (($effort !== null && ! in_array($effort, self::ANTHROPIC_EFFORTS, true))
+            || ($thinking !== null && ! in_array($thinking, self::ANTHROPIC_THINKING_MODES, true))) {
+            return 'The Laravel AI Driver received invalid Profile options.';
+        }
+
+        if ($thinking === 'between_tools' && $effort !== null && ! in_array($effort, self::ANTHROPIC_BETWEEN_TOOLS_EFFORTS, true)) {
+            return 'Claude accepts thinking between_tools only at low, medium, or high effort; use adaptive thinking for xhigh or max.';
+        }
+
+        $openRouterKeys = array_intersect(array_keys($options), [...self::OPENROUTER_ROUTING_OPTIONS, ...self::OPENROUTER_REASONING_OPTIONS]);
+        if ($openRouterKeys === []) {
+            return null;
+        }
+
+        if ($provider !== 'openrouter') {
+            return 'The routing, privacy, and reasoning controls are supported only by OpenRouter Profiles.';
+        }
+
+        $order = $options['provider_order'] ?? null;
+        $maxTokens = $options['reasoning_max_tokens'] ?? null;
+        foreach (['allow_fallbacks', 'require_parameters', 'zdr', 'reasoning_exclude'] as $key) {
+            if (array_key_exists($key, $options) && ! is_bool($options[$key])) {
+                return 'The Laravel AI Driver received invalid Profile options.';
+            }
+        }
+
+        if (($order !== null && ! self::isProviderOrder($order))
+            || (array_key_exists('data_collection', $options) && ! in_array($options['data_collection'], self::OPENROUTER_DATA_COLLECTION, true))
+            || (array_key_exists('reasoning_effort', $options) && ! in_array($options['reasoning_effort'], self::OPENROUTER_REASONING_EFFORTS, true))
+            || ($maxTokens !== null && (! is_int($maxTokens) || $maxTokens < 1))) {
+            return 'The Laravel AI Driver received invalid Profile options.';
+        }
+
+        if (array_key_exists('reasoning_effort', $options) && $maxTokens !== null) {
+            return 'The OpenRouter reasoning_effort and reasoning_max_tokens controls are mutually exclusive.';
+        }
+
+        if (($options['zdr'] ?? false) === true && $usesWebSearch) {
+            return 'OpenRouter zero data retention does not apply to the web plugin; disable web search before enabling zdr.';
+        }
+
+        return null;
+    }
+
+    /** A non-empty list of distinct, non-blank OpenRouter provider slugs. */
+    private static function isProviderOrder(mixed $order): bool
+    {
+        if (! is_array($order) || $order === [] || ! array_is_list($order)) {
+            return false;
+        }
+
+        $seen = [];
+        foreach ($order as $slug) {
+            if (! is_string($slug) || trim($slug) === '' || isset($seen[$slug])) {
+                return false;
+            }
+
+            $seen[$slug] = true;
+        }
+
+        return true;
+    }
+
     public function spendingBound(DriverRequest $request): SpendingBound
     {
         $options = $request->profile->options;
@@ -240,7 +371,7 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
         }
 
         if ($request->profile->provider === 'anthropic'
-            && $request->profile->model === 'claude-sonnet-5'
+            && $request->profile->model === 'claude-sonnet-5-5'
             && ($options['web_search'] ?? true) === false) {
             return $this->noSearchClaudeSpendingBound($request, $options);
         }
@@ -276,7 +407,9 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
         $maxSteps = $options['max_steps'] ?? null;
         $maxPromptBytes = $options['max_prompt_bytes'] ?? null;
 
-        if (($options['web_search'] ?? null) !== true
+        if (self::overridesPinnedOpenRouterControls($options)
+            || self::providerControlError('openrouter', $options, true) !== null
+            || ($options['web_search'] ?? null) !== true
             || ($options['search_engine'] ?? null) !== 'exa'
             || ($options['search_mode'] ?? null) !== 'auto'
             || ! is_int($maxSearches)
@@ -348,9 +481,10 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
         $maxPromptBytes = $options['max_prompt_bytes'] ?? null;
 
         if (array_key_exists('search_engine', $options)
+            || self::providerControlError('anthropic', $options, false) !== null
             || ! is_int($maxOutputTokens)
             || $maxOutputTokens < 1
-            || $maxOutputTokens > self::CLAUDE_SONNET_5_MAX_OUTPUT_TOKENS
+            || $maxOutputTokens > self::CLAUDE_SONNET_5_5_MAX_OUTPUT_TOKENS
             || $maxSteps !== 1
             || ! is_int($maxPromptBytes)
             || $maxPromptBytes < 1
@@ -359,9 +493,9 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
         }
 
         return SpendingBound::billableQuantities(
-            new ModelIdentity('anthropic', 'claude-sonnet-5-global'),
+            new ModelIdentity('anthropic', 'claude-sonnet-5-5-global-standard'),
             new Usage([
-                'input_tokens' => self::CLAUDE_SONNET_5_CONTEXT_TOKENS,
+                'input_tokens' => self::CLAUDE_SONNET_5_5_CONTEXT_TOKENS,
                 'output_tokens' => $maxOutputTokens,
             ]),
         );
@@ -401,7 +535,7 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
             );
         }
 
-        if (($maxOutputTokens !== null && (! is_int($maxOutputTokens) || $maxOutputTokens < 1 || $maxOutputTokens > self::CLAUDE_SONNET_5_MAX_OUTPUT_TOKENS))
+        if (($maxOutputTokens !== null && (! is_int($maxOutputTokens) || $maxOutputTokens < 1 || $maxOutputTokens > self::CLAUDE_SONNET_5_5_MAX_OUTPUT_TOKENS))
             || ($maxSteps !== null && (! is_int($maxSteps) || $maxSteps < 1))
             || ($maxPromptBytes !== null && (! is_int($maxPromptBytes) || $maxPromptBytes < 1))) {
             throw new DriverException(
@@ -499,6 +633,15 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
             );
         }
 
+        $controlError = self::providerControlError($request->profile->provider, $request->profile->options, $usesWebSearch);
+        if ($controlError !== null) {
+            throw new DriverException(
+                errorCode: 'laravel_ai.invalid_options',
+                message: $controlError,
+                fallbackAllowed: false,
+            );
+        }
+
         if ($request->profile->grounding === GroundingPolicy::Required && ! $usesWebSearch) {
             throw new DriverException(
                 errorCode: 'laravel_ai.web_search_required',
@@ -511,6 +654,14 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
             ? self::openRouterBoundedModelFacts($request)
             : null;
         $pinsOpenRouterProvider = $pinnedBoundedModelFacts !== null;
+
+        if ($pinsOpenRouterProvider && self::overridesPinnedOpenRouterControls($request->profile->options)) {
+            throw new DriverException(
+                errorCode: 'laravel_ai.invalid_options',
+                message: 'The bounded OpenRouter route fixes its provider order, exact routing, and reasoning controls; remove those overrides or max_tool_calls.',
+                fallbackAllowed: false,
+            );
+        }
 
         // The pinned bounded route verifies its revision against the public
         // catalog before any inference request can spend money. A positive
@@ -540,6 +691,10 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
                 'max_price' => $pinnedBoundedModelFacts['max_price'],
             ],
             pinnedOpenRouterReasoning: $pinnedBoundedModelFacts['reasoning'] ?? null,
+            openRouterRouting: array_intersect_key($request->profile->options, array_flip(self::OPENROUTER_ROUTING_OPTIONS)),
+            openRouterReasoning: array_intersect_key($request->profile->options, array_flip(self::OPENROUTER_REASONING_OPTIONS)),
+            anthropicEffort: is_string($request->profile->options['effort'] ?? null) ? $request->profile->options['effort'] : null,
+            anthropicThinking: is_string($request->profile->options['thinking'] ?? null) ? $request->profile->options['thinking'] : null,
         );
 
         try {
@@ -595,6 +750,18 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
             // releasing a spent reservation.
             $request->captureNoResponse(Operation::Inline);
         }
+
+        // The SDK reports a provider refusal or content filter as a
+        // content-filter finish; Claude Sonnet 5.5 declines with HTTP 200 and
+        // stop_reason "refusal". Any text in a declined response is not a
+        // research answer, so the slot fails and a fallback may run.
+        if ($response->steps->last()?->finishReason === FinishReason::ContentFilter) {
+            throw new DriverException(
+                'laravel_ai.refused',
+                'The AI provider declined the research request.',
+            );
+        }
+
         // The Gemini gateway speaks the Interactions API, whose citation
         // indexes are documented byte offsets; laravel/ai 1.0 currently
         // drops Gemini citation indexes entirely, but if a release starts

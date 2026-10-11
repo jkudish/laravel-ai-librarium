@@ -55,6 +55,7 @@ final readonly class ProfileOptionValidator
         'prompt',
         'read',
         'reasoning',
+        'return',
         'token',
         'tokens',
         'total',

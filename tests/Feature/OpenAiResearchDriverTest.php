@@ -11,7 +11,9 @@ use Jkudish\LaravelAiLibrarium\Drivers\OpenAi\OpenAiResearchDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\OpenAi\OpenAiResearchResultMapper;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
+use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\Profile;
+use Jkudish\LaravelAiLibrarium\ProfileCatalog;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\ResearchState;
@@ -71,10 +73,10 @@ it('submits, polls, and normalizes one grounded background research response', f
                 'model' => 'gpt-5.6-sol',
                 'input' => 'Research current PHP agent frameworks.',
                 'background' => true,
-                'reasoning' => ['effort' => 'xhigh'],
+                'reasoning' => ['effort' => 'high'],
                 'tools' => [[
                     'type' => 'web_search',
-                    'return_token_budget' => 'unlimited',
+                    'return_token_budget' => 'default',
                 ]],
                 'tool_choice' => 'required',
                 'include' => ['web_search_call.action.sources'],
@@ -444,6 +446,59 @@ it('rejects malformed present OpenAI usage fields', function (string $path, mixe
     'negative reasoning tokens' => ['usage.output_tokens_details.reasoning_tokens', -1],
 ]);
 
+it('sends the configured reasoning effort, return-token budget and tool-call cap', function (): void {
+    Http::fake(['https://api.openai.com/*' => Http::sequence()
+        ->push(['id' => 'resp_research_1', 'status' => 'queued'])
+        ->push(openAiCompletedResponse())]);
+
+    openAiResearchDriver()->run(openAiResearchRequest(options: [
+        'reasoning_effort' => 'xhigh',
+        'return_token_budget' => 'unlimited',
+        'max_tool_calls' => 40,
+    ]));
+
+    Http::assertSent(fn (Request $request): bool => $request->method() === 'POST'
+        && $request['reasoning'] === ['effort' => 'xhigh']
+        && $request['tools'] === [['type' => 'web_search', 'return_token_budget' => 'unlimited']]
+        && $request['max_tool_calls'] === 40);
+});
+
+it('ships OpenAI Research on GPT-6.1 Sol with the shared defaults left to the driver', function (): void {
+    $profile = Librarium::query('Research this.')->using('openai-research')->preview()->profiles->sole();
+
+    expect($profile->model)->toBe('gpt-6.1-sol')
+        ->and($profile->options)->toBe([])
+        ->and($profile->pricingIdentity?->key())->toBe('openai:gpt-6.1-sol-standard-short');
+});
+
+it('makes OpenAI Research unavailable for options outside the strict contract', function (array $options): void {
+    config()->set('librarium.profiles.openai-research.options', $options);
+
+    expect(app(ProfileCatalog::class)->find('openai-research')?->reasons)->not->toBeEmpty();
+})->with([
+    'unknown effort' => [['reasoning_effort' => 'ultra']],
+    'minimal is not an OpenAI Research effort' => [['reasoning_effort' => 'minimal']],
+    'unknown budget' => [['return_token_budget' => 'large']],
+    'numeric-string tool calls' => [['max_tool_calls' => '40']],
+    'zero tool calls' => [['max_tool_calls' => 0]],
+    'unknown option' => [['background' => false]],
+]);
+
+it('rejects invalid OpenAI Research options before any request', function (array $options): void {
+    Http::fake();
+
+    expect(fn () => openAiResearchDriver()->run(openAiResearchRequest(options: $options)))
+        ->toThrow(fn (DriverException $exception) => expect($exception->errorCode)->toBe('openai.invalid_profile'));
+    Http::assertNothingSent();
+})->with([
+    'unknown effort' => [['reasoning_effort' => 'ultra']],
+    'float tool calls' => [['max_tool_calls' => 1.5]],
+    'unknown option' => [['tool_choice' => 'auto']],
+    'null effort' => [['reasoning_effort' => null]],
+    'null budget' => [['return_token_budget' => null]],
+    'null tool calls' => [['max_tool_calls' => null]],
+]);
+
 function openAiResearchDriver(): OpenAiResearchDriver
 {
     return app(OpenAiResearchDriver::class);
@@ -461,6 +516,7 @@ function openAiResearchRequest(
     ObservationMode $observation = ObservationMode::ApiOutput,
     array $corpora = [Corpus::Web],
     array $retrievalMethods = [RetrievalMethod::ResearchAgent],
+    array $options = [],
 ): DriverRequest {
     $profile = new Profile(
         id: 'openai-research',
@@ -474,7 +530,7 @@ function openAiResearchRequest(
         retrievalMethods: collect($retrievalMethods),
         prompt: '{{ query }}',
         enabled: true,
-        options: [],
+        options: $options,
         credential: $credential,
     );
 

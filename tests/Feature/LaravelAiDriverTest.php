@@ -89,12 +89,12 @@ it('runs each configured Laravel AI Profile through one exact SDK provider and m
         ->and($response->results->sole()->model)->toBe($model)
         ->and($response->results->sole()->citations)->toHaveCount(1);
 })->with([
-    'Gemini grounded' => ['gemini-grounded', 'gemini', 'gemini-3.6-flash'],
+    'Gemini grounded' => ['gemini-grounded', 'gemini', 'gemini-3.8-flash'],
     'OpenRouter grounded' => ['openrouter-grounded', 'openrouter', 'openai/gpt-6-luna'],
-    'OpenRouter chat' => ['openrouter-chat', 'openrouter', 'openai/gpt-5.6-terra'],
-    'Claude chat' => ['claude-chat', 'anthropic', 'claude-sonnet-5'],
+    'OpenRouter chat' => ['openrouter-chat', 'openrouter', 'openai/gpt-6-luna'],
+    'Claude chat' => ['claude-chat', 'anthropic', 'claude-sonnet-5-5'],
     'OpenAI chat' => ['openai-chat', 'openai', 'gpt-6-luna'],
-    'Gemini chat' => ['gemini-chat', 'gemini', 'gemini-3.7-flash'],
+    'Gemini chat' => ['gemini-chat', 'gemini', 'gemini-3.8-flash'],
 ]);
 
 it('rejects an unexpected SDK provider identity for an exact built-in Profile', function (): void {
@@ -120,7 +120,7 @@ it('returns an honest model answer when optional web search is disabled', functi
         new TextResponse(
             'A direct model answer.',
             new AiUsage(inputTokens: 5, outputTokens: 4),
-            new Meta('gemini', 'gemini-3.7-flash'),
+            new Meta('gemini', 'gemini-3.8-flash'),
         ),
     ])->preventStrayPrompts();
 
@@ -171,7 +171,7 @@ it('sends bounded no-search Claude controls through the real SDK and never conti
             'id' => 'msg_test',
             'type' => 'message',
             'role' => 'assistant',
-            'model' => 'claude-sonnet-5',
+            'model' => 'claude-sonnet-5-5',
             'content' => [['type' => 'text', 'text' => 'A paused direct answer.']],
             'stop_reason' => 'pause_turn',
             'stop_sequence' => null,
@@ -185,12 +185,12 @@ it('sends bounded no-search Claude controls through the real SDK and never conti
 
     expect($response->status)->toBe(ResponseStatus::Succeeded)
         ->and($response->results->sole()->content)->toBe('A paused direct answer.')
-        ->and($response->results->sole()->model)->toBe('claude-sonnet-5');
+        ->and($response->results->sole()->model)->toBe('claude-sonnet-5-5');
     Http::assertSent(function (Request $request): bool {
         $body = $request->data();
 
         return $request->url() === 'https://api.anthropic.com/v1/messages'
-            && $body['model'] === 'claude-sonnet-5'
+            && $body['model'] === 'claude-sonnet-5-5'
             && $body['max_tokens'] === 64_000
             && ! array_key_exists('inference_geo', $body)
             && ! array_key_exists('tools', $body)
