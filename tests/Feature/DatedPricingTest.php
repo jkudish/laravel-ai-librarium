@@ -6,6 +6,7 @@ use Brick\Math\BigDecimal;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\ResearchCompiler;
 use Jkudish\LaravelAiLibrarium\SpendingBound;
@@ -136,4 +137,16 @@ it('prices a windowed spending bound at the highest rate before its deadline', f
 
 it('has no pricing observation for an unknown or native-ceiling bound', function (): void {
     expect(SpendingBound::unknown()->pricingObservation())->toBeNull();
+});
+
+it('still reports pricing configuration errors before timeout and TTL errors', function (): void {
+    config()->set('librarium.pricing.max_age_days', 0);
+    config()->set('librarium.status_ttl', 1);
+
+    try {
+        Librarium::query('What changed?')->using('gemini-chat')->preview();
+        $this->fail('The preview should not compile.');
+    } catch (ValidationException $exception) {
+        expect(array_keys($exception->errors()))->toBe(['pricing.max_age_days']);
+    }
 });

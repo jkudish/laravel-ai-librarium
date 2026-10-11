@@ -77,13 +77,23 @@ final readonly class ResearchCompiler
             ]);
         }
 
+        // Dated rate windows price an estimate at the highest rate in effect
+        // between admission and the run's deadline, so a run that crosses a
+        // price change is never quoted at the earlier rate alone. Pricing is
+        // still checked before the timeout, so an out-of-range timeout only
+        // clamps the interval here and fails its own validation below.
+        $configuredTimeout = $this->config->get('librarium.timeout', 6900);
+        $timeout = $research->timeoutSeconds() ?? (is_int($configuredTimeout) ? $configuredTimeout : 6900);
+        $pricedAt = CarbonImmutable::now();
+        $pricedUntil = $pricedAt->addSeconds(max(0, $timeout));
+        $pricing = $resolvePricing
+            ? $this->pricing($profiles, $fallbacks, $research->maximumCost(), $pricedAt, $pricedUntil)
+            : null;
         $all = $profiles->concat($fallbacks);
         $prompts = $all->mapWithKeys(fn (Profile $profile): array => [
             $profile->id => $profile->renderPrompt($research->input),
         ]);
 
-        $configuredTimeout = $this->config->get('librarium.timeout', 6900);
-        $timeout = $research->timeoutSeconds() ?? (is_int($configuredTimeout) ? $configuredTimeout : 6900);
         if ($timeout < 1 || $timeout > 86400) {
             throw ValidationException::withMessages(['timeout' => 'The configured timeout must be between 1 and 86400 seconds.']);
         }
@@ -99,15 +109,6 @@ final readonly class ResearchCompiler
 
         $this->validateTransientTtl('status_ttl', $jobTimeout);
         $this->validateTransientTtl('webhook_signal_ttl', $jobTimeout);
-
-        // Dated rate windows price an estimate at the highest rate in effect
-        // between admission and the run's deadline, so a run that crosses a
-        // price change is never quoted at the earlier rate alone.
-        $pricedAt = CarbonImmutable::now();
-        $pricedUntil = $pricedAt->addSeconds($timeout);
-        $pricing = $resolvePricing
-            ? $this->pricing($profiles, $fallbacks, $research->maximumCost(), $pricedAt, $pricedUntil)
-            : null;
 
         /** @var Collection<int, string> $warnings */
         $warnings = collect();

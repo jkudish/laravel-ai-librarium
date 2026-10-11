@@ -494,6 +494,9 @@ it('rejects invalid OpenAI Research options before any request', function (array
     'unknown effort' => [['reasoning_effort' => 'ultra']],
     'float tool calls' => [['max_tool_calls' => 1.5]],
     'unknown option' => [['tool_choice' => 'auto']],
+    'null effort' => [['reasoning_effort' => null]],
+    'null budget' => [['return_token_budget' => null]],
+    'null tool calls' => [['max_tool_calls' => null]],
 ]);
 
 function openAiResearchDriver(): OpenAiResearchDriver

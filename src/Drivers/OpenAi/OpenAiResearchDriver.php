@@ -186,11 +186,10 @@ final readonly class OpenAiResearchDriver implements Driver
         }
 
         $options = $request->profile->options;
-        $maxToolCalls = $options['max_tool_calls'] ?? null;
         if (array_diff(array_keys($options), ['reasoning_effort', 'return_token_budget', 'max_tool_calls']) !== []
-            || ! in_array($options['reasoning_effort'] ?? self::DEFAULT_REASONING_EFFORT, self::REASONING_EFFORTS, true)
-            || ! in_array($options['return_token_budget'] ?? self::DEFAULT_RETURN_TOKEN_BUDGET, self::RETURN_TOKEN_BUDGETS, true)
-            || ($maxToolCalls !== null && (! is_int($maxToolCalls) || $maxToolCalls < 1))) {
+            || (array_key_exists('reasoning_effort', $options) && ! in_array($options['reasoning_effort'], self::REASONING_EFFORTS, true))
+            || (array_key_exists('return_token_budget', $options) && ! in_array($options['return_token_budget'], self::RETURN_TOKEN_BUDGETS, true))
+            || (array_key_exists('max_tool_calls', $options) && (! is_int($options['max_tool_calls']) || $options['max_tool_calls'] < 1))) {
             throw new DriverException(
                 'openai.invalid_profile',
                 'The OpenAI research Profile has invalid options.',
