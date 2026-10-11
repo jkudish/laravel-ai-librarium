@@ -18,12 +18,12 @@
     ],
     "require": {
         "php": "^8.4",
-        "illuminate/console": "^13.35",
-        "illuminate/contracts": "^13.35",
-        "illuminate/http": "^13.35",
-        "illuminate/routing": "^13.35",
-        "illuminate/support": "^13.35",
-        "illuminate/validation": "^13.35",
+        "illuminate/console": "^13.30",
+        "illuminate/contracts": "^13.30",
+        "illuminate/http": "^13.30",
+        "illuminate/routing": "^13.30",
+        "illuminate/support": "^13.30",
+        "illuminate/validation": "^13.30",
         "jkudish/laravel-ai-pricing": "^0.2.2",
         "laravel/ai": "^1.0.1",
         "laravel/prompts": "^0.3.15",
@@ -33,10 +33,10 @@
     "require-dev": {
         "laravel/pint": "^1.32.1",
         "larastan/larastan": "^3.13",
-        "orchestra/testbench": "^11.3",
-        "pestphp/pest": "^5.3.1",
-        "pestphp/pest-plugin-arch": "^5.0",
-        "pestphp/pest-plugin-laravel": "^5.0.1",
+        "orchestra/testbench": "^11.0",
+        "pestphp/pest": "^4.4.1 || ^5.3.1",
+        "pestphp/pest-plugin-arch": "^4.0 || ^5.0",
+        "pestphp/pest-plugin-laravel": "^4.1 || ^5.0.1",
         "phpstan/extension-installer": "^1.4.3"
     },
     "autoload": {
