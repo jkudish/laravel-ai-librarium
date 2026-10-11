@@ -157,6 +157,17 @@ First stable release.
   `tool_use_tokens` audit count, alongside `server_tool_search_requests`. It is
   never added to the priced partitions, because no verified charge covers the
   whole field.
+- Gemini grounded results (`gemini-grounded`, `gemini-chat` and Gemini Deep
+  Research) report Google Search grounding queries as
+  `server_tool_search_requests`, read from the `google_search` entries of
+  Interactions `usage.grounding_tool_count`. Google bills Gemini 3 grounding
+  per query, and those queries can dominate a run's cost: the #4865 canary
+  reported 24 queries, USD 0.336 of a USD 0.363 run. When an entry carries
+  both `count` and `search_query_count`, they must agree. A missing or
+  malformed report leaves the count unknown instead of partial. Gemini quotes
+  already include 100 searches at USD 14 per 1,000 (USD 1.40 of the USD 1.85
+  quote), and the Gemini spending bound stays `unknown` because no request
+  control caps the number of queries.
 - `grok-x-only` and `grok-combined` carry no pricing usage. xAI bills X Search
   per fetched post and profile, which no request parameter bounds, so their
   quotes are unavailable and a maximum-cost preflight that includes them fails
