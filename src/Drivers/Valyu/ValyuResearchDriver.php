@@ -13,10 +13,12 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Sleep;
 use Illuminate\Validation\Validator as LaravelValidator;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
+use Jkudish\LaravelAiLibrarium\Contracts\DeclaresDeadline;
 use Jkudish\LaravelAiLibrarium\Contracts\DurableDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
+use Jkudish\LaravelAiLibrarium\Profile;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Recovery\DurableSubmission;
@@ -34,7 +36,7 @@ use Jkudish\LaravelAiLibrarium\Responses\Source;
 use Throwable;
 
 /** Runs one durable Valyu DeepResearch task to a terminal report. */
-final readonly class ValyuResearchDriver implements DurableDriver
+final readonly class ValyuResearchDriver implements DeclaresDeadline, DurableDriver
 {
     private const string ENDPOINT = 'https://api.valyu.ai/v1/deepresearch/tasks';
 
@@ -111,11 +113,18 @@ final readonly class ValyuResearchDriver implements DurableDriver
         ];
     }
 
+    public static function deadlineSeconds(Profile $profile): ?int
+    {
+        $timeout = $profile->options['request_timeout_seconds'] ?? null;
+        $mode = $profile->options['mode'] ?? 'standard';
+
+        return is_int($timeout) ? $timeout : (is_string($mode) ? self::MODE_DEADLINE_SECONDS[$mode] ?? null : null);
+    }
+
     public function run(DriverRequest $request): ResearchResult
     {
         $this->validateRequest($request);
-        $timeout = $request->profile->options['request_timeout_seconds'] ?? null;
-        $request = $request->withinSeconds(is_int($timeout) ? $timeout : self::MODE_DEADLINE_SECONDS[$this->mode($request)]);
+        $request = $request->withinSeconds(self::deadlineSeconds($request->profile) ?? self::MODE_DEADLINE_SECONDS['standard']);
         $taskId = $this->submit($request);
         $request->progress('Valyu is researching in the background.');
         $cleanup = true;

@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
+use Jkudish\LaravelAiLibrarium\Contracts\DeclaresDeadline;
 use Jkudish\LaravelAiLibrarium\Execution\ProfileCompatibility;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
@@ -104,7 +105,7 @@ final readonly class ResearchCompiler
         $this->validateTransientTtl('webhook_signal_ttl', $jobTimeout);
 
         /** @var Collection<int, string> $warnings */
-        $warnings = collect();
+        $warnings = collect($this->deadlineWarnings($all, $timeout, $jobTimeout, $research->timeoutSeconds() !== null));
         $pricingQuotes = $pricing === null ? collect($this->emptyPricingQuotes()) : $pricing['quotes'];
         $knownCostSubtotals = $pricing === null ? collect($this->emptyKnownCostSubtotals()) : $pricing['known_subtotals'];
 
@@ -128,6 +129,45 @@ final readonly class ResearchCompiler
             timeout: $timeout,
             jobTimeout: $jobTimeout,
         );
+    }
+
+    /**
+     * A Driver that would stop polling at the shared timeout before its own
+     * deadline abandons a provider task that may still be billed, so the plan
+     * names every setting to raise and the value it needs.
+     *
+     * @param  Collection<int, Profile>  $profiles
+     * @return list<string>
+     */
+    private function deadlineWarnings(Collection $profiles, int $timeout, int $jobTimeout, bool $explicitTimeout): array
+    {
+        $warnings = [];
+        foreach ($profiles as $profile) {
+            $deadline = is_a($profile->driver, DeclaresDeadline::class, true)
+                ? $profile->driver::deadlineSeconds($profile)
+                : null;
+            if ($deadline === null || $deadline <= $timeout) {
+                continue;
+            }
+
+            $settings = [($explicitTimeout ? 'the requested timeout (--timeout or timeout())' : 'librarium.timeout')." to at least {$deadline}"];
+            $queueTimeout = max($jobTimeout, $deadline + 1);
+            if ($jobTimeout <= $deadline) {
+                $settings[] = "librarium.queue.timeout to at least {$queueTimeout}";
+            }
+            foreach (['status_ttl', 'webhook_signal_ttl'] as $key) {
+                $ttl = $this->config->get('librarium.'.$key, 10800);
+                if (! is_int($ttl) || $ttl <= $queueTimeout) {
+                    $settings[] = "librarium.{$key} to at least ".($queueTimeout + 1);
+                }
+            }
+
+            $warnings[] = "Profile [{$profile->id}] waits up to {$deadline} seconds for its provider task, but the research timeout is {$timeout} seconds, "
+                .'so it would stop waiting while the provider may still finish and bill the task. Raise '.implode(', ', $settings)
+                .", or set the Profile's options.request_timeout_seconds to at most {$timeout}.";
+        }
+
+        return $warnings;
     }
 
     private function validateTransientTtl(string $key, int $timeout): void

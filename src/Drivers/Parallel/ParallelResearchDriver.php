@@ -9,11 +9,13 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Sleep;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
+use Jkudish\LaravelAiLibrarium\Contracts\DeclaresDeadline;
 use Jkudish\LaravelAiLibrarium\Contracts\DurableDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
 use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
+use Jkudish\LaravelAiLibrarium\Profile;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Recovery\DurableSubmission;
@@ -32,7 +34,7 @@ use JsonException;
 use stdClass;
 
 /** Runs one durable Parallel Task API deep-research job to completion. */
-final readonly class ParallelResearchDriver implements DurableDriver
+final readonly class ParallelResearchDriver implements DeclaresDeadline, DurableDriver
 {
     private const string ENDPOINT = 'https://api.parallel.ai/v1/tasks/runs';
 
@@ -70,12 +72,18 @@ final readonly class ParallelResearchDriver implements DurableDriver
         return ParallelOptions::researchRules();
     }
 
+    public static function deadlineSeconds(Profile $profile): ?int
+    {
+        $timeout = $profile->options['request_timeout_seconds'] ?? null;
+
+        return is_int($timeout) ? $timeout : self::PROCESSOR_DEADLINE_SECONDS[$profile->model ?? ''] ?? null;
+    }
+
     public function run(DriverRequest $request): ResearchResult
     {
         $processor = $this->validateProfile($request);
         $options = ParallelOptions::research($request->profile->options);
-        $timeout = $options['request_timeout_seconds'] ?? null;
-        $request = $request->withinSeconds(is_int($timeout) ? $timeout : self::PROCESSOR_DEADLINE_SECONDS[$processor]);
+        $request = $request->withinSeconds(self::deadlineSeconds($request->profile) ?? self::PROCESSOR_DEADLINE_SECONDS['pro']);
         $runId = $this->submit($request, $processor, $options);
         $request->progress('Parallel is researching in the background.');
 

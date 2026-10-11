@@ -72,8 +72,11 @@ First stable release.
   member of the built-in `deep` or `all` groups.
 - Parallel and Valyu research Profiles accept `request_timeout_seconds`, which
   replaces the processor or mode default; the shared research deadline still
-  caps it. A Profile whose pricing identity does not match its processor or
-  mode is reported unavailable instead of being quoted at another price.
+  caps it. When a Profile's deadline exceeds the shared timeout, the compiled
+  plan and the `librarium:query --agent` preview warn and name each setting to
+  raise and the value it needs. A Profile whose pricing identity does not
+  match its processor or mode is reported unavailable instead of being quoted
+  at another price.
 - The Valyu PDF artifact keeps the signed `pdf_url` bearer link, plus
   `expires_at` when the signed URL states an expiry. The driver strips the link
   from captured provider responses, so redacted evidence, sensitive

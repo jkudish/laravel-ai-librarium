@@ -34,6 +34,10 @@ quoted at the wrong price. Parallel bills one charge per successful run.
 | `ultra4x` | 1.20 | 5 – 90 min | 135 min |
 | `ultra8x` | 2.40 | 5 min – 2 h | 180 min |
 
+`ultra4x` (8100 s) and `ultra8x` (10800 s) wait longer than the shipped
+`librarium.timeout` of 6900 seconds. The preview and compiled plan warn about
+it; see [Deadlines](#deadlines).
+
 Processors through `pro` finish within 10 minutes and keep a 30-minute
 deadline. The `ultra` processors get 1.5 times their documented upper latency,
 rounded up to 15 minutes, because the latency excludes queue time. The delisted
@@ -95,6 +99,10 @@ Valyu prices each task at a fixed amount per mode.
 | `heavy` | 2.50 | up to ~90 min | 120 min |
 | `max` | 15.00 | up to ~180 min | 180 min |
 
+`heavy` (7200 s) and `max` (10800 s) wait longer than the shipped
+`librarium.timeout` of 6900 seconds. The preview and compiled plan warn about
+it; see [Deadlines](#deadlines).
+
 `max` is never a default. A Profile configured with `mode: max` is left out of
 the built-in `deep` and `all` groups and runs only when selected by ID or
 through a custom group.
@@ -115,11 +123,27 @@ and the shared deadline still caps it. Durable `submit()`/`retrieve()` calls
 have no per-processor deadline: the application decides when to stop
 retrieving.
 
-The `ultra4x`, `ultra8x`, `heavy`, and `max` defaults exceed the shipped
-6900-second shared timeout. To give them their full default, raise
-`librarium.timeout` and keep `librarium.queue.timeout` above it. A stopped
-Parallel run keeps running remotely and is billed on completion. Librarium
-asks Valyu to cancel a task it stops waiting for.
+A Profile's deadline can be longer than the shared timeout. That happens with
+the `ultra4x`, `ultra8x`, `heavy`, and `max` defaults on the shipped
+6900-second timeout, or with any target under a shorter `--timeout`. Librarium
+would then stop waiting while the provider task may still finish and bill. A
+stopped Parallel run keeps running remotely and is billed on completion;
+Librarium asks Valyu to cancel a task it stops waiting for. The shipped
+timeouts stay unchanged, so the compiled plan's `preview->warnings`, the
+interactive preview notes, and the `librarium:query --agent` preview's
+`warnings` name each setting to raise and the value it needs. For example:
+
+> Profile [parallel-research] waits up to 10800 seconds for its provider task,
+> but the research timeout is 6900 seconds, so it would stop waiting while the
+> provider may still finish and bill the task. Raise librarium.timeout to at
+> least 10800, librarium.queue.timeout to at least 10801, librarium.status_ttl
+> to at least 10802, librarium.webhook_signal_ttl to at least 10802, or set the
+> Profile's options.request_timeout_seconds to at most 6900.
+
+The queue timeout must stay above the research timeout, and both transient
+TTLs above the queue timeout; the compiler rejects any other combination.
+Setting `options.request_timeout_seconds` to at most the shared timeout
+accepts the shorter wait and clears the warning.
 
 ## Valyu PDF link
 
