@@ -18,8 +18,8 @@ First stable release.
   [GHSA-6qhr-3g93-pxhw](https://github.com/laravel/ai/security/advisories/GHSA-6qhr-3g93-pxhw)
   (SSRF via client-supplied file URLs in the SDK's Vercel AI and AG-UI
   adapters).
-- `jkudish/laravel-ai-pricing` `^0.3` for offline, provenance-aware pricing
-  with dated rate windows.
+- `jkudish/laravel-ai-pricing` `^0.3.1` for offline, provenance-aware pricing
+  with dated rate windows; OpenAI chat quotes include the web-search fee.
 
 ### Research API
 

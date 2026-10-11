@@ -19,7 +19,7 @@ pins the accepted TypeScript `v2.0.0` tag, `laravel-ai-pricing` uses a stable
 constraint, and `CHANGELOG.md` has exactly one section, a dated 1.0.0 heading.
 It fails closed if the vendored contract or Profile inventory drifts from the
 pin record. It also pins the release compatibility policy to PHP
-8.4+, Laravel 13.30+, Testbench 11.0+, `laravel-ai-pricing` 0.3+,
+8.4+, Laravel 13.30+, Testbench 11.0+, `laravel-ai-pricing` 0.3.1+,
 Laravel AI SDK 1.0.1+, Laravel Prompts 0.3.15+, CommonMark 2.10.2+, and
 Standard Webhooks 1.0+.
 
@@ -62,7 +62,7 @@ composer show --direct
 ```
 
 The resolved inventory must include Laravel 13.30, Laravel AI SDK 1.0.1,
-`laravel-ai-pricing` 0.3.0, Laravel Prompts 0.3.15, CommonMark 2.10.2, and
+`laravel-ai-pricing` 0.3.1, Laravel Prompts 0.3.15, CommonMark 2.10.2, and
 Standard Webhooks 1.0.0. Each runtime floor is the lowest version this lane
 installs and passes:
 

@@ -24,7 +24,7 @@
         "illuminate/routing": "^13.30",
         "illuminate/support": "^13.30",
         "illuminate/validation": "^13.30",
-        "jkudish/laravel-ai-pricing": "^0.3",
+        "jkudish/laravel-ai-pricing": "^0.3.1",
         "laravel/ai": "^1.0.1",
         "laravel/prompts": "^0.3.15",
         "league/commonmark": "^2.10.2",

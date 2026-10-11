@@ -59,7 +59,8 @@ it('quotes OpenAI chat against the tiered Luna billing basis because the generic
     expect($tiered['identity']?->key())->toBe('openai:gpt-6-luna-standard-short')
         ->and($tiered['quote']->completeness)->not->toBe(CostCompleteness::Unavailable)
         ->and($tiered['quote']->source)->toBe(PricingSource::ProviderNative)
-        ->and($tiered['quote']->missingUnits)->toBe(['web_searches']);
+        ->and($tiered['quote']->completeness)->toBe(CostCompleteness::Complete)
+        ->and($tiered['quote']->missingUnits)->toBe([]);
 });
 
 it('ships OpenAI chat with the tiered Luna pricing identity and an unchanged model', function (): void {
