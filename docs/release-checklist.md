@@ -19,8 +19,9 @@ pins the accepted TypeScript `v2.0.0` tag, `laravel-ai-pricing` uses a stable
 constraint, and `CHANGELOG.md` has exactly one section, a dated 1.0.0 heading.
 It fails closed if the vendored contract or Profile inventory drifts from the
 pin record. It also pins the release compatibility policy to PHP
-8.4+, Laravel 13.35+, Testbench 11.3+, `laravel-ai-pricing` 0.2.2+, and
-Laravel AI SDK 1.2+.
+8.4+, Laravel 13.30+, Testbench 11.0+, `laravel-ai-pricing` 0.3+,
+Laravel AI SDK 1.0.1+, Laravel Prompts 0.3.15+, CommonMark 2.10.2+, and
+Standard Webhooks 1.0+.
 
 A gate may be marked `complete` only with an `https` evidence URI without
 userinfo, a query string, or a fragment, plus the lowercase SHA-256 digest of
@@ -60,8 +61,25 @@ composer compatibility:check
 composer show --direct
 ```
 
-The resolved inventory must include Laravel 13.35, Laravel AI SDK 1.2.0,
-`laravel-ai-pricing` 0.2.2, and the lowest compatible direct dependencies. `prefer-lowest` is the resolver input;
+The resolved inventory must include Laravel 13.30, Laravel AI SDK 1.0.1,
+`laravel-ai-pricing` 0.3.0, Laravel Prompts 0.3.15, CommonMark 2.10.2, and
+Standard Webhooks 1.0.0. Each runtime floor is the lowest version this lane
+installs and passes:
+
+- Laravel starts at 13.30 because Composer's advisory filter blocks every
+  earlier `laravel/framework` 13 release (PKSA-d5tc-s1qs-h781, debug-page XSS,
+  affects below 13.30.0).
+- Development dependencies are ranges, so this lane resolves the older Pest 4,
+  PHPUnit 12, and Testbench 11.0 toolchain that Laravel 13.30 accepts, while
+  the highest lane resolves the latest Pest 5, PHPUnit 13, and Testbench.
+  Pest 5.3 needs PHPUnit 13.1, which only Testbench Core 11.6 accepts, and
+  that conflicts with `laravel/framework` below 13.35.
+- Laravel AI SDK 1.0.0 is excluded by
+  [GHSA-6qhr-3g93-pxhw](https://github.com/laravel/ai/security/advisories/GHSA-6qhr-3g93-pxhw).
+- Prompts below 0.3.15 fail the interactive console tests.
+- Composer's advisory filter blocks CommonMark releases below 2.10.2.
+
+`prefer-lowest` is the resolver input;
 inspect the resulting inventory rather than assuming it selected the intended
 floor. If another constraint raises a package above its declared minimum,
 record the effective floor and reconcile `composer.json` before release. Keep

@@ -8,7 +8,12 @@ First stable release.
 
 ### Requirements
 
-- PHP 8.4 or later, Laravel 13.35 or later, and Laravel AI SDK `^1.2`.
+- PHP 8.4 or later, Laravel 13.30 or later, and Laravel AI SDK `^1.0.1`.
+  Laravel Prompts `^0.3.15`, CommonMark `^2.10.2`, and Standard Webhooks
+  `^1.0` are the lowest versions that pass the lowest-dependency lane. Laravel
+  starts at 13.30 because Composer blocks earlier 13.x releases for a security
+  advisory. Development dependencies are ranges, so the lowest lane runs Pest
+  4 and PHPUnit 12 while the highest lane runs the latest Pest 5.
   Laravel AI SDK 1.0.0 is excluded because of
   [GHSA-6qhr-3g93-pxhw](https://github.com/laravel/ai/security/advisories/GHSA-6qhr-3g93-pxhw)
   (SSRF via client-supplied file URLs in the SDK's Vercel AI and AG-UI
@@ -77,6 +82,30 @@ First stable release.
   reason, because SearchAPI withdrew its `perplexity` engine without a
   replacement. A copy left in a published configuration is reported
   unavailable and never sent.
+- `parallel-research` accepts every processor Parallel lists, from `lite`
+  through `ultra8x`. The default stays `pro`, and the delisted `-fast`
+  processors are rejected. Each processor has its own default polling
+  deadline, from 30 minutes to 180 minutes. Research also accepts
+  `after_date`, `output_schema` (a text description, or a JSON Schema for a
+  JSON result), `metadata`, and `memory_scope_key`, using the TypeScript
+  option names. See `docs/parallel-valyu-research.md` for prices and the
+  Task Run parameters left out, with reasons.
+- `valyu-research` accepts the `fast`, `standard` (default), `heavy`, and
+  `max` modes, each with a default deadline sized from Valyu's documented
+  runtimes. It requests Markdown plus PDF output by default; `output_formats:
+  ['markdown']` opts out of the PDF. A Profile configured for `max` is never a
+  member of the built-in `deep` or `all` groups.
+- Parallel and Valyu research Profiles accept `request_timeout_seconds`, which
+  replaces the processor or mode default; the shared research deadline still
+  caps it. When a Profile's deadline exceeds the shared timeout, the compiled
+  plan and the `librarium:query --agent` preview warn and name each setting to
+  raise and the value it needs. A Profile whose pricing identity does not
+  match its processor or mode is reported unavailable instead of being quoted
+  at another price.
+- The Valyu PDF artifact keeps the signed `pdf_url` bearer link, plus
+  `expires_at` when the signed URL states an expiry. The driver strips the link
+  from captured provider responses, so redacted evidence, sensitive
+  collections, diagnostics, and errors never contain it.
 - Exa Research preserves API-output observation provenance across synchronous
   and durable results and validates explicit native run budgets from $1
   through $100.

@@ -13,10 +13,12 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Sleep;
 use Illuminate\Validation\Validator as LaravelValidator;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
+use Jkudish\LaravelAiLibrarium\Contracts\DeclaresDeadline;
 use Jkudish\LaravelAiLibrarium\Contracts\DurableDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
+use Jkudish\LaravelAiLibrarium\Profile;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Recovery\DurableSubmission;
@@ -34,7 +36,7 @@ use Jkudish\LaravelAiLibrarium\Responses\Source;
 use Throwable;
 
 /** Runs one durable Valyu DeepResearch task to a terminal report. */
-final readonly class ValyuResearchDriver implements DurableDriver
+final readonly class ValyuResearchDriver implements DeclaresDeadline, DurableDriver
 {
     private const string ENDPOINT = 'https://api.valyu.ai/v1/deepresearch/tasks';
 
@@ -46,6 +48,29 @@ final readonly class ValyuResearchDriver implements DurableDriver
 
     private const int POLL_INTERVAL_SECONDS = 5;
 
+    /**
+     * Every DeepResearch mode, mapped to its default polling deadline in
+     * seconds: Valyu's recommended client timeout for the mode
+     * (docs.valyu.ai/guides/deepresearch, checked 2026-10-11), which covers
+     * its documented runtimes of ~5 min, ~10-20 min, up to ~90 min, and up to
+     * ~180 min. A Profile's request_timeout_seconds replaces it; the shared
+     * research deadline always caps it.
+     *
+     * @var array<string, int>
+     */
+    public const array MODE_DEADLINE_SECONDS = [
+        'fast' => 600,
+        'standard' => 1800,
+        'heavy' => 7200,
+        'max' => 10800,
+    ];
+
+    /** Valyu bills PDF output inside the fixed task price; it is not a deliverable. */
+    private const array OUTPUT_FORMATS = [['markdown'], ['markdown', 'pdf']];
+
+    /** The signed PDF link is exposed by default; ['markdown'] opts out. */
+    private const array DEFAULT_OUTPUT_FORMATS = ['markdown', 'pdf'];
+
     private const array COUNTRY_CODES = [
         'ALL', 'AR', 'AU', 'AT', 'BE', 'BR', 'CA', 'CL', 'DK', 'FI', 'FR', 'DE', 'HK', 'IN', 'ID', 'IT', 'JP', 'KR',
         'MY', 'MX', 'NL', 'NZ', 'NO', 'CN', 'PL', 'PT', 'PH', 'RU', 'SA', 'ZA', 'ES', 'SE', 'CH', 'TW', 'TR', 'GB', 'US',
@@ -55,7 +80,7 @@ final readonly class ValyuResearchDriver implements DurableDriver
     public static function profileOptionRules(): array
     {
         return [
-            'mode' => ['sometimes', 'string', 'in:standard'],
+            'mode' => ['sometimes', 'string', 'in:'.implode(',', array_keys(self::MODE_DEADLINE_SECONDS))],
             'research_strategy' => ['sometimes', 'string', 'filled', 'max:15000'],
             'report_format' => ['sometimes', 'string', 'filled', 'max:15000'],
             'search' => ['sometimes', 'array:search_type,included_sources,excluded_sources,source_biases,start_date,end_date,country_code'],
@@ -80,16 +105,26 @@ final readonly class ValyuResearchDriver implements DurableDriver
                 }
             }],
             'output_formats' => ['sometimes', 'array', 'list', static function (string $attribute, mixed $value, callable $fail): void {
-                if (! is_array($value) || $value !== ['markdown']) {
+                if (! in_array($value, self::OUTPUT_FORMATS, true)) {
                     $fail("The {$attribute} field is invalid.");
                 }
             }],
+            'request_timeout_seconds' => ['sometimes', 'integer:strict', 'min:1', 'max:86400'],
         ];
+    }
+
+    public static function deadlineSeconds(Profile $profile): ?int
+    {
+        $timeout = $profile->options['request_timeout_seconds'] ?? null;
+        $mode = $profile->options['mode'] ?? 'standard';
+
+        return is_int($timeout) ? $timeout : (is_string($mode) ? self::MODE_DEADLINE_SECONDS[$mode] ?? null : null);
     }
 
     public function run(DriverRequest $request): ResearchResult
     {
         $this->validateRequest($request);
+        $request = $request->withinSeconds(self::deadlineSeconds($request->profile) ?? self::MODE_DEADLINE_SECONDS['standard']);
         $taskId = $this->submit($request);
         $request->progress('Valyu is researching in the background.');
         $cleanup = true;
@@ -192,7 +227,7 @@ final readonly class ValyuResearchDriver implements DurableDriver
 
         $options = $profile->options;
         $rules = [
-            'options' => ['array:mode,research_strategy,report_format,search,urls,output_formats'],
+            'options' => ['array:mode,research_strategy,report_format,search,urls,output_formats,request_timeout_seconds'],
             ...$this->prefixedRules(),
         ];
         if ($request instanceof DriverRequest) {
@@ -209,8 +244,7 @@ final readonly class ValyuResearchDriver implements DurableDriver
                 $validator->errors()->add('options.report_format', 'Research strategy and report format are too long.');
             }
 
-            $formats = $options['output_formats'] ?? ['markdown'];
-            if (! is_array($formats) || $formats !== ['markdown']) {
+            if (! in_array($options['output_formats'] ?? self::DEFAULT_OUTPUT_FORMATS, self::OUTPUT_FORMATS, true)) {
                 $validator->errors()->add('options.output_formats', 'The output formats are invalid.');
             }
 
@@ -279,7 +313,7 @@ final readonly class ValyuResearchDriver implements DurableDriver
             throw $this->ambiguousSubmission();
         }
         if (! in_array(data_get($json, 'status'), ['queued', 'running'], true)
-            || data_get($json, 'mode') !== 'standard'
+            || data_get($json, 'mode') !== $this->mode($request)
             || ValyuSupport::timestamp(data_get($json, 'created_at')) === null) {
             $this->cancelBestEffort($request, $taskId);
 
@@ -362,8 +396,8 @@ final readonly class ValyuResearchDriver implements DurableDriver
         $options = $request->profile->options;
         $payload = [
             'query' => $request->prompt,
-            'mode' => $options['mode'] ?? 'standard',
-            'output_formats' => $options['output_formats'] ?? ['markdown'],
+            'mode' => $this->mode($request),
+            'output_formats' => $options['output_formats'] ?? self::DEFAULT_OUTPUT_FORMATS,
         ];
 
         foreach (['research_strategy', 'report_format', 'urls'] as $key) {
@@ -432,9 +466,13 @@ final readonly class ValyuResearchDriver implements DurableDriver
 
         $completedAt = ValyuSupport::timestamp(data_get($task, 'completed_at')) ?? CarbonImmutable::now();
         $mode = data_get($task, 'mode');
-        if ($mode !== 'standard') {
+        if ($mode !== $this->mode($request)) {
             throw $this->invalidResponse();
         }
+        $privateValues = [
+            (string) $request->profile->credential,
+            ValyuSupport::string(data_get($task, 'deepresearch_id')) ?? '',
+        ];
 
         $result = ResearchResult::make(
             contentFormat: ContentFormat::Markdown,
@@ -457,29 +495,31 @@ final readonly class ValyuResearchDriver implements DurableDriver
                     'execution' => 'background',
                     'resumability' => 'durable_provider_task',
                     'sources' => $safeSources,
-                    'artifacts' => $this->artifacts($task),
+                    'artifacts' => $this->artifacts($task, $privateValues),
                 ],
             ],
         );
 
-        return TerminalRedaction::guard(
-            $result,
-            [
-                (string) $request->profile->credential,
-                ValyuSupport::string(data_get($task, 'deepresearch_id')) ?? '',
-            ],
-            $this->invalidResponse(),
-        );
+        return TerminalRedaction::guard($result, $privateValues, $this->invalidResponse());
     }
 
-    /** @param array<array-key, mixed> $task
+    private function mode(DriverRequest|RecoveryRequest $request): string
+    {
+        $mode = $request->profile->options['mode'] ?? 'standard';
+
+        return is_string($mode) ? $mode : 'standard';
+    }
+
+    /**
+     * @param  array<array-key, mixed>  $task
+     * @param  list<string>  $privateValues
      * @return list<array<string, mixed>>
      */
-    private function artifacts(array $task): array
+    private function artifacts(array $task, array $privateValues): array
     {
         $artifacts = [];
         if (ValyuSupport::string(data_get($task, 'pdf_url')) !== null) {
-            $artifacts[] = ['kind' => 'pdf'];
+            $artifacts[] = ValyuSupport::pdfArtifact(data_get($task, 'pdf_url'), $privateValues);
         }
 
         foreach ([['images', 'image'], ['deliverables', 'deliverable']] as [$key, $defaultKind]) {
@@ -530,7 +570,7 @@ final readonly class ValyuResearchDriver implements DurableDriver
             throw $exception;
         }
 
-        $request->captureResponse($response, $operation);
+        $request->captureResponse($response, $operation, ValyuSupport::withoutPdfUrl($response->body()));
 
         return $response;
     }
@@ -554,7 +594,7 @@ final readonly class ValyuResearchDriver implements DurableDriver
                 ->connectTimeout(self::CONNECT_TIMEOUT_SECONDS)
                 ->timeout(self::CANCELLATION_TIMEOUT_SECONDS)
                 ->post(self::ENDPOINT.'/'.rawurlencode($taskId).'/cancel');
-            $request->captureResponse($response, Operation::Cancel);
+            $request->captureResponse($response, Operation::Cancel, ValyuSupport::withoutPdfUrl($response->body()));
         } catch (ConnectionException) {
             $request->captureNoResponse(Operation::Cancel);
         } catch (Throwable) {

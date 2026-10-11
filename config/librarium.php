@@ -942,6 +942,13 @@ return [
                 'conservative' => true,
             ],
         ],
+        /*
+         * The model is the Parallel processor: lite, base, core, core2x, pro,
+         * ultra, ultra2x, ultra4x, or ultra8x. Set pricing.model to
+         * research-<processor> with it. Each processor has its own default
+         * polling deadline; options.request_timeout_seconds replaces it, and
+         * librarium.timeout always caps it. See docs/parallel-valyu-research.md.
+         */
         'parallel-research' => [
             'driver' => ParallelResearchDriver::class,
             'provider' => 'parallel',
@@ -976,6 +983,13 @@ return [
             'options' => [],
             'credential' => config('services.valyu.key'),
         ],
+        /*
+         * options.mode is fast, standard, heavy, or max. Set pricing.model to
+         * research-<mode> with it. Max is excluded from the built-in deep and
+         * all groups. Each mode has its own default polling deadline;
+         * options.request_timeout_seconds replaces it, and librarium.timeout
+         * always caps it. See docs/parallel-valyu-research.md.
+         */
         'valyu-research' => [
             'driver' => ValyuResearchDriver::class,
             'provider' => 'valyu',

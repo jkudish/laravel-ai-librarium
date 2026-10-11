@@ -46,17 +46,20 @@ function releaseReadinessComposerFixture(): array
     return [
         'require' => [
             'php' => '^8.4',
-            'illuminate/console' => '^13.35',
-            'illuminate/contracts' => '^13.35',
-            'illuminate/http' => '^13.35',
-            'illuminate/routing' => '^13.35',
-            'illuminate/support' => '^13.35',
-            'illuminate/validation' => '^13.35',
+            'illuminate/console' => '^13.30',
+            'illuminate/contracts' => '^13.30',
+            'illuminate/http' => '^13.30',
+            'illuminate/routing' => '^13.30',
+            'illuminate/support' => '^13.30',
+            'illuminate/validation' => '^13.30',
             'jkudish/laravel-ai-pricing' => '^0.3',
-            'laravel/ai' => '^1.2',
+            'laravel/ai' => '^1.0.1',
+            'laravel/prompts' => '^0.3.15',
+            'league/commonmark' => '^2.10.2',
+            'standard-webhooks/standard-webhooks' => '^1.0',
         ],
         'require-dev' => [
-            'orchestra/testbench' => '^11.3',
+            'orchestra/testbench' => '^11.0',
         ],
     ];
 }
@@ -183,13 +186,16 @@ it('requires the exact supported PHP, Laravel, and Laravel AI compatibility poli
     ))->toBe([$message]);
 })->with([
     'PHP floor' => ['require', 'php', '^8.3', 'Runtime dependency php must use the release compatibility constraint [^8.4].'],
-    'Laravel major' => ['require', 'illuminate/support', '^12.0', 'Runtime dependency illuminate/support must use the release compatibility constraint [^13.35].'],
-    'Laravel floor' => ['require', 'illuminate/support', '^13.0', 'Runtime dependency illuminate/support must use the release compatibility constraint [^13.35].'],
+    'Laravel major' => ['require', 'illuminate/support', '^12.0', 'Runtime dependency illuminate/support must use the release compatibility constraint [^13.30].'],
+    'Laravel floor' => ['require', 'illuminate/support', '^13.0', 'Runtime dependency illuminate/support must use the release compatibility constraint [^13.30].'],
+    'Laravel above the tested floor' => ['require', 'illuminate/support', '^13.35', 'Runtime dependency illuminate/support must use the release compatibility constraint [^13.30].'],
     'pricing without rate windows' => ['require', 'jkudish/laravel-ai-pricing', '^0.2.2', 'Runtime dependency jkudish/laravel-ai-pricing must use the release compatibility constraint [^0.3].'],
     'pricing legacy range' => ['require', 'jkudish/laravel-ai-pricing', '^0.1.1 || ^0.2.0', 'Runtime dependency jkudish/laravel-ai-pricing must use the release compatibility constraint [^0.3].'],
-    'Laravel AI range' => ['require', 'laravel/ai', '^0.11.0 || ^0.10.3', 'Runtime dependency laravel/ai must use the release compatibility constraint [^1.2].'],
-    'Laravel AI vulnerable floor' => ['require', 'laravel/ai', '^1.0', 'Runtime dependency laravel/ai must use the release compatibility constraint [^1.2].'],
-    'Testbench major' => ['require-dev', 'orchestra/testbench', '^10.0', 'Development dependency orchestra/testbench must use the release compatibility constraint [^11.3].'],
+    'Laravel AI range' => ['require', 'laravel/ai', '^0.11.0 || ^0.10.3', 'Runtime dependency laravel/ai must use the release compatibility constraint [^1.0.1].'],
+    'Laravel AI vulnerable floor' => ['require', 'laravel/ai', '^1.0', 'Runtime dependency laravel/ai must use the release compatibility constraint [^1.0.1].'],
+    'Laravel AI above the tested floor' => ['require', 'laravel/ai', '^1.2', 'Runtime dependency laravel/ai must use the release compatibility constraint [^1.0.1].'],
+    'Prompts below the tested floor' => ['require', 'laravel/prompts', '^0.3.11', 'Runtime dependency laravel/prompts must use the release compatibility constraint [^0.3.15].'],
+    'Testbench major' => ['require-dev', 'orchestra/testbench', '^10.0', 'Development dependency orchestra/testbench must use the release compatibility constraint [^11.0].'],
 ]);
 
 it('rejects a completed gate without durable evidence', function (): void {

@@ -10,6 +10,8 @@ use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\LaravelAiDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Parallel\ParallelResearchDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Valyu\ValyuResearchDriver;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
@@ -107,11 +109,16 @@ final class ProfileCatalog
             'quick' => self::QUICK,
             'visibility' => self::VISIBILITY,
             'deep' => $this->all()
-                ->filter(fn (ProfileAvailability $item): bool => $item->profile->resultKind === ResultKind::ResearchReport)
+                ->filter(fn (ProfileAvailability $item): bool => $item->profile->resultKind === ResultKind::ResearchReport
+                    && ! $this->excludedFromBuiltInGroups($item->profile))
                 ->map(fn (ProfileAvailability $item): string => $item->profile->id)
                 ->values()
                 ->all(),
-            'all' => $this->all()->map(fn (ProfileAvailability $item): string => $item->profile->id)->values()->all(),
+            'all' => $this->all()
+                ->reject(fn (ProfileAvailability $item): bool => $this->excludedFromBuiltInGroups($item->profile))
+                ->map(fn (ProfileAvailability $item): string => $item->profile->id)
+                ->values()
+                ->all(),
             default => $this->customGroup($group),
         };
 
@@ -334,9 +341,35 @@ final class ProfileCatalog
             $reasons[] = 'The search_engine option is supported only by OpenRouter Profiles.';
         }
 
+        $target = $this->pricedResearchTarget($profile);
+        if ($target !== null && $profile->pricingIdentity !== null && $profile->pricingIdentity->key() !== $target) {
+            $reasons[] = "The pricing identity must be [{$target}] to quote the configured research target.";
+        }
+
         $reasons = [...$reasons, ...$this->optionValidator->errors($profile->driver, $profile->options)];
 
         return $reasons;
+    }
+
+    /**
+     * Valyu's max mode costs USD 15 per task, so a Profile configured with it
+     * runs only when selected explicitly or through a custom group.
+     */
+    private function excludedFromBuiltInGroups(Profile $profile): bool
+    {
+        return $profile->driver === ValyuResearchDriver::class && data_get($profile->options, 'mode') === 'max';
+    }
+
+    /** Parallel processors and Valyu modes each have their own published price and pricing identity. */
+    private function pricedResearchTarget(Profile $profile): ?string
+    {
+        $target = match ($profile->driver) {
+            ParallelResearchDriver::class => $profile->model,
+            ValyuResearchDriver::class => data_get($profile->options, 'mode', 'standard'),
+            default => null,
+        };
+
+        return is_string($target) ? "{$profile->provider}:research-{$target}" : null;
     }
 
     /** @return list<string> */

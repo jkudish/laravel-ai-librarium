@@ -13,8 +13,8 @@ php artisan vendor:publish --tag=librarium-config
 Requirements:
 
 - PHP 8.4+
-- Laravel 13
-- Laravel AI SDK `^1.2`
+- Laravel 13.30+
+- Laravel AI SDK `^1.0.1`
 
 Provider credentials come from Laravel AI's `config/ai.php` and your
 `config/services.php`. A Profile without its credential is reported

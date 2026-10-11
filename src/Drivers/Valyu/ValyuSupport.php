@@ -54,6 +54,94 @@ final class ValyuSupport
         }
     }
 
+    /**
+     * Keeps Valyu's signed PDF bearer link in the result artifact and records
+     * when it expires if the signed URL states it. The link is withheld when
+     * it is not a credential-free HTTPS URL or reflects private task material.
+     *
+     * @param  list<string>  $privateValues
+     * @return array{kind: 'pdf', url?: string, expires_at?: string}
+     */
+    public static function pdfArtifact(mixed $value, array $privateValues): array
+    {
+        $url = is_string($value) ? $value : '';
+        $parts = parse_url($url);
+        if ($url === ''
+            || strlen($url) > 8192
+            || preg_match('/[\s\x00-\x1f\x7f]/', $url) === 1
+            || filter_var($url, FILTER_VALIDATE_URL) === false
+            || ! is_array($parts)
+            || strtolower($parts['scheme'] ?? '') !== 'https'
+            || ($parts['host'] ?? '') === ''
+            || isset($parts['user'])
+            || isset($parts['pass'])
+            || array_any($privateValues, static fn (string $private): bool => $private !== '' && str_contains($url, $private))) {
+            return ['kind' => 'pdf'];
+        }
+
+        $expiresAt = self::signedUrlExpiry($parts['query'] ?? '');
+
+        return array_filter([
+            'kind' => 'pdf',
+            'url' => $url,
+            'expires_at' => $expiresAt?->toIso8601ZuluString(),
+        ], static fn (?string $item): bool => $item !== null);
+    }
+
+    /** Replaces the signed PDF URL in a captured Valyu body so diagnostics never retain the bearer link. */
+    public static function withoutPdfUrl(string $body): string
+    {
+        try {
+            $json = json_decode($body, true, 512, JSON_THROW_ON_ERROR | JSON_BIGINT_AS_STRING);
+        } catch (\JsonException) {
+            return $body;
+        }
+        $url = is_array($json) ? ($json['pdf_url'] ?? null) : null;
+        if (! is_string($url) || $url === '') {
+            return $body;
+        }
+
+        $forms = array_filter([
+            $url,
+            substr((string) json_encode($url), 1, -1),
+            substr((string) json_encode($url, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), 1, -1),
+        ], static fn (string $form): bool => $form !== '');
+
+        return str_replace(array_values(array_unique($forms)), '[REDACTED]', $body);
+    }
+
+    /**
+     * Reads the expiry a signed URL states: AWS SigV4 or Google V4 date plus
+     * lifetime, or an epoch Expires (S3 SigV2, CloudFront). Valyu documents no
+     * separate expiry field, so none is read from the response body.
+     */
+    private static function signedUrlExpiry(string $query): ?CarbonImmutable
+    {
+        $parameters = [];
+        foreach (explode('&', $query) as $pair) {
+            [$key, $value] = array_pad(explode('=', $pair, 2), 2, '');
+            $parameters[strtolower(rawurldecode($key))] = rawurldecode($value);
+        }
+
+        foreach (['x-amz', 'x-goog'] as $scheme) {
+            $date = $parameters[$scheme.'-date'] ?? null;
+            $lifetime = $parameters[$scheme.'-expires'] ?? null;
+            if ($date !== null && $lifetime !== null && preg_match('/^[1-9]\d{0,7}$/D', $lifetime) === 1) {
+                $signedAt = CarbonImmutable::createFromFormat('Ymd\THis\Z', $date, 'UTC');
+                if ($signedAt instanceof CarbonImmutable && $signedAt->format('Ymd\THis\Z') === $date) {
+                    return $signedAt->addSeconds((int) $lifetime);
+                }
+            }
+        }
+
+        $epoch = $parameters['expires'] ?? null;
+        if ($epoch !== null && preg_match('/^[1-9]\d{8,10}$/D', $epoch) === 1) {
+            return CarbonImmutable::createFromTimestamp((int) $epoch, 'UTC');
+        }
+
+        return null;
+    }
+
     public static function usage(mixed $cost): ?Usage
     {
         if ((! is_int($cost) && ! is_float($cost)) || $cost < 0 || (is_float($cost) && ! is_finite($cost))) {

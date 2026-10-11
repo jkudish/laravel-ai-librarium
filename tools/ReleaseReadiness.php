@@ -26,19 +26,22 @@ final readonly class ReleaseReadiness
     /** @var array<string, string> */
     private const array RUNTIME_CONSTRAINTS = [
         'php' => '^8.4',
-        'illuminate/console' => '^13.35',
-        'illuminate/contracts' => '^13.35',
-        'illuminate/http' => '^13.35',
-        'illuminate/routing' => '^13.35',
-        'illuminate/support' => '^13.35',
-        'illuminate/validation' => '^13.35',
+        'illuminate/console' => '^13.30',
+        'illuminate/contracts' => '^13.30',
+        'illuminate/http' => '^13.30',
+        'illuminate/routing' => '^13.30',
+        'illuminate/support' => '^13.30',
+        'illuminate/validation' => '^13.30',
         'jkudish/laravel-ai-pricing' => '^0.3',
-        'laravel/ai' => '^1.2',
+        'laravel/ai' => '^1.0.1',
+        'laravel/prompts' => '^0.3.15',
+        'league/commonmark' => '^2.10.2',
+        'standard-webhooks/standard-webhooks' => '^1.0',
     ];
 
     /** @var array<string, string> */
     private const array DEVELOPMENT_CONSTRAINTS = [
-        'orchestra/testbench' => '^11.3',
+        'orchestra/testbench' => '^11.0',
     ];
 
     public function __construct(private string $root = __DIR__.'/..') {}
