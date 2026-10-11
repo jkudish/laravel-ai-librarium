@@ -167,6 +167,18 @@ it('preserves reported zero usage while leaving absent Gemini usage unknown', fu
         ->and($thoughtOnlyUsage?->reasoningTokens)->toBe(50);
 });
 
+it('reports the Google Search grounding query count Deep Research returns', function (): void {
+    $reported = geminiDeepInteraction('completed', completed: true);
+    $reported['usage']['grounding_tool_count'] = [
+        ['type' => 'google_search', 'count' => 24, 'search_query_count' => 24],
+        ['type' => 'google_maps', 'count' => 2],
+    ];
+    $mapper = app(GeminiDeepResultMapper::class);
+
+    expect($mapper->map($reported, geminiDeepRequest())->usage?->serverToolSearchRequests)->toBe(24)
+        ->and($mapper->map(geminiDeepInteraction('completed', completed: true), geminiDeepRequest())->usage?->serverToolSearchRequests)->toBeNull();
+});
+
 it('partitions the inclusive input total only while the remainder stays nonnegative', function (): void {
     $negative = geminiDeepInteraction('completed', completed: true);
     $negative['usage'] = [

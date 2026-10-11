@@ -28,8 +28,9 @@ final readonly class Usage implements JsonSerializable
      * reconciled. The output side is reported as measured.
      * server_tool_search_requests carries the engine's server-tool search
      * count (current usage.server_tool_use_details.web_search_requests, with
-     * legacy usage.server_tool_use.web_search_requests compatibility) and
-     * stays null when unreported.
+     * legacy usage.server_tool_use.web_search_requests compatibility, or the
+     * google_search entries of Gemini Interactions usage.grounding_tool_count,
+     * which Google bills per query) and stays null when unreported.
      * tool_use_tokens carries Gemini Interactions usage.total_tool_use_tokens
      * ("tokens present in tool-use prompt(s)") as a reported, unpriced audit
      * count, and stays null when the provider does not report it. Google's

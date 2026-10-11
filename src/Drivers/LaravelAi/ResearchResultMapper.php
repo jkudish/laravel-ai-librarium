@@ -29,6 +29,9 @@ use stdClass;
 /** @internal */
 final readonly class ResearchResultMapper
 {
+    /** The Usage contract's largest count (the JSON-safe integer maximum). */
+    private const int MAX_SAFE_INTEGER = 9_007_199_254_740_991;
+
     public function map(
         AgentResponse $response,
         DriverRequest|RecoveryRequest $request,
@@ -240,7 +243,9 @@ final readonly class ResearchResultMapper
      * current usage.server_tool_use_details.web_search_requests, with
      * compatibility for legacy usage.server_tool_use.web_search_requests —
      * and summed across steps the way the SDK sums tokens. When both fields
-     * are present on one response, only the current field is used.
+     * are present on one response, only the current field is used. A Gemini
+     * Interactions body reports its Google Search grounding queries in
+     * usage.grounding_tool_count instead; see googleSearchQueries().
      *
      * The count is an all-or-nothing measurement: every expected step must
      * carry a raw provider response reporting a nonnegative integer count.
@@ -269,7 +274,9 @@ final readonly class ResearchResultMapper
             }
 
             $value = null;
-            if (array_key_exists('server_tool_use_details', $usage)) {
+            if (array_key_exists('grounding_tool_count', $usage)) {
+                $value = self::googleSearchQueries($usage['grounding_tool_count']);
+            } elseif (array_key_exists('server_tool_use_details', $usage)) {
                 $details = $usage['server_tool_use_details'];
 
                 if (! is_array($details)) {
@@ -289,7 +296,55 @@ final readonly class ResearchResultMapper
                 return null;
             }
 
-            if ($value > PHP_INT_MAX - $total) {
+            if ($value > self::MAX_SAFE_INTEGER - $total) {
+                return null;
+            }
+
+            $total += $value;
+        }
+
+        return $total;
+    }
+
+    /**
+     * Google Search grounding queries from a Gemini Interactions
+     * usage.grounding_tool_count list of {type, count} entries
+     * (ai.google.dev/api/interactions-api). Google bills Gemini 3 grounding
+     * per executed search query (ai.google.dev/gemini-api/docs/pricing), so
+     * only google_search entries count; google_maps and retrieval entries
+     * are other tools and add nothing. Live responses also carry
+     * search_query_count beside count. Either one is accepted, and when both
+     * are present they must agree, because a disagreement leaves the billed
+     * query count unknown.
+     *
+     * Like every metered count here, the result is all-or-nothing: a value
+     * that is not a list, an entry without a string type, a google_search
+     * entry without a nonnegative integer count (a present null is
+     * malformed, not absent), or a sum above the Usage contract's
+     * 9,007,199,254,740,991 maximum returns null rather than a partial count. An
+     * empty list, or one without google_search entries, is a reported zero.
+     */
+    public static function googleSearchQueries(mixed $counts): ?int
+    {
+        if (! is_array($counts) || ! array_is_list($counts)) {
+            return null;
+        }
+
+        $total = 0;
+
+        foreach ($counts as $entry) {
+            if (! is_array($entry) || ! is_string($entry['type'] ?? null)) {
+                return null;
+            }
+
+            if ($entry['type'] !== 'google_search') {
+                continue;
+            }
+
+            $reported = array_values(array_intersect_key($entry, ['count' => true, 'search_query_count' => true]));
+            $value = $reported[0] ?? null;
+
+            if (! is_int($value) || $value < 0 || (array_key_exists(1, $reported) && $reported[1] !== $value) || $value > self::MAX_SAFE_INTEGER - $total) {
                 return null;
             }
 

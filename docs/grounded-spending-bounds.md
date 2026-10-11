@@ -574,6 +574,11 @@ Flash](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash) (same
 1,048,576-token input and 65,536-token output limits as Gemini 3.6 Flash,
 read 2026-10-11).
 
+After a run, the result's normalized usage reports the executed queries as
+`server_tool_search_requests`, read from the `google_search` entries of
+`usage.grounding_tool_count`, so settlement can bill them. The pre-run quote
+already includes 100 queries.
+
 Smallest necessary external or product decision: either Google ships a
 per-request search-query cap for the `google_search` tool (or documents a
 hard per-request query maximum), or the product explicitly accepts unbounded

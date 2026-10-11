@@ -172,6 +172,9 @@ final readonly class GeminiDeepResultMapper
             completionTokens: $output === null ? null : $output + ($thought ?? 0),
             cacheReadInputTokens: $cached,
             reasoningTokens: $thought,
+            serverToolSearchRequests: array_key_exists('grounding_tool_count', $value)
+                ? ResearchResultMapper::googleSearchQueries($value['grounding_tool_count'])
+                : null,
             toolUseTokens: $toolUse,
         );
     }

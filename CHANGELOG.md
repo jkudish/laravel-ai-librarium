@@ -102,10 +102,16 @@ First stable release.
   raise and the value it needs. A Profile whose pricing identity does not
   match its processor or mode is reported unavailable instead of being quoted
   at another price.
-- The Valyu PDF artifact keeps the signed `pdf_url` bearer link, plus
-  `expires_at` when the signed URL states an expiry. The driver strips the link
-  from captured provider responses, so redacted evidence, sensitive
-  collections, diagnostics, and errors never contain it.
+- The Valyu PDF artifact keeps the `pdf_url` bearer link, plus `expires_at`
+  when the URL states an expiry. Valyu's link is its token-authenticated asset
+  endpoint (`https://api.valyu.ai/v1/deepresearch/tasks/{task}/assets/{asset}?token=…`),
+  which names the private task. That exact host and path shape is therefore
+  allowed to contain the task ID, but only as the artifact's whole value, in
+  synchronous and durable results. Every other guard still withholds the link:
+  HTTPS only, no user information, no credential, at most 8,192 bytes. The
+  link states no expiry, so `expires_at` is absent. The driver strips the link
+  and the task ID from captured provider responses, so redacted evidence,
+  sensitive collections, diagnostics, and errors contain neither.
 - Exa Research preserves API-output observation provenance across synchronous
   and durable results and validates explicit native run budgets from $1
   through $100.
@@ -157,6 +163,17 @@ First stable release.
   `tool_use_tokens` audit count, alongside `server_tool_search_requests`. It is
   never added to the priced partitions, because no verified charge covers the
   whole field.
+- Gemini grounded results (`gemini-grounded`, `gemini-chat` and Gemini Deep
+  Research) report Google Search grounding queries as
+  `server_tool_search_requests`, read from the `google_search` entries of
+  Interactions `usage.grounding_tool_count`. Google bills Gemini 3 grounding
+  per query, and those queries can dominate a run's cost: the #4865 canary
+  reported 24 queries, USD 0.336 of a USD 0.363 run. When an entry carries
+  both `count` and `search_query_count`, they must agree. A missing or
+  malformed report leaves the count unknown instead of partial. Gemini quotes
+  already include 100 searches at USD 14 per 1,000 (USD 1.40 of the USD 1.85
+  quote), and the Gemini spending bound stays `unknown` because no request
+  control caps the number of queries.
 - `grok-x-only` and `grok-combined` carry no pricing usage. xAI bills X Search
   per fetched post and profile, which no request parameter bounds, so their
   quotes are unavailable and a maximum-cost preflight that includes them fails

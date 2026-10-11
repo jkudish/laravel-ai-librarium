@@ -8,8 +8,11 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
+use Jkudish\LaravelAiLibrarium\Collection\SensitiveProviderResponse;
 use Jkudish\LaravelAiLibrarium\Drivers\Valyu\ValyuResearchDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Valyu\ValyuSupport;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
+use Jkudish\LaravelAiLibrarium\Exceptions\RecoveryException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\Profile;
@@ -106,13 +109,15 @@ it('submits, polls a known handle, retrieves twice, and maps a durable specializ
                 'word_count' => 321,
             ]],
             'artifacts' => [
-                ['kind' => 'pdf', 'url' => valyuPdfUrl(), 'expires_at' => '2026-09-10T13:10:00Z'],
+                // Valyu's token-authenticated asset link names the task and states no expiry.
+                ['kind' => 'pdf', 'url' => valyuPdfUrl('dr-private-1')],
                 ['kind' => 'chart', 'provider_asset_id' => 'image-1', 'title' => 'Chart'],
                 ['kind' => 'csv', 'provider_asset_id' => 'deliverable-1', 'status' => 'completed', 'title' => 'Data', 'row_count' => 4, 'column_count' => 2],
             ],
         ]);
 
-    expect(json_encode($result->toArray(), JSON_THROW_ON_ERROR))
+    // The PDF link is the one place the private task handle may appear.
+    expect(str_replace(valyuPdfUrl('dr-private-1'), '', json_encode($result->toArray(), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)))
         ->not->toContain('dr-private-1')
         ->not->toContain('testing-valyu-key')
         ->not->toContain('data.csv?token=ephemeral')
@@ -444,7 +449,15 @@ it('records the PDF bearer link and its expiry only when the URL is safe and sta
     Http::assertSent(fn (Request $request): bool => $request->method() !== 'POST' || $request['output_formats'] === ['markdown', 'pdf']);
     expect(data_get($result->providerMeta, 'valyu:research.artifacts.0'))->toBe($artifact);
 })->with([
-    'SigV4 lifetime' => [valyuPdfUrl(), ['kind' => 'pdf', 'url' => valyuPdfUrl(), 'expires_at' => '2026-09-10T13:10:00Z']],
+    'Valyu task asset link names the task and states no expiry' => [valyuPdfUrl('dr-pdf-private'), ['kind' => 'pdf', 'url' => valyuPdfUrl('dr-pdf-private')]],
+    'Valyu task asset link without a token' => [
+        'https://api.valyu.ai/v1/deepresearch/tasks/dr-pdf-private/assets/0b8e5d1c-7f4a-4c2e-9a61-3d5f8b2e7c90',
+        ['kind' => 'pdf', 'url' => 'https://api.valyu.ai/v1/deepresearch/tasks/dr-pdf-private/assets/0b8e5d1c-7f4a-4c2e-9a61-3d5f8b2e7c90'],
+    ],
+    'SigV4 lifetime' => [
+        'https://storage.valyu.ai/pdfs/report.pdf?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20260910T121000Z&X-Amz-Expires=3600&X-Amz-Signature=pdf-bearer-signature',
+        ['kind' => 'pdf', 'url' => 'https://storage.valyu.ai/pdfs/report.pdf?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20260910T121000Z&X-Amz-Expires=3600&X-Amz-Signature=pdf-bearer-signature', 'expires_at' => '2026-09-10T13:10:00Z'],
+    ],
     'Google V4 lifetime' => [
         'https://storage.googleapis.com/valyu/report.pdf?X-Goog-Date=20260910T120000Z&X-Goog-Expires=900&X-Goog-Signature=abc',
         ['kind' => 'pdf', 'url' => 'https://storage.googleapis.com/valyu/report.pdf?X-Goog-Date=20260910T120000Z&X-Goog-Expires=900&X-Goog-Signature=abc', 'expires_at' => '2026-09-10T12:15:00Z'],
@@ -466,14 +479,22 @@ it('records the PDF bearer link and its expiry only when the URL is safe and sta
     'embedded credentials withheld' => ['https://user:pass@storage.valyu.ai/report.pdf', ['kind' => 'pdf']],
     'private task handle withheld' => ['https://storage.valyu.ai/dr-pdf-private/report.pdf', ['kind' => 'pdf']],
     'credential withheld' => ['https://storage.valyu.ai/report.pdf?for=testing-valyu-key', ['kind' => 'pdf']],
+    'task asset link with the credential withheld' => [valyuPdfUrl('dr-pdf-private').'&key=testing-valyu-key', ['kind' => 'pdf']],
+    'task handle on another host withheld' => [str_replace('api.valyu.ai', 'api.valyu.ai.example.com', valyuPdfUrl('dr-pdf-private')), ['kind' => 'pdf']],
+    'task handle on a non-default port withheld' => [str_replace('api.valyu.ai', 'api.valyu.ai:8443', valyuPdfUrl('dr-pdf-private')), ['kind' => 'pdf']],
+    'task handle outside the asset path withheld' => ['https://api.valyu.ai/v1/deepresearch/tasks/dr-pdf-private/status?token=opaque', ['kind' => 'pdf']],
+    'another task asset reflecting the handle withheld' => [str_replace('/tasks/dr-pdf-private/', '/tasks/dr-other/', valyuPdfUrl('dr-pdf-private')), ['kind' => 'pdf']],
+    'short asset id withheld' => ['https://api.valyu.ai/v1/deepresearch/tasks/dr-pdf-private/assets/report?token=opaque', ['kind' => 'pdf']],
+    'plain HTTP task asset withheld' => [str_replace('https://', 'http://', valyuPdfUrl('dr-pdf-private')), ['kind' => 'pdf']],
+    'task asset with user info withheld' => [str_replace('https://', 'https://user@', valyuPdfUrl('dr-pdf-private')), ['kind' => 'pdf']],
+    'task asset longer than 8,192 bytes withheld' => [valyuPdfUrl('dr-pdf-private').str_repeat('a', 8192), ['kind' => 'pdf']],
 ]);
 
 it('keeps the PDF bearer link out of captured evidence, diagnostics, and errors', function (bool $succeeds): void {
-    // Unsigned-looking, so generic URL redaction keeps it; only the Valyu capture filter removes it.
-    $pdfUrl = 'https://storage.valyu.ai/pdfs/9f2c41e7-report.pdf';
+    $pdfUrl = valyuPdfUrl('dr-pdf-private');
     config()->set('services.valyu.key', 'testing-valyu-key');
     config()->set('librarium.profiles.valyu-research.options', ['mode' => 'standard', 'output_formats' => ['markdown', 'pdf']]);
-    $completed = [...valyuResearchCompleted('dr-pdf-private', 'standard'), 'pdf_url' => $pdfUrl, 'output' => "# Report\n\nDownload: ".$pdfUrl];
+    $completed = [...valyuResearchCompleted('dr-pdf-private', 'standard'), 'pdf_url' => $pdfUrl];
     if (! $succeeds) {
         $completed['sources'] = 'malformed';
     }
@@ -485,8 +506,12 @@ it('keeps the PDF bearer link out of captured evidence, diagnostics, and errors'
     $collected = Librarium::query('clinical question')->using('valyu-research')->collect();
     $evidence = json_encode([$collected->evidence, $collected->diagnostics, $collected->response->errors], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
 
+    // The task handle is private in the result, so evidence redacts it too:
+    // in the submission, status and retrieval bodies, and inside the link.
     expect($collected->evidence)->toHaveCount(3)
-        ->and($evidence)->not->toContain('9f2c41e7-report')
+        ->and($evidence)->not->toContain('dr-pdf-private')
+        ->and($evidence)->not->toContain(valyuPdfAssetId())
+        ->and($collected->evidence->first()->body)->toContain('"deepresearch_id":"[REDACTED]"')
         ->and($collected->evidence->last()->body)->toContain('"pdf_url":"[REDACTED]"');
     if ($succeeds) {
         expect(data_get($collected->response->results->sole()->providerMeta, 'valyu:research.artifacts.0.url'))->toBe($pdfUrl);
@@ -495,6 +520,91 @@ it('keeps the PDF bearer link out of captured evidence, diagnostics, and errors'
             ->and($collected->response->errors->sole()->code)->toBe('valyu_research.invalid_response');
     }
 })->with(['completed' => true, 'failed mapping' => false]);
+
+it('rejects a result that reflects the PDF link anywhere but the artifact', function (string $output): void {
+    $pdfUrl = valyuPdfUrl('dr-pdf-private');
+    Http::fake(['https://api.valyu.ai/v1/deepresearch/tasks*' => Http::sequence()
+        ->push(valyuResearchSubmission('dr-pdf-private', 'standard'), 202)
+        ->push(valyuResearchTask('dr-pdf-private', 'completed', 'standard'))
+        ->push([...valyuResearchCompleted('dr-pdf-private', 'standard'), 'output' => str_replace('{pdf}', $pdfUrl, $output)])]);
+
+    // Only the artifact's whole value may name the task; the same link in
+    // the report, inside another URL, or extended is task material.
+    expect(fn () => app(ValyuResearchDriver::class)->run(valyuResearchRequest()))
+        ->toThrow(fn (DriverException $exception) => expect($exception->errorCode)->toBe('valyu_research.invalid_response'));
+})->with([
+    'linked in the report' => ['# Report\n\n[Download]({pdf})'],
+    'nested in another URL' => ['[Download](https://attacker.example/?next={pdf})'],
+    'extended link' => ['[Download]({pdf}&extra=value)'],
+    'bare link as the report' => ['{pdf}'],
+    'bare extended link as the report' => ['{pdf}&extra=value'],
+]);
+
+it('keeps the PDF link through public durable retrieval', function (): void {
+    config()->set('services.valyu.key', 'testing-valyu-key');
+    Http::fake(['https://api.valyu.ai/v1/deepresearch/tasks*' => Http::sequence()
+        ->push(valyuResearchSubmission('dr-durable-pdf', 'standard'), 202)
+        ->push(valyuResearchCompleted('dr-durable-pdf', 'standard'))]);
+
+    $submitted = Librarium::query('clinical question')->using('valyu-research')->submit();
+    $retrieved = Librarium::retrieve($submitted->handle);
+
+    expect($retrieved->pending())->toBeFalse()
+        ->and(data_get($retrieved->response?->results->sole()->providerMeta, 'valyu:research.artifacts.0'))
+        ->toBe(['kind' => 'pdf', 'url' => valyuPdfUrl('dr-durable-pdf')])
+        ->and(json_encode([$submitted->evidence, $retrieved->evidence, $retrieved->diagnostics], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES))
+        ->not->toContain('dr-durable-pdf');
+});
+
+it('redacts the task handle and PDF link from captured bodies under any valid JSON escaping', function (bool $sensitive): void {
+    config()->set('services.valyu.key', 'testing-valyu-key');
+    config()->set('librarium.profiles.valyu-research.options', ['mode' => 'standard', 'output_formats' => ['markdown', 'pdf']]);
+    $completed = json_encode([...valyuResearchCompleted('dr-pdf-private', 'standard'), 'deepresearch_id' => '@@ID@@', 'pdf_url' => '@@PDF@@'], JSON_THROW_ON_ERROR);
+    // \u0064 is "d", and the link escapes only its first slashes.
+    $raw = str_replace(
+        ['"@@ID@@"', '"@@PDF@@"'],
+        ['"\\u0064r-pdf-private"', '"https:\\/\\/'.substr(valyuPdfUrl('dr-pdf-private'), 8).'"'],
+        $completed,
+    );
+    Http::fake(['https://api.valyu.ai/v1/deepresearch/tasks*' => Http::sequence()
+        ->push(str_replace('"dr-pdf-private"', '"\\u0064r-pdf-private"', (string) json_encode(valyuResearchSubmission('dr-pdf-private', 'standard'))), 202, ['Content-Type' => 'application/json'])
+        ->push(valyuResearchTask('dr-pdf-private', 'completed', 'standard'))
+        ->push($raw, 200, ['Content-Type' => 'application/json'])]);
+
+    $query = Librarium::query('clinical question')->using('valyu-research');
+    $collected = $sensitive ? $query->collectSensitive() : $query->collect();
+    $bodies = $sensitive
+        ? collect($collected->responses())->map(fn (SensitiveProviderResponse $response): string => $response->body())
+        : $collected->evidence->map(fn (object $response): string => $response->body);
+    $decoded = $bodies->map(fn (string $body): string => json_encode(json_decode($body, true), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES))->implode("\n");
+
+    expect($bodies)->toHaveCount(3)
+        ->and($bodies->implode("\n"))->not->toContain('pdf-private')
+        ->and($decoded)->not->toContain('dr-pdf-private')
+        ->and($decoded)->not->toContain(valyuPdfAssetId())
+        ->and($decoded)->not->toContain('c3ludGhldGljLXNpZ25hdHVyZQ');
+})->with(['redacted collection' => false, 'sensitive collection' => true]);
+
+it('never keeps a task handle that only a lossy JSON decoding would hide', function (string $body, string $taskId): void {
+    $captured = ValyuSupport::capturedBody($body, $taskId);
+
+    expect($captured)->not->toContain($taskId)
+        ->and($captured)->not->toContain('\\u0064');
+})->with([
+    'escaped handle in an overwritten duplicate member' => ['{"deepresearch_id":"dr-pdf-private","echo":"\\u0064r-pdf-private","echo":"ok"}', 'dr-pdf-private'],
+    'numeric handle as an object member name' => ['{"deepresearch_id":"123","123":"echo"}', '123'],
+]);
+
+it('rejects a durable result that reflects the handle outside the PDF artifact', function (): void {
+    config()->set('services.valyu.key', 'testing-valyu-key');
+    Http::fake(['https://api.valyu.ai/v1/deepresearch/tasks*' => Http::sequence()
+        ->push(valyuResearchSubmission('dr-durable-pdf', 'standard'), 202)
+        ->push([...valyuResearchCompleted('dr-durable-pdf', 'standard'), 'output' => valyuPdfUrl('dr-durable-pdf').'&extra=value'])]);
+
+    $submitted = Librarium::query('clinical question')->using('valyu-research')->submit();
+
+    expect(fn () => Librarium::retrieve($submitted->handle))->toThrow(RecoveryException::class);
+});
 
 it('keeps max mode out of every built-in group while explicit and custom selection still work', function (string $mode, bool $grouped): void {
     config()->set('services.valyu.key', 'testing-valyu-key');
@@ -574,7 +684,7 @@ function valyuResearchCompleted(string $id, string $mode, mixed $cost = 2.5): ar
             'title' => 'Private nested source',
             'url' => 'https://storage.valyu.ai/source?redirect%5Btoken%5D=ephemeral',
         ]],
-        'pdf_url' => valyuPdfUrl(),
+        'pdf_url' => valyuPdfUrl($id),
         'images' => [[
             'image_id' => 'image-1',
             'image_type' => 'chart',
@@ -631,7 +741,16 @@ function valyuResearchRequest(
     );
 }
 
-function valyuPdfUrl(): string
+/**
+ * Valyu's live pdf_url shape with a synthetic asset ID and token: its
+ * token-authenticated asset endpoint, naming the task in the path and the token.
+ */
+function valyuPdfUrl(string $taskId): string
 {
-    return 'https://storage.valyu.ai/pdfs/report.pdf?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20260910T121000Z&X-Amz-Expires=3600&X-Amz-Signature=pdf-bearer-signature';
+    return 'https://api.valyu.ai/v1/deepresearch/tasks/'.$taskId.'/assets/'.valyuPdfAssetId().'?token=vdr.'.$taskId.'.c3ludGhldGljLXNpZ25hdHVyZQ';
+}
+
+function valyuPdfAssetId(): string
+{
+    return '4f1d2a9e-8c3b-4e7a-b5d6-9a0c1e2f3b4d';
 }
