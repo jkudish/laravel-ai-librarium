@@ -481,6 +481,8 @@ final class QueryCommand extends LibrariumCommand
                 ])
                 ->values()
                 ->all(),
+            'priced_at' => $preview->pricedAt?->format(DATE_ATOM),
+            'priced_until' => $preview->pricedUntil?->format(DATE_ATOM),
             'preflight_cost_check_available' => $preview->preflightCostCheckAvailable,
             // Deprecated compatibility alias; this is not a provider-enforced ceiling.
             'hard_ceiling_available' => $preview->hardCostCeilingAvailable,

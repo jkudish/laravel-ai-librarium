@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jkudish\LaravelAiLibrarium;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Jkudish\LaravelAiPricing\ValueObjects\CostQuote;
 use Jkudish\LaravelAiPricing\ValueObjects\ModelIdentity;
@@ -52,6 +53,10 @@ final class ResearchPreview
         public readonly ?string $maximumEstimatedCost,
         public readonly ?string $currency,
         public readonly bool $costEstimateComplete,
+        /** When the quotes were priced: compile (admission) time. Null when pricing was not resolved. */
+        public readonly ?CarbonImmutable $pricedAt = null,
+        /** The run deadline the quotes cover; dated rate windows price at their highest rate up to it. */
+        public readonly ?CarbonImmutable $pricedUntil = null,
     ) {
         $this->preflightCostCheckAvailable = $hardCostCeilingAvailable;
         $this->hardCostCeilingAvailable = $hardCostCeilingAvailable;

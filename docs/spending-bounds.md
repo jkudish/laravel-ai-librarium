@@ -7,6 +7,7 @@ request:
 ```php
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\SpendingBoundKind;
+use Jkudish\LaravelAiPricing\Contracts\CostResolver;
 
 $research = Librarium::query('Prepare a cited report.')
     ->using('exa-research');
@@ -20,8 +21,19 @@ if ($bound->kind === SpendingBoundKind::NativeMonetaryCeiling) {
 if ($bound->kind === SpendingBoundKind::BillableQuantities) {
     $bound->pricingIdentity; // ModelIdentity for an authoritative rate lookup
     $bound->quantities;      // pricing Usage containing every billable unit
+
+    // A PricingObservation from the bound's admission time to the exact
+    // request's deadline. Prices with dated rate windows resolve each unit at
+    // its highest rate in that interval.
+    $maximum = app(CostResolver::class)->resolve($bound->pricingObservation());
 }
 ```
+
+`pricedAt` and `pricedUntil` record that interval: when `spendingBound()` ran,
+and that time plus the request timeout. They are not part of the serialized
+bound, so a recomputed bound still compares equal to a persisted approved one.
+Recompute the bound immediately before dispatch, as below, so the interval
+starts at the real admission time.
 
 The query must use `using()` with one Profile and no fallbacks. Groups, fan-out,
 implicit selection, and fallback paths are rejected because they do not name
@@ -52,8 +64,8 @@ pre-dispatch quantity maximum.
 
 | Profile(s) | Bound |
 | --- | --- |
-| `claude-chat` | `anthropic:claude-sonnet-5-global` input/output quantities only when `web_search` is `false`, `max_steps` is `1`, `max_output_tokens` is explicitly set from 1 through 128,000, and `max_prompt_bytes` is an explicit positive limit that the rendered prompt satisfies. The billing SKU records the Claude API's default global routing while the source-native request and result model remains `claude-sonnet-5`; generic and US-only identities do not use this rate. The input maximum is the model's 1M-token context ceiling; the output maximum is the request's `max_tokens`. Search-enabled requests remain `unknown` because search-result context is billed as input and `max_uses` does not bound its aggregate tokens. |
-| `openrouter-chat` | Bounded for exactly two model identities — `openrouter:openai/gpt-5.6-terra-272k` and `openrouter:openai/gpt-6-luna-272k` — under the same required controls: `web_search` is `true`, `search_engine` is `exa`, `search_mode` is exactly `auto`, `max_tool_calls` is 1 through 30, `max_results` is 1 through 10, `max_steps` is `1`, `max_prompt_bytes` is a satisfied positive limit, and `max_searches` is an explicit positive integer: `(max_tool_calls + 1)` completions at the pinned endpoint's 1,050,000-token context (reserved entirely in the cache-write partition, the most expensive exclusive input partition) and 128,000-token per-completion output maximum, plus `exa_search_requests` equal to `max_searches` (emitted as `max_uses`). Search count is independent of the loop-turn budget. Each identity's routing (`order`/`ignore`/`max_price`) and revision binding are per-model facts in the driver's bounded-model table. Legacy requests without the search cap, any other configuration, and any OpenRouter model absent from that table return `unknown`. See [Grounded Laravel AI spending bounds](grounded-spending-bounds.md). |
+| `claude-chat` | `anthropic:claude-sonnet-5-5-global-standard` input/output quantities only when the model is `claude-sonnet-5-5`, `web_search` is `false`, `max_steps` is `1`, `max_output_tokens` is explicitly set from 1 through 128,000, `max_prompt_bytes` is an explicit positive limit that the rendered prompt satisfies, and any `effort` and `thinking` controls are a combination Sonnet 5.5 accepts. Thinking tokens count toward `max_tokens`. The billing SKU records the Claude API's default global routing while the source-native request and result model remains `claude-sonnet-5-5`; generic and US-only identities do not use this rate. The input maximum is the model's 1M-token context ceiling; the output maximum is the request's `max_tokens`. Search-enabled requests remain `unknown` because search-result context is billed as input and `max_uses` does not bound its aggregate tokens. |
+| `openrouter-chat` | Bounded for exactly two model identities — `openrouter:openai/gpt-5.6-terra-272k` and `openrouter:openai/gpt-6-luna-272k` — under the same required controls: `web_search` is `true`, `search_engine` is `exa`, `search_mode` is exactly `auto`, `max_tool_calls` is 1 through 30, `max_results` is 1 through 10, `max_steps` is `1`, `max_prompt_bytes` is a satisfied positive limit, and `max_searches` is an explicit positive integer: `(max_tool_calls + 1)` completions at the pinned endpoint's 1,050,000-token context (reserved entirely in the cache-write partition, the most expensive exclusive input partition) and 128,000-token per-completion output maximum, plus `exa_search_requests` equal to `max_searches` (emitted as `max_uses`). Search count is independent of the loop-turn budget. Each identity's routing (`order`/`ignore`/`max_price`) and revision binding are per-model facts in the driver's bounded-model table. Configuring `provider_order`, `allow_fallbacks: true`, `require_parameters: false` or any `reasoning_*` control overrides those facts: the bound is `unknown` and the request is rejected before dispatch. Legacy requests without the search cap, any other configuration, and any OpenRouter model absent from that table return `unknown`. See [Grounded Laravel AI spending bounds](grounded-spending-bounds.md). |
 | `exa-research` | Native USD ceiling only for `auto` or `max` with an explicit `max_cost_dollars` from 1 through 100. The same value is sent as `budget.maxCostDollars`. No configured cap returns `unknown`; provider defaults are not pinned. Fixed efforts return `unknown` and reject a budget. |
 | Six `dataforseo-*` Profiles | One `requests` unit under the exact Standard or Live pricing identity. Polling and retrieval do not add task units. |
 | `searchapi`, five one-stage surface Profiles | One `successful_search_request`. |

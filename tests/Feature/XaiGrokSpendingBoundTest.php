@@ -19,7 +19,7 @@ use Jkudish\LaravelAiLibrarium\SpendingBoundKind;
 use Jkudish\LaravelAiPricing\Enums\CostCompleteness;
 
 /*
- * Offline spending-bound coverage for the exact `grok` Profile (grok-4.6, web-only corpus,
+ * Offline spending-bound coverage for the exact `grok` Profile (grok-4.7, web-only corpus,
  * model_search_tool, POST /v1/responses + `web_search`). Every request here is fake HTTP and
  * every usage fixture is a synthetic adversarial assumption: the response shapes assert what
  * the driver accepts and reports at boundary values (call counts above turns, cumulative
@@ -36,7 +36,7 @@ afterEach(function (): void {
     CarbonImmutable::setTestNow();
 });
 
-it('retains an unknown pre-dispatch bound for the exact grok-4.6 web-only grounded profile', function (): void {
+it('retains an unknown pre-dispatch bound for the exact grok-4.7 web-only grounded profile', function (): void {
     $bound = Librarium::query('Research current xAI information.')
         ->using('grok')
         ->spendingBound();
@@ -92,7 +92,7 @@ it('fails the X-search pricing contract closed instead of quoting search calls',
     // quote rather than present a search-call line that prices none of the
     // route's billed spend.
     config()->set('ai-pricing.prices', [
-        'xai:grok-4.6' => [
+        'xai:grok-4.7' => [
             'searches' => ['amount' => '5', 'per' => '1000', 'currency' => 'USD'],
             'x_search_posts' => ['amount' => '5', 'per' => '1000', 'currency' => 'USD'],
             'x_search_profiles' => ['amount' => '10', 'per' => '1000', 'currency' => 'USD'],
@@ -125,10 +125,10 @@ it('fails the X-search pricing contract closed instead of quoting search calls',
 it('keeps pricing the web-only route on its native search-call count', function (): void {
     // Web Search still bills per call, so the grok Profile keeps its native
     // searches quantity and the catalog prices it; the token units stay
-    // unpriced by the grok-4.6 snapshot, leaving the quote partial rather
+    // unpriced by the grok-4.7 snapshot, leaving the quote partial rather
     // than complete.
     config()->set('ai-pricing.prices', [
-        'xai:grok-4.6' => [
+        'xai:grok-4.7' => [
             'searches' => ['amount' => '5', 'per' => '1000', 'currency' => 'USD'],
             'x_search_posts' => ['amount' => '5', 'per' => '1000', 'currency' => 'USD'],
             'x_search_profiles' => ['amount' => '10', 'per' => '1000', 'currency' => 'USD'],
@@ -140,7 +140,7 @@ it('keeps pricing the web-only route on its native search-call count', function 
         ->preview();
     $entry = $preview->pricingQuotes->sole();
 
-    expect($entry['identity']?->provider.':'.$entry['identity']?->model)->toBe('xai:grok-4.6')
+    expect($entry['identity']?->provider.':'.$entry['identity']?->model)->toBe('xai:grok-4.7')
         ->and($entry['usage']?->toArray())->toBe([
             'input_tokens' => '100000',
             'output_tokens' => '100000',
@@ -177,7 +177,7 @@ it('sends the exact documented controls while the pre-dispatch bound remains unk
         return $request->method() === 'POST'
             && $request->url() === 'https://api.x.ai/v1/responses'
             && $request->data() === [
-                'model' => 'grok-4.6',
+                'model' => 'grok-4.7',
                 'input' => [[
                     'role' => 'user',
                     'content' => 'Research current xAI information.',
@@ -232,7 +232,7 @@ it('accepts a synthetic response billing more successful web search calls than t
 
 it('accepts a synthetic response whose cumulative billed input exceeds one context window', function (): void {
     // Adversarial assumption, not provider proof: agentic prompt_tokens accumulate across
-    // inferences, so a response may legitimately bill 1.4M input tokens against grok-4.6's
+    // inferences, so a response may legitimately bill 1.4M input tokens against grok-4.7's
     // 500k per-inference window. The driver must report it, and a one-window input
     // reservation would under-reserve — the bound below stays unknown.
     Http::fake(['https://api.x.ai/v1/responses' => Http::response(xaiBoundResponse([
@@ -270,7 +270,7 @@ function grokSpendingBoundRequest(array $options = []): DriverRequest
         id: 'grok',
         driver: XaiGrokDriver::class,
         provider: 'xai',
-        model: 'grok-4.6',
+        model: 'grok-4.7',
         resultKind: ResultKind::GroundedAnswer,
         grounding: GroundingPolicy::Required,
         observation: ObservationMode::ApiOutput,
@@ -302,7 +302,7 @@ function xaiBoundResponse(array $usage): array
         'id' => 'resp_grok_bound',
         'status' => 'completed',
         'completed_at' => CarbonImmutable::now()->getTimestamp(),
-        'model' => 'grok-4.6',
+        'model' => 'grok-4.7',
         'output' => [[
             'type' => 'message',
             'content' => [[

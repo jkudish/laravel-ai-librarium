@@ -13,7 +13,8 @@ First stable release.
   [GHSA-6qhr-3g93-pxhw](https://github.com/laravel/ai/security/advisories/GHSA-6qhr-3g93-pxhw)
   (SSRF via client-supplied file URLs in the SDK's Vercel AI and AG-UI
   adapters).
-- `jkudish/laravel-ai-pricing` `^0.2.2` for offline, provenance-aware pricing.
+- `jkudish/laravel-ai-pricing` `^0.3` for offline, provenance-aware pricing
+  with dated rate windows.
 
 ### Research API
 
@@ -30,8 +31,30 @@ First stable release.
 - Six Laravel AI SDK Profiles and 40 focused HTTP Profiles, including You.com
   Answer and Research, SearchAPI and DataForSEO surface observations, SerpBase
   Search and News, and the TypeScript v2 parity set.
-- `openrouter-grounded`, `openai-chat`, and `perplexity-low-frozen` target GPT-6
-  Luna. `perplexity-low-frozen` accepts only the `frozen-low-2026-10-03`
+- Model defaults follow the shared JS/PHP decision: `openai-research` targets
+  GPT-6.1 Sol; `openai-chat`, `openrouter-grounded`, `openrouter-chat` and
+  `perplexity-low-frozen` target GPT-6 Luna; `gemini-grounded` and
+  `gemini-chat` target Gemini 3.8 Flash; `grok`, `grok-x-only` and
+  `grok-combined` target Grok 4.7; and `claude-chat` targets Claude Sonnet 5.5.
+- `claude-chat` sends `effort: high`, adaptive thinking and `max_tokens`
+  64,000 explicitly, all configurable through the `effort`, `thinking` and
+  `max_output_tokens` options. `thinking` accepts `adaptive` or
+  `between_tools`, because Sonnet 5.5 rejects `disabled`, and `between_tools`
+  is rejected above high effort. A Laravel AI response that finishes as a
+  refusal or content filter now fails as `laravel_ai.refused` instead of
+  returning its text as an answer.
+- `openai-research` defaults to reasoning effort `high` and the web search
+  tool's default return-token budget, replacing the hard-coded `xhigh` and
+  `unlimited`. The `reasoning_effort`, `return_token_budget` and
+  `max_tool_calls` options are validated strictly.
+- OpenRouter Profiles accept `provider_order`, `allow_fallbacks`,
+  `require_parameters`, `data_collection`, `zdr`, and `reasoning_effort` or
+  `reasoning_max_tokens` with `reasoning_exclude`, passed through the Laravel
+  AI provider-options seam. The defaults keep exact routing
+  (`require_parameters: true`, `allow_fallbacks: false`) and the model's own
+  reasoning. `zdr` is rejected while web search is on, and the bounded
+  OpenRouter routes reject overrides of their pinned routing and reasoning.
+- `perplexity-low-frozen` accepts only the `frozen-low-2026-10-03`
   configuration. `openai-chat` quotes against the `gpt-6-luna-standard-short`
   billing basis, because the pricing package deliberately leaves the generic
   `openai:gpt-6-luna` identity unpriced.
@@ -78,7 +101,17 @@ First stable release.
   unknown, never zero.
 - An optional exact-request spending-bound API reports provider-native
   ceilings, complete fixed-operation billable quantities, or an explicit
-  unknown result.
+  unknown result. A quantity bound carries its admission time and deadline,
+  and `pricingObservation()` turns it into a maximum-cost pricing observation
+  over that interval.
+- Preview quotes are priced from compile time until the run deadline
+  (`pricedAt` and `pricedUntil`, also in the agent JSON pricing envelope). A
+  price with dated rate windows, such as Gemini 3.8 Flash's
+  `gemini-3.8-flash-standard` basis, is quoted at the highest rate in effect
+  before the deadline, and quote provenance lists the windows used.
+- `claude-chat` and `openai-research` quote against the
+  `claude-sonnet-5-5-global-standard` and `gpt-6.1-sol-standard-short` billing
+  bases. The no-search Claude spending bound uses the Sonnet 5.5 basis.
 - Result mappers derive the interchange contract's exclusive input partitions
   from the SDK's inclusive token totals. Gemini Interactions usage is read from
   the raw response body (`usage.total_input_tokens`, `total_output_tokens`,

@@ -20,7 +20,7 @@ function syncPortkeyOpenAiCatalogWithGenericLuna(): void
     $rate = ['request_token' => ['price' => '0.00001'], 'response_token' => ['price' => '0.00005']];
     Http::fake(['configs.portkey.ai/*' => Http::response([
         'gpt-6-luna' => ['pricing_config' => ['pay_as_you_go' => $rate]],
-        'gpt-5.6-sol' => ['pricing_config' => ['pay_as_you_go' => $rate]],
+        'o3' => ['pricing_config' => ['pay_as_you_go' => $rate]],
     ])]);
 
     $synced = (new PortkeyPricingSource(
@@ -42,8 +42,11 @@ it('quotes OpenAI chat against the tiered Luna billing basis because the generic
 
     // The control proves the synced fallback catalog is consulted for an
     // unblocked identity, so the Luna refusal below is the block itself.
+    // pricing snapshot v12 fallback-blocks openai:gpt-5.6-sol, so the control
+    // uses an identity the snapshot leaves to the fallback catalog.
+    config()->set('librarium.profiles.openai-research.pricing.model', 'o3');
     $control = Librarium::query('Research this.')->using('openai-research')->preview()->pricingQuotes->sole();
-    expect($control['identity']?->key())->toBe('openai:gpt-5.6-sol')
+    expect($control['identity']?->key())->toBe('openai:o3')
         ->and($control['quote']->source)->toBe(PricingSource::Portkey);
 
     config()->set('librarium.profiles.openai-chat.pricing.model', 'gpt-6-luna');

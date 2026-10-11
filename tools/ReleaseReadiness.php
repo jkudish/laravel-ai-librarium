@@ -32,7 +32,7 @@ final readonly class ReleaseReadiness
         'illuminate/routing' => '^13.35',
         'illuminate/support' => '^13.35',
         'illuminate/validation' => '^13.35',
-        'jkudish/laravel-ai-pricing' => '^0.2.2',
+        'jkudish/laravel-ai-pricing' => '^0.3',
         'laravel/ai' => '^1.2',
     ];
 

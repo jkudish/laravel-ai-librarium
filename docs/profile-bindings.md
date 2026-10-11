@@ -33,8 +33,11 @@ Target defaults are intentionally allowed to differ after explicit PHP review.
 At the pinned TypeScript commit, `gemini-grounded/grounded` defaults to
 `gemini-2.5-flash`, `openrouter/grounded` to `openai/gpt-4o-mini`,
 `openai-chat/chat` to `gpt-5-mini`, and `gemini-chat/chat` to
-`gemini-3.6-flash`. The PHP defaults below are newer reviewed targets. All
-three xAI Profiles already use `grok-4.6` in the pinned TypeScript source.
+`gemini-3.6-flash`, and the three xAI Profiles to `grok-4.6`. The PHP defaults
+below follow the shared JS/PHP model decision of 2026-10-09 (#3807): GPT-6.1
+Sol for OpenAI Research, GPT-6 Luna for OpenAI and OpenRouter chat, Gemini 3.8
+Flash, Grok 4.7 and Claude Sonnet 5.5. The pinned TypeScript catalog shows the
+older targets until the next repin.
 
 The pin is a development candidate until it names the accepted JS `v2.0.0`
 tag. JavaScript is retiring `searchapi-perplexity/surface` in parallel (#4769),
@@ -197,7 +200,7 @@ cost remains `null`, never zero.
 
 - **Workflow:** quick, visibility
 - **Semantics:** grounded_answer; required; api_output; web; model_search_tool/direct; google
-- **Target:** TypeScript default `gemini-2.5-flash`; approved PHP 1.0 default `gemini-3.6-flash`
+- **Target:** TypeScript default `gemini-2.5-flash` at the pin; shared default `gemini-3.8-flash`
 - **PHP path:** #2591 core SDK
 - **Binding:** Laravel AI Gemini, exact model, native `WebSearch`
 - **Execution:** inline; no provider-durable handle
@@ -221,9 +224,10 @@ cost remains `null`, never zero.
 
 - **Workflow:** none
 - **Semantics:** grounded_answer; optional; api_output; web; model_search_tool/brokered; openrouter
-- **Target:** configurable model `openai/gpt-5.6-terra`
+- **Target:** configurable model `openai/gpt-6-luna`
 - **PHP path:** #2591 core SDK
 - **Binding:** Laravel AI OpenRouter and native `WebSearch`, on by default; search-off becomes `model_answer`
+- **Options:** exact routing by default (`require_parameters: true`, `allow_fallbacks: false`); optional `provider_order`, `data_collection`, `zdr` (only with web search off) and `reasoning_effort` or `reasoning_max_tokens` plus `reasoning_exclude`; reasoning stays at the model default unless configured
 - **Execution:** inline; no provider-durable handle
 - **Terminal:** SDK answer
 - **Pricing:** model token/tool units quoted through `laravel-ai-pricing`; reported actual cost wins
@@ -233,9 +237,10 @@ cost remains `null`, never zero.
 
 - **Workflow:** none
 - **Semantics:** grounded_answer; optional; api_output; web; model_search_tool/direct; anthropic
-- **Target:** configurable model `claude-sonnet-5`
+- **Target:** configurable model `claude-sonnet-5-5`
 - **PHP path:** #2591 core SDK
 - **Binding:** Laravel AI Anthropic and native `WebSearch`, on by default; search-off becomes `model_answer`
+- **Options:** shipped explicitly as `effort: high`, `thinking: adaptive` and `max_output_tokens: 64000`; `effort` accepts low through max, `thinking` accepts `adaptive` or `between_tools` (Sonnet 5.5 rejects `disabled`, and `between_tools` only runs at high effort or below)
 - **Execution:** inline; no provider-durable handle
 - **Terminal:** SDK answer
 - **Pricing:** model token/tool units quoted through `laravel-ai-pricing`; assumptions are not a hard bound
@@ -257,7 +262,7 @@ cost remains `null`, never zero.
 
 - **Workflow:** none
 - **Semantics:** grounded_answer; optional; api_output; web; model_search_tool/direct; google
-- **Target:** TypeScript default `gemini-3.6-flash`; approved PHP 1.0 default `gemini-3.7-flash`
+- **Target:** TypeScript default `gemini-3.6-flash` at the pin; shared default `gemini-3.8-flash`
 - **PHP path:** #2591 core SDK
 - **Binding:** Laravel AI Gemini and native `WebSearch`, on by default; search-off becomes `model_answer`
 - **Execution:** inline; no provider-durable handle
@@ -319,7 +324,7 @@ cost remains `null`, never zero.
 
 - **Workflow:** visibility
 - **Semantics:** grounded_answer; required; api_output; web; model_search_tool/direct; xai
-- **Target:** configurable model `grok-4.6` in both the accepted TypeScript snapshot and PHP 1.0
+- **Target:** configurable model `grok-4.7` (the pinned TypeScript snapshot shows `grok-4.6`)
 - **PHP path:** #2591 core HTTP
 - **Binding:** xAI Responses API web-search tool; Laravel AI v0.10.3 text support does not expose this corpus-specific tool
 - **Execution:** inline
@@ -331,8 +336,9 @@ cost remains `null`, never zero.
 
 - **Workflow:** deep
 - **Semantics:** research_report; required; api_output; web; research_agent/direct; openai
-- **Target:** configurable model `gpt-5.6-sol`
+- **Target:** configurable model `gpt-6.1-sol`
 - **PHP path:** #2591 core HTTP, focused background Driver under #2836
+- **Options:** `reasoning_effort` (none, low, medium, high, xhigh or max; default high), `return_token_budget` (default or unlimited; default default) and an optional positive `max_tool_calls`
 - **Binding:** OpenAI Responses API background mode plus web search; SDK queueing is not provider-durable execution
 - **Execution:** background/durable; webhook wake hint plus bounded poll and retrieve
 - **Terminal:** HTTP report
@@ -569,7 +575,7 @@ and provenance semantics.
 
 - **Workflow:** none
 - **Semantics:** grounded_answer; required; api_output; x; model_search_tool/direct; xai
-- **Target:** configurable model `grok-4.6` in both the accepted TypeScript snapshot and PHP 1.0
+- **Target:** configurable model `grok-4.7` (the pinned TypeScript snapshot shows `grok-4.6`)
 - **PHP path:** #3604 core parity; provider implementation #2843
 - **Binding:** xAI Responses API with X-only search tool
 - **Execution:** inline
@@ -581,7 +587,7 @@ and provenance semantics.
 
 - **Workflow:** none
 - **Semantics:** grounded_answer; required; api_output; web+x; model_search_tool/direct; xai
-- **Target:** configurable model `grok-4.6` in both the accepted TypeScript snapshot and PHP 1.0
+- **Target:** configurable model `grok-4.7` (the pinned TypeScript snapshot shows `grok-4.6`)
 - **PHP path:** #3604 core parity; provider implementation #2843
 - **Binding:** one xAI Responses attempt with both web and X tools
 - **Execution:** inline; one origin, never two independent confirmations

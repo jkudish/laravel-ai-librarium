@@ -98,12 +98,12 @@ it('resolves Laravel AI credentials after Laravel AI registers later', function 
         ->and(data_get($profile, 'credential'))->toBe(config("ai.providers.{$provider}.key"))
         ->and(data_get($profile, 'credential'))->not->toBe("ai.providers.{$provider}.key");
 })->with([
-    'Gemini grounded' => ['gemini-grounded', 'gemini', 'gemini-3.6-flash'],
+    'Gemini grounded' => ['gemini-grounded', 'gemini', 'gemini-3.8-flash'],
     'OpenRouter grounded' => ['openrouter-grounded', 'openrouter', 'openai/gpt-6-luna'],
-    'OpenRouter chat' => ['openrouter-chat', 'openrouter', 'openai/gpt-5.6-terra'],
-    'Claude chat' => ['claude-chat', 'anthropic', 'claude-sonnet-5'],
+    'OpenRouter chat' => ['openrouter-chat', 'openrouter', 'openai/gpt-6-luna'],
+    'Claude chat' => ['claude-chat', 'anthropic', 'claude-sonnet-5-5'],
     'OpenAI chat' => ['openai-chat', 'openai', 'gpt-6-luna'],
-    'Gemini chat' => ['gemini-chat', 'gemini', 'gemini-3.7-flash'],
+    'Gemini chat' => ['gemini-chat', 'gemini', 'gemini-3.8-flash'],
 ]);
 
 it('exposes matching GPT-6 Luna target and pricing bindings through the catalog', function (
@@ -121,6 +121,7 @@ it('exposes matching GPT-6 Luna target and pricing bindings through the catalog'
         ->and($availability?->profile->options)->toBe($options);
 })->with([
     'OpenRouter grounded' => ['openrouter-grounded', 'openai/gpt-6-luna', 'openrouter:openai/gpt-6-luna', ['search_engine' => 'exa']],
+    'OpenRouter chat' => ['openrouter-chat', 'openai/gpt-6-luna', 'openrouter:openai/gpt-6-luna', ['web_search' => true, 'search_engine' => 'exa']],
     'OpenAI chat' => ['openai-chat', 'gpt-6-luna', 'openai:gpt-6-luna-standard-short', ['web_search' => true]],
     'Perplexity frozen low' => ['perplexity-low-frozen', 'openai/gpt-6-luna', 'perplexity:openai/gpt-6-luna', ['configuration' => 'frozen-low-2026-10-03']],
 ]);
@@ -138,9 +139,9 @@ it('keeps the Claude source model separate from its global-routing billing SKU',
     $profile = config('librarium.profiles.claude-chat');
 
     expect(data_get($profile, 'provider'))->toBe('anthropic')
-        ->and(data_get($profile, 'model'))->toBe('claude-sonnet-5')
+        ->and(data_get($profile, 'model'))->toBe('claude-sonnet-5-5')
         ->and(data_get($profile, 'pricing.provider'))->toBe('anthropic')
-        ->and(data_get($profile, 'pricing.model'))->toBe('claude-sonnet-5-global');
+        ->and(data_get($profile, 'pricing.model'))->toBe('claude-sonnet-5-5-global-standard');
 });
 
 it('registers the accepted core HTTP Profiles with resolved credentials', function (
@@ -176,8 +177,8 @@ it('registers the accepted core HTTP Profiles with resolved credentials', functi
     'Kagi FastGPT' => ['kagi-fastgpt', KagiFastGptDriver::class, 'kagi-fastgpt', null, 'grounded_answer', 'required', 'search_endpoint', 'services.kagi.key', 'kagi:fastgpt'],
     'Perplexity Sonar Pro' => ['perplexity-sonar-pro', PerplexityAgentDriver::class, 'perplexity', null, 'grounded_answer', 'required', 'model_search_tool', 'services.perplexity.key', 'perplexity:agent-low'],
     'Perplexity frozen low' => ['perplexity-low-frozen', PerplexityAgentDriver::class, 'perplexity', 'openai/gpt-6-luna', 'grounded_answer', 'required', 'model_search_tool', 'services.perplexity.key', 'perplexity:openai/gpt-6-luna'],
-    'Grok web search' => ['grok', XaiGrokDriver::class, 'xai', 'grok-4.6', 'grounded_answer', 'required', 'model_search_tool', 'ai.providers.xai.key', 'xai:grok-4.6'],
-    'OpenAI research' => ['openai-research', OpenAiResearchDriver::class, 'openai', 'gpt-5.6-sol', 'research_report', 'required', 'research_agent', 'ai.providers.openai.key', 'openai:gpt-5.6-sol'],
+    'Grok web search' => ['grok', XaiGrokDriver::class, 'xai', 'grok-4.7', 'grounded_answer', 'required', 'model_search_tool', 'ai.providers.xai.key', 'xai:grok-4.7'],
+    'OpenAI research' => ['openai-research', OpenAiResearchDriver::class, 'openai', 'gpt-6.1-sol', 'research_report', 'required', 'research_agent', 'ai.providers.openai.key', 'openai:gpt-6.1-sol-standard-short'],
     'Perplexity Sonar Deep' => ['perplexity-sonar-deep', PerplexityAgentDriver::class, 'perplexity', null, 'research_report', 'required', 'research_agent', 'services.perplexity.key', 'perplexity:agent-high'],
 ]);
 
@@ -224,8 +225,8 @@ it('registers every accepted v2 parity Profile with exact shared semantics', fun
     'Exa Research' => ['exa-research', ExaResearchDriver::class, 'exa', null, 'research_report', 'required', ['web'], 'research_agent', 'services.exa.key', null],
     'Gemini Deep Research' => ['gemini-deep-research', GeminiDeepDriver::class, 'gemini-deep', 'deep-research-preview-04-2026', 'research_report', 'required', ['web'], 'research_agent', 'ai.providers.gemini.key', null],
     'Perplexity Deep Research' => ['perplexity-deep-research', PerplexityAgentDriver::class, 'perplexity', null, 'research_report', 'required', ['web'], 'research_agent', 'services.perplexity.key', 'perplexity:agent-medium'],
-    'Grok X-only' => ['grok-x-only', XaiGrokDriver::class, 'xai', 'grok-4.6', 'grounded_answer', 'required', ['x'], 'model_search_tool', 'ai.providers.xai.key', null],
-    'Grok combined' => ['grok-combined', XaiGrokDriver::class, 'xai', 'grok-4.6', 'grounded_answer', 'required', ['web', 'x'], 'model_search_tool', 'ai.providers.xai.key', null],
+    'Grok X-only' => ['grok-x-only', XaiGrokDriver::class, 'xai', 'grok-4.7', 'grounded_answer', 'required', ['x'], 'model_search_tool', 'ai.providers.xai.key', null],
+    'Grok combined' => ['grok-combined', XaiGrokDriver::class, 'xai', 'grok-4.7', 'grounded_answer', 'required', ['web', 'x'], 'model_search_tool', 'ai.providers.xai.key', null],
     'Parallel Search' => ['parallel-search', ParallelSearchDriver::class, 'parallel', null, 'search_results', 'none', ['web'], 'search_endpoint', 'services.parallel.key', null],
     'Parallel Turbo' => ['parallel-turbo', ParallelTurboDriver::class, 'parallel', null, 'search_results', 'none', ['web'], 'search_endpoint', 'services.parallel.key', 'parallel:turbo'],
     'Parallel Research' => ['parallel-research', ParallelResearchDriver::class, 'parallel', 'pro', 'research_report', 'required', ['web'], 'research_agent', 'services.parallel.key', 'parallel:research-pro'],
