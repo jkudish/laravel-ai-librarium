@@ -8,6 +8,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
+use Jkudish\LaravelAiLibrarium\Collection\SensitiveProviderResponse;
 use Jkudish\LaravelAiLibrarium\Drivers\Valyu\ValyuResearchDriver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
@@ -491,7 +492,7 @@ it('keeps the PDF bearer link out of captured evidence, diagnostics, and errors'
     $pdfUrl = valyuPdfUrl('dr-pdf-private');
     config()->set('services.valyu.key', 'testing-valyu-key');
     config()->set('librarium.profiles.valyu-research.options', ['mode' => 'standard', 'output_formats' => ['markdown', 'pdf']]);
-    $completed = [...valyuResearchCompleted('dr-pdf-private', 'standard'), 'pdf_url' => $pdfUrl, 'output' => "# Report\n\nDownload: ".$pdfUrl];
+    $completed = [...valyuResearchCompleted('dr-pdf-private', 'standard'), 'pdf_url' => $pdfUrl];
     if (! $succeeds) {
         $completed['sources'] = 'malformed';
     }
@@ -517,6 +518,68 @@ it('keeps the PDF bearer link out of captured evidence, diagnostics, and errors'
             ->and($collected->response->errors->sole()->code)->toBe('valyu_research.invalid_response');
     }
 })->with(['completed' => true, 'failed mapping' => false]);
+
+it('rejects a result that reflects the PDF link anywhere but the artifact', function (string $output): void {
+    $pdfUrl = valyuPdfUrl('dr-pdf-private');
+    Http::fake(['https://api.valyu.ai/v1/deepresearch/tasks*' => Http::sequence()
+        ->push(valyuResearchSubmission('dr-pdf-private', 'standard'), 202)
+        ->push(valyuResearchTask('dr-pdf-private', 'completed', 'standard'))
+        ->push([...valyuResearchCompleted('dr-pdf-private', 'standard'), 'output' => str_replace('{pdf}', $pdfUrl, $output)])]);
+
+    // Only the artifact's whole value may name the task; the same link in
+    // the report, inside another URL, or extended is task material.
+    expect(fn () => app(ValyuResearchDriver::class)->run(valyuResearchRequest()))
+        ->toThrow(fn (DriverException $exception) => expect($exception->errorCode)->toBe('valyu_research.invalid_response'));
+})->with([
+    'linked in the report' => ['# Report\n\n[Download]({pdf})'],
+    'nested in another URL' => ['[Download](https://attacker.example/?next={pdf})'],
+    'extended link' => ['[Download]({pdf}&extra=value)'],
+]);
+
+it('keeps the PDF link through public durable retrieval', function (): void {
+    config()->set('services.valyu.key', 'testing-valyu-key');
+    Http::fake(['https://api.valyu.ai/v1/deepresearch/tasks*' => Http::sequence()
+        ->push(valyuResearchSubmission('dr-durable-pdf', 'standard'), 202)
+        ->push(valyuResearchCompleted('dr-durable-pdf', 'standard'))]);
+
+    $submitted = Librarium::query('clinical question')->using('valyu-research')->submit();
+    $retrieved = Librarium::retrieve($submitted->handle);
+
+    expect($retrieved->pending())->toBeFalse()
+        ->and(data_get($retrieved->response?->results->sole()->providerMeta, 'valyu:research.artifacts.0'))
+        ->toBe(['kind' => 'pdf', 'url' => valyuPdfUrl('dr-durable-pdf')])
+        ->and(json_encode([$submitted->evidence, $retrieved->evidence, $retrieved->diagnostics], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES))
+        ->not->toContain('dr-durable-pdf');
+});
+
+it('redacts the task handle and PDF link from captured bodies under any valid JSON escaping', function (bool $sensitive): void {
+    config()->set('services.valyu.key', 'testing-valyu-key');
+    config()->set('librarium.profiles.valyu-research.options', ['mode' => 'standard', 'output_formats' => ['markdown', 'pdf']]);
+    $completed = json_encode([...valyuResearchCompleted('dr-pdf-private', 'standard'), 'deepresearch_id' => '@@ID@@', 'pdf_url' => '@@PDF@@'], JSON_THROW_ON_ERROR);
+    // \u0064 is "d", and the link escapes only its first slashes.
+    $raw = str_replace(
+        ['"@@ID@@"', '"@@PDF@@"'],
+        ['"\\u0064r-pdf-private"', '"https:\\/\\/'.substr(valyuPdfUrl('dr-pdf-private'), 8).'"'],
+        $completed,
+    );
+    Http::fake(['https://api.valyu.ai/v1/deepresearch/tasks*' => Http::sequence()
+        ->push(str_replace('"dr-pdf-private"', '"\\u0064r-pdf-private"', (string) json_encode(valyuResearchSubmission('dr-pdf-private', 'standard'))), 202, ['Content-Type' => 'application/json'])
+        ->push(valyuResearchTask('dr-pdf-private', 'completed', 'standard'))
+        ->push($raw, 200, ['Content-Type' => 'application/json'])]);
+
+    $query = Librarium::query('clinical question')->using('valyu-research');
+    $collected = $sensitive ? $query->collectSensitive() : $query->collect();
+    $bodies = $sensitive
+        ? collect($collected->responses())->map(fn (SensitiveProviderResponse $response): string => $response->body())
+        : $collected->evidence->map(fn (object $response): string => $response->body);
+    $decoded = $bodies->map(fn (string $body): string => json_encode(json_decode($body, true), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES))->implode("\n");
+
+    expect($bodies)->toHaveCount(3)
+        ->and($bodies->implode("\n"))->not->toContain('pdf-private')
+        ->and($decoded)->not->toContain('dr-pdf-private')
+        ->and($decoded)->not->toContain(valyuPdfAssetId())
+        ->and($decoded)->not->toContain('c3ludGhldGljLXNpZ25hdHVyZQ');
+})->with(['redacted collection' => false, 'sensitive collection' => true]);
 
 it('keeps max mode out of every built-in group while explicit and custom selection still work', function (string $mode, bool $grouped): void {
     config()->set('services.valyu.key', 'testing-valyu-key');

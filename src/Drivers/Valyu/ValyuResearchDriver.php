@@ -472,8 +472,6 @@ final readonly class ValyuResearchDriver implements DeclaresDeadline, DurableDri
         }
         $taskId = ValyuSupport::string(data_get($task, 'deepresearch_id')) ?? '';
         $privateValues = [(string) $request->profile->credential, $taskId];
-        $artifacts = $this->artifacts($task, $privateValues, $taskId);
-        $pdfUrl = data_get($artifacts, '0.kind') === 'pdf' ? data_get($artifacts, '0.url') : null;
 
         $result = ResearchResult::make(
             contentFormat: ContentFormat::Markdown,
@@ -496,14 +494,13 @@ final readonly class ValyuResearchDriver implements DeclaresDeadline, DurableDri
                     'execution' => 'background',
                     'resumability' => 'durable_provider_task',
                     'sources' => $safeSources,
-                    'artifacts' => $artifacts,
+                    'artifacts' => $this->artifacts($task, $privateValues, $taskId),
                 ],
             ],
         );
 
-        // The accepted PDF link may name the task, so it is the one value
-        // exempt from the private-material guard.
-        return TerminalRedaction::guard($result, $privateValues, $this->invalidResponse(), is_string($pdfUrl) ? [$pdfUrl] : []);
+        // Only the task's own validated asset link may name the task.
+        return TerminalRedaction::guard($result, $privateValues, $this->invalidResponse(), $taskId);
     }
 
     private function mode(DriverRequest|RecoveryRequest $request): string

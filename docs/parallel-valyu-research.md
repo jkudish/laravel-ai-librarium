@@ -164,6 +164,10 @@ for it. Store and share it like a credential.
   the task ID only in that exact shape: HTTPS on `api.valyu.ai` with no port
   or fragment, and the path `/v1/deepresearch/tasks/{task_id}/assets/` plus a
   36-character asset ID for the same task.
+- Only the artifact's whole `url` value may name the task. A result whose
+  report text, another URL, or an extended copy of the link contains the task
+  ID fails as `valyu_research.invalid_response`. The same rule applies to
+  `Librarium::retrieve()` of a durable handle.
 - The URL is withheld, leaving `{"kind": "pdf"}`, unless it is an HTTPS URL of
   at most 8,192 bytes without user information that contains neither the
   credential nor, outside that asset shape, the private task ID.
@@ -174,7 +178,8 @@ for it. Store and share it like a credential.
   documents no separate expiry field.
 - Before a provider response is captured, the driver replaces every
   occurrence of the URL and of the task ID with `[REDACTED]`, including the
-  `deepresearch_id` of submission and status bodies. Redacted evidence,
+  `deepresearch_id` of submission and status bodies, under any valid JSON
+  escape spelling. Redacted evidence,
   sensitive collections, operational diagnostics, and error messages
   therefore contain neither. Only the result carries the link, including
   `--agent` result JSON. The durable handle your application stores is the

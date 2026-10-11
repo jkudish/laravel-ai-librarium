@@ -149,6 +149,7 @@ final readonly class DurableResearchRuntime implements RecoversResearch
                         'The provider returned unsafe terminal result content.',
                         false,
                     ),
+                    $handle->reference,
                 );
             }
         } catch (DriverException $exception) {

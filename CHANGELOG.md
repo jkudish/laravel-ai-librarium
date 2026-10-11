@@ -106,7 +106,8 @@ First stable release.
   when the URL states an expiry. Valyu's link is its token-authenticated asset
   endpoint (`https://api.valyu.ai/v1/deepresearch/tasks/{task}/assets/{asset}?token=…`),
   which names the private task. That exact host and path shape is therefore
-  allowed to contain the task ID. Every other guard still withholds the link:
+  allowed to contain the task ID, but only as the artifact's whole value, in
+  synchronous and durable results. Every other guard still withholds the link:
   HTTPS only, no user information, no credential, at most 8,192 bytes. The
   link states no expiry, so `expires_at` is absent. The driver strips the link
   and the task ID from captured provider responses, so redacted evidence,

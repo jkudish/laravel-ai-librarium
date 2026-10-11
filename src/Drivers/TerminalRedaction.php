@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jkudish\LaravelAiLibrarium\Drivers;
 
+use Jkudish\LaravelAiLibrarium\Drivers\Valyu\ValyuSupport;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 use stdClass;
@@ -12,24 +13,26 @@ use stdClass;
 final class TerminalRedaction
 {
     /**
-     * An allowed value is a reviewed provider value, such as a bearer link
-     * that must name the private task, so its occurrences are ignored.
+     * When $taskHandle names the private task, a whole string value that is
+     * that task's validated Valyu asset link may contain it (see
+     * ValyuSupport::isTaskAssetLink()). The handle anywhere else, including
+     * a link embedded in other text or another URL, and every other private
+     * value still reject the result.
      *
      * @param  list<string>  $privateValues
-     * @param  list<string>  $allowedValues
      */
     public static function guard(
         ResearchResult $result,
         array $privateValues,
         ?DriverException $failure = null,
-        array $allowedValues = [],
+        ?string $taskHandle = null,
     ): ResearchResult {
-        $privateValues = array_values(array_filter(
+        $checked = array_values(array_filter(
             $privateValues,
             static fn (string $value): bool => $value !== '',
         ));
 
-        if ($privateValues !== [] && self::contains($result->toArray(), $privateValues, array_values(array_filter($allowedValues, static fn (string $value): bool => $value !== '')))) {
+        if ($checked !== [] && self::contains($result->toArray(), $checked, $privateValues, $taskHandle)) {
             if ($failure === null) {
                 throw new DriverException(
                     'librarium.unsafe_result',
@@ -49,16 +52,18 @@ final class TerminalRedaction
     }
 
     /**
+     * @param  list<string>  $checked
      * @param  list<string>  $privateValues
-     * @param  list<string>  $allowedValues
      */
-    private static function contains(mixed $value, array $privateValues, array $allowedValues): bool
+    private static function contains(mixed $value, array $checked, array $privateValues, ?string $taskHandle): bool
     {
         if (is_string($value)) {
-            $value = $allowedValues === [] ? $value : str_replace($allowedValues, '', $value);
+            if ($taskHandle !== null && ValyuSupport::isTaskAssetLink($value, $taskHandle, $privateValues)) {
+                return false;
+            }
 
             return array_any(
-                $privateValues,
+                $checked,
                 static fn (string $privateValue): bool => str_contains($value, $privateValue),
             );
         }
@@ -68,6 +73,6 @@ final class TerminalRedaction
         }
 
         return is_array($value)
-            && array_any($value, static fn (mixed $item): bool => self::contains($item, $privateValues, $allowedValues));
+            && array_any($value, static fn (mixed $item): bool => self::contains($item, $checked, $privateValues, $taskHandle));
     }
 }

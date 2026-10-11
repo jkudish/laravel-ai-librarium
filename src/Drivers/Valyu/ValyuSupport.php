@@ -58,15 +58,8 @@ final class ValyuSupport
      * Keeps Valyu's PDF bearer link in the result artifact and records when
      * it expires if the URL states it. The link is withheld when it is not a
      * credential-free HTTPS URL of at most 8,192 bytes, or when it reflects
-     * private task material.
-     *
-     * Valyu's real link is its token-authenticated asset endpoint,
-     * https://api.valyu.ai/v1/deepresearch/tasks/{task}/assets/{asset}?token=…,
-     * the path the official SDKs' getAssets(taskId, assetId) calls. It
-     * necessarily names the private task, so the task handle (and only the
-     * task handle) is allowed inside that exact host and path shape; the
-     * credential and every other private value still withhold the link.
-     * Such a link states no expiry, so expires_at stays absent.
+     * private task material outside isTaskAssetLink()'s exact shape.
+     * Valyu's asset link states no expiry, so expires_at stays absent.
      *
      * @param  list<string>  $privateValues
      * @return array{kind: 'pdf', url?: string, expires_at?: string}
@@ -74,24 +67,10 @@ final class ValyuSupport
     public static function pdfArtifact(mixed $value, array $privateValues, string $taskId): array
     {
         $url = is_string($value) ? $value : '';
-        $parts = parse_url($url);
-        if ($url === ''
-            || strlen($url) > 8192
-            || preg_match('/[\s\x00-\x1f\x7f]/', $url) === 1
-            || filter_var($url, FILTER_VALIDATE_URL) === false
-            || ! is_array($parts)
-            || strtolower($parts['scheme'] ?? '') !== 'https'
-            || ($parts['host'] ?? '') === ''
-            || isset($parts['user'])
-            || isset($parts['pass'])) {
-            return ['kind' => 'pdf'];
-        }
-
-        if (self::isTaskAssetUrl($parts, $taskId)) {
-            $privateValues = array_values(array_filter($privateValues, static fn (string $private): bool => $private !== $taskId));
-        }
-
-        if (array_any($privateValues, static fn (string $private): bool => $private !== '' && str_contains($url, $private))) {
+        $parts = self::safeHttpsUrl($url);
+        if ($parts === null
+            || (! self::isTaskAssetLink($url, $taskId, $privateValues)
+                && array_any($privateValues, static fn (string $private): bool => $private !== '' && str_contains($url, $private)))) {
             return ['kind' => 'pdf'];
         }
 
@@ -105,50 +84,120 @@ final class ValyuSupport
     }
 
     /**
+     * Whether a whole value is Valyu's token-authenticated asset link for
+     * this task: https://api.valyu.ai/v1/deepresearch/tasks/{task}/assets/{asset}
+     * with a 36-character asset ID, the path the official SDKs'
+     * getAssets(taskId, assetId) calls. The link necessarily names the task,
+     * so only the task handle may appear in it; it must still be a safe
+     * HTTPS URL reflecting no other private value. It fails closed when
+     * another private value equals the handle.
+     *
+     * @param  list<string>  $privateValues
+     */
+    public static function isTaskAssetLink(string $url, string $taskId, array $privateValues): bool
+    {
+        $parts = self::safeHttpsUrl($url);
+        if ($parts === null || $taskId === '' || count(array_keys($privateValues, $taskId, true)) > 1) {
+            return false;
+        }
+
+        return strtolower($parts['host'] ?? '') === 'api.valyu.ai'
+            && ! isset($parts['port'])
+            && ! isset($parts['fragment'])
+            && preg_match('#^/v1/deepresearch/tasks/'.preg_quote(rawurlencode($taskId), '#').'/assets/[A-Za-z0-9_-]{36}$#D', $parts['path'] ?? '') === 1
+            && ! array_any($privateValues, static fn (string $private): bool => $private !== '' && $private !== $taskId && str_contains($url, $private));
+    }
+
+    /**
      * Replaces the PDF bearer link and the private task handle in a captured
      * Valyu body, so evidence and diagnostics retain neither. The handle is
      * the body's own deepresearch_id and the task the request addressed.
+     * Known spellings are replaced in place. When that leaves a JSON body
+     * reflecting either value under another valid escape spelling, the
+     * decoded body is redacted and re-encoded instead.
      */
     public static function capturedBody(string $body, ?string $taskId = null): string
     {
-        try {
-            $json = json_decode($body, true, 512, JSON_THROW_ON_ERROR | JSON_BIGINT_AS_STRING);
-        } catch (\JsonException) {
-            $json = null;
-        }
-
+        $json = self::decode($body);
         $values = [$taskId];
         if (is_array($json)) {
             $values[] = $json['pdf_url'] ?? null;
             $values[] = $json['deepresearch_id'] ?? null;
         }
+        $values = array_values(array_unique(array_filter($values, static fn (mixed $value): bool => is_string($value) && $value !== '')));
+        if ($values === []) {
+            return $body;
+        }
+        // The link contains the task handle, so the longest value is replaced first.
+        usort($values, static fn (string $a, string $b): int => strlen($b) <=> strlen($a));
 
         $forms = [];
         foreach ($values as $value) {
-            if (! is_string($value) || $value === '') {
-                continue;
-            }
-
             $forms[] = $value;
             $forms[] = substr((string) json_encode($value), 1, -1);
             $forms[] = substr((string) json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), 1, -1);
         }
-
         $forms = array_values(array_unique(array_filter($forms, static fn (string $form): bool => $form !== '')));
-        // The link contains the task handle, so the longest form is replaced first.
         usort($forms, static fn (string $a, string $b): int => strlen($b) <=> strlen($a));
+        $redacted = str_replace($forms, '[REDACTED]', $body);
+        if ($json === null) {
+            return $redacted;
+        }
 
-        return $forms === [] ? $body : str_replace($forms, '[REDACTED]', $body);
+        // In-place replacement is exact only when it decodes to the same
+        // value as redacting the decoded body; otherwise an unlisted escape
+        // spelling left a value, or a fragment of the link, behind.
+        $expected = self::redactDecoded($json, $values);
+
+        return self::decode($redacted) === $expected
+            ? $redacted
+            : (string) json_encode($expected, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION);
     }
 
-    /** @param array<string, int|string> $parts */
-    private static function isTaskAssetUrl(array $parts, string $taskId): bool
+    private static function decode(string $body): mixed
     {
-        return $taskId !== ''
-            && strtolower((string) $parts['host']) === 'api.valyu.ai'
-            && ! isset($parts['port'])
-            && ! isset($parts['fragment'])
-            && preg_match('#^/v1/deepresearch/tasks/'.preg_quote(rawurlencode($taskId), '#').'/assets/[A-Za-z0-9_-]{36}$#D', (string) ($parts['path'] ?? '')) === 1;
+        try {
+            return json_decode($body, true, 512, JSON_THROW_ON_ERROR | JSON_BIGINT_AS_STRING);
+        } catch (\JsonException) {
+            return null;
+        }
+    }
+
+    /** @param list<string> $values */
+    private static function redactDecoded(mixed $decoded, array $values): mixed
+    {
+        if (is_string($decoded)) {
+            return str_replace($values, '[REDACTED]', $decoded);
+        }
+        if (! is_array($decoded)) {
+            return $decoded;
+        }
+
+        $redacted = [];
+        foreach ($decoded as $key => $item) {
+            $redacted[is_string($key) ? str_replace($values, '[REDACTED]', $key) : $key] = self::redactDecoded($item, $values);
+        }
+
+        return $redacted;
+    }
+
+    /** @return array{scheme?: string, host?: string, port?: int, user?: string, pass?: string, path?: string, query?: string, fragment?: string}|null */
+    private static function safeHttpsUrl(string $url): ?array
+    {
+        $parts = parse_url($url);
+        if ($url === ''
+            || strlen($url) > 8192
+            || preg_match('/[\s\x00-\x1f\x7f]/', $url) === 1
+            || filter_var($url, FILTER_VALIDATE_URL) === false
+            || ! is_array($parts)
+            || strtolower($parts['scheme'] ?? '') !== 'https'
+            || ($parts['host'] ?? '') === ''
+            || isset($parts['user'])
+            || isset($parts['pass'])) {
+            return null;
+        }
+
+        return $parts;
     }
 
     /**
