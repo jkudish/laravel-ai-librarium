@@ -151,20 +151,31 @@ When Valyu returns `pdf_url`, the result's `provider_meta["valyu:research"]`
 artifact records it:
 
 ```json
-{"kind": "pdf", "url": "https://storage.valyu.ai/…", "expires_at": "2026-09-10T13:10:00Z"}
+{"kind": "pdf", "url": "https://api.valyu.ai/v1/deepresearch/tasks/{task_id}/assets/{asset_id}?token=…"}
 ```
 
-The URL is a bearer link: anyone holding it can download the report until it
-expires. Store and share it like a credential.
+The URL is a token-authenticated link to Valyu's task asset endpoint, the
+`GET /v1/deepresearch/tasks/{task_id}/assets/{asset_id}` path the official
+SDKs' `getAssets(taskId, assetId)` calls. Its `token` stands in for the API key, so
+anyone holding the link can download the report. Valyu documents no expiry
+for it. Store and share it like a credential.
 
-- `expires_at` appears only when the signed URL states an expiry: AWS SigV4
+- The link names the private task ID in its path and token. The driver allows
+  the task ID only in that exact shape: HTTPS on `api.valyu.ai` with no port
+  or fragment, and the path `/v1/deepresearch/tasks/{task_id}/assets/` plus a
+  36-character asset ID for the same task.
+- The URL is withheld, leaving `{"kind": "pdf"}`, unless it is an HTTPS URL of
+  at most 8,192 bytes without user information that contains neither the
+  credential nor, outside that asset shape, the private task ID.
+- `expires_at` appears only when a signed URL states an expiry: AWS SigV4
   `X-Amz-Date` plus `X-Amz-Expires`, Google V4 `X-Goog-Date` plus
-  `X-Goog-Expires`, or an epoch `Expires` (S3 SigV2, CloudFront). Valyu
+  `X-Goog-Expires`, or an epoch `Expires` (S3 SigV2, CloudFront). Valyu's
+  asset link carries none of these, so it has no `expires_at`. Valyu
   documents no separate expiry field.
-- The URL is withheld, leaving `{"kind": "pdf"}`, unless it is an HTTPS URL
-  without user information that contains neither the credential nor the
-  private task ID.
-- The driver replaces every occurrence of the URL with `[REDACTED]` before a
-  provider response is captured. Redacted evidence, sensitive collections,
-  operational diagnostics, and error messages therefore never contain it.
-  Only the result carries it, including `--agent` result JSON.
+- Before a provider response is captured, the driver replaces every
+  occurrence of the URL and of the task ID with `[REDACTED]`, including the
+  `deepresearch_id` of submission and status bodies. Redacted evidence,
+  sensitive collections, operational diagnostics, and error messages
+  therefore contain neither. Only the result carries the link, including
+  `--agent` result JSON. The durable handle your application stores is the
+  task ID itself.

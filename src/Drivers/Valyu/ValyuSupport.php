@@ -55,14 +55,23 @@ final class ValyuSupport
     }
 
     /**
-     * Keeps Valyu's signed PDF bearer link in the result artifact and records
-     * when it expires if the signed URL states it. The link is withheld when
-     * it is not a credential-free HTTPS URL or reflects private task material.
+     * Keeps Valyu's PDF bearer link in the result artifact and records when
+     * it expires if the URL states it. The link is withheld when it is not a
+     * credential-free HTTPS URL of at most 8,192 bytes, or when it reflects
+     * private task material.
+     *
+     * Valyu's real link is its token-authenticated asset endpoint,
+     * https://api.valyu.ai/v1/deepresearch/tasks/{task}/assets/{asset}?token=…,
+     * the path the official SDKs' getAssets(taskId, assetId) calls. It
+     * necessarily names the private task, so the task handle (and only the
+     * task handle) is allowed inside that exact host and path shape; the
+     * credential and every other private value still withhold the link.
+     * Such a link states no expiry, so expires_at stays absent.
      *
      * @param  list<string>  $privateValues
      * @return array{kind: 'pdf', url?: string, expires_at?: string}
      */
-    public static function pdfArtifact(mixed $value, array $privateValues): array
+    public static function pdfArtifact(mixed $value, array $privateValues, string $taskId): array
     {
         $url = is_string($value) ? $value : '';
         $parts = parse_url($url);
@@ -74,8 +83,15 @@ final class ValyuSupport
             || strtolower($parts['scheme'] ?? '') !== 'https'
             || ($parts['host'] ?? '') === ''
             || isset($parts['user'])
-            || isset($parts['pass'])
-            || array_any($privateValues, static fn (string $private): bool => $private !== '' && str_contains($url, $private))) {
+            || isset($parts['pass'])) {
+            return ['kind' => 'pdf'];
+        }
+
+        if (self::isTaskAssetUrl($parts, $taskId)) {
+            $privateValues = array_values(array_filter($privateValues, static fn (string $private): bool => $private !== $taskId));
+        }
+
+        if (array_any($privateValues, static fn (string $private): bool => $private !== '' && str_contains($url, $private))) {
             return ['kind' => 'pdf'];
         }
 
@@ -88,26 +104,51 @@ final class ValyuSupport
         ], static fn (?string $item): bool => $item !== null);
     }
 
-    /** Replaces the signed PDF URL in a captured Valyu body so diagnostics never retain the bearer link. */
-    public static function withoutPdfUrl(string $body): string
+    /**
+     * Replaces the PDF bearer link and the private task handle in a captured
+     * Valyu body, so evidence and diagnostics retain neither. The handle is
+     * the body's own deepresearch_id and the task the request addressed.
+     */
+    public static function capturedBody(string $body, ?string $taskId = null): string
     {
         try {
             $json = json_decode($body, true, 512, JSON_THROW_ON_ERROR | JSON_BIGINT_AS_STRING);
         } catch (\JsonException) {
-            return $body;
-        }
-        $url = is_array($json) ? ($json['pdf_url'] ?? null) : null;
-        if (! is_string($url) || $url === '') {
-            return $body;
+            $json = null;
         }
 
-        $forms = array_filter([
-            $url,
-            substr((string) json_encode($url), 1, -1),
-            substr((string) json_encode($url, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), 1, -1),
-        ], static fn (string $form): bool => $form !== '');
+        $values = [$taskId];
+        if (is_array($json)) {
+            $values[] = $json['pdf_url'] ?? null;
+            $values[] = $json['deepresearch_id'] ?? null;
+        }
 
-        return str_replace(array_values(array_unique($forms)), '[REDACTED]', $body);
+        $forms = [];
+        foreach ($values as $value) {
+            if (! is_string($value) || $value === '') {
+                continue;
+            }
+
+            $forms[] = $value;
+            $forms[] = substr((string) json_encode($value), 1, -1);
+            $forms[] = substr((string) json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), 1, -1);
+        }
+
+        $forms = array_values(array_unique(array_filter($forms, static fn (string $form): bool => $form !== '')));
+        // The link contains the task handle, so the longest form is replaced first.
+        usort($forms, static fn (string $a, string $b): int => strlen($b) <=> strlen($a));
+
+        return $forms === [] ? $body : str_replace($forms, '[REDACTED]', $body);
+    }
+
+    /** @param array<string, int|string> $parts */
+    private static function isTaskAssetUrl(array $parts, string $taskId): bool
+    {
+        return $taskId !== ''
+            && strtolower((string) $parts['host']) === 'api.valyu.ai'
+            && ! isset($parts['port'])
+            && ! isset($parts['fragment'])
+            && preg_match('#^/v1/deepresearch/tasks/'.preg_quote(rawurlencode($taskId), '#').'/assets/[A-Za-z0-9_-]{36}$#D', (string) ($parts['path'] ?? '')) === 1;
     }
 
     /**

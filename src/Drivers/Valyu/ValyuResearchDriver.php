@@ -348,6 +348,7 @@ final readonly class ValyuResearchDriver implements DeclaresDeadline, DurableDri
                     self::ENDPOINT.'/'.rawurlencode($taskId).'/status',
                     [],
                     $operation,
+                    $taskId,
                 );
             } catch (ConnectionException) {
                 if (CarbonImmutable::now()->greaterThanOrEqualTo($request->deadline)) {
@@ -469,10 +470,10 @@ final readonly class ValyuResearchDriver implements DeclaresDeadline, DurableDri
         if ($mode !== $this->mode($request)) {
             throw $this->invalidResponse();
         }
-        $privateValues = [
-            (string) $request->profile->credential,
-            ValyuSupport::string(data_get($task, 'deepresearch_id')) ?? '',
-        ];
+        $taskId = ValyuSupport::string(data_get($task, 'deepresearch_id')) ?? '';
+        $privateValues = [(string) $request->profile->credential, $taskId];
+        $artifacts = $this->artifacts($task, $privateValues, $taskId);
+        $pdfUrl = data_get($artifacts, '0.kind') === 'pdf' ? data_get($artifacts, '0.url') : null;
 
         $result = ResearchResult::make(
             contentFormat: ContentFormat::Markdown,
@@ -495,12 +496,14 @@ final readonly class ValyuResearchDriver implements DeclaresDeadline, DurableDri
                     'execution' => 'background',
                     'resumability' => 'durable_provider_task',
                     'sources' => $safeSources,
-                    'artifacts' => $this->artifacts($task, $privateValues),
+                    'artifacts' => $artifacts,
                 ],
             ],
         );
 
-        return TerminalRedaction::guard($result, $privateValues, $this->invalidResponse());
+        // The accepted PDF link may name the task, so it is the one value
+        // exempt from the private-material guard.
+        return TerminalRedaction::guard($result, $privateValues, $this->invalidResponse(), is_string($pdfUrl) ? [$pdfUrl] : []);
     }
 
     private function mode(DriverRequest|RecoveryRequest $request): string
@@ -515,11 +518,11 @@ final readonly class ValyuResearchDriver implements DeclaresDeadline, DurableDri
      * @param  list<string>  $privateValues
      * @return list<array<string, mixed>>
      */
-    private function artifacts(array $task, array $privateValues): array
+    private function artifacts(array $task, array $privateValues, string $taskId): array
     {
         $artifacts = [];
         if (ValyuSupport::string(data_get($task, 'pdf_url')) !== null) {
-            $artifacts[] = ValyuSupport::pdfArtifact(data_get($task, 'pdf_url'), $privateValues);
+            $artifacts[] = ValyuSupport::pdfArtifact(data_get($task, 'pdf_url'), $privateValues, $taskId);
         }
 
         foreach ([['images', 'image'], ['deliverables', 'deliverable']] as [$key, $defaultKind]) {
@@ -553,6 +556,7 @@ final readonly class ValyuResearchDriver implements DeclaresDeadline, DurableDri
         string $url,
         array $payload = [],
         Operation $operation = Operation::Inline,
+        ?string $taskId = null,
     ): Response {
         $remaining = $this->remainingSeconds($request, 'Valyu did not complete before the research deadline.');
         $pending = Http::withHeaders(['X-API-Key' => (string) $request->profile->credential])
@@ -570,7 +574,7 @@ final readonly class ValyuResearchDriver implements DeclaresDeadline, DurableDri
             throw $exception;
         }
 
-        $request->captureResponse($response, $operation, ValyuSupport::withoutPdfUrl($response->body()));
+        $request->captureResponse($response, $operation, ValyuSupport::capturedBody($response->body(), $taskId));
 
         return $response;
     }
@@ -594,7 +598,7 @@ final readonly class ValyuResearchDriver implements DeclaresDeadline, DurableDri
                 ->connectTimeout(self::CONNECT_TIMEOUT_SECONDS)
                 ->timeout(self::CANCELLATION_TIMEOUT_SECONDS)
                 ->post(self::ENDPOINT.'/'.rawurlencode($taskId).'/cancel');
-            $request->captureResponse($response, Operation::Cancel, ValyuSupport::withoutPdfUrl($response->body()));
+            $request->captureResponse($response, Operation::Cancel, ValyuSupport::capturedBody($response->body(), $taskId));
         } catch (ConnectionException) {
             $request->captureNoResponse(Operation::Cancel);
         } catch (Throwable) {

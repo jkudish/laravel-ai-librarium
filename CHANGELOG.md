@@ -102,10 +102,15 @@ First stable release.
   raise and the value it needs. A Profile whose pricing identity does not
   match its processor or mode is reported unavailable instead of being quoted
   at another price.
-- The Valyu PDF artifact keeps the signed `pdf_url` bearer link, plus
-  `expires_at` when the signed URL states an expiry. The driver strips the link
-  from captured provider responses, so redacted evidence, sensitive
-  collections, diagnostics, and errors never contain it.
+- The Valyu PDF artifact keeps the `pdf_url` bearer link, plus `expires_at`
+  when the URL states an expiry. Valyu's link is its token-authenticated asset
+  endpoint (`https://api.valyu.ai/v1/deepresearch/tasks/{task}/assets/{asset}?token=…`),
+  which names the private task. That exact host and path shape is therefore
+  allowed to contain the task ID. Every other guard still withholds the link:
+  HTTPS only, no user information, no credential, at most 8,192 bytes. The
+  link states no expiry, so `expires_at` is absent. The driver strips the link
+  and the task ID from captured provider responses, so redacted evidence,
+  sensitive collections, diagnostics, and errors contain neither.
 - Exa Research preserves API-output observation provenance across synchronous
   and durable results and validates explicit native run budgets from $1
   through $100.
