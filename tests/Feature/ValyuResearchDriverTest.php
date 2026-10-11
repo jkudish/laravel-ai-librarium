@@ -11,7 +11,9 @@ use Illuminate\Support\Sleep;
 use Jkudish\LaravelAiLibrarium\Drivers\Valyu\ValyuResearchDriver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
+use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\Profile;
+use Jkudish\LaravelAiLibrarium\ProfileCatalog;
 use Jkudish\LaravelAiLibrarium\ProfileOptionValidator;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
@@ -104,7 +106,7 @@ it('submits, polls a known handle, retrieves twice, and maps a durable specializ
                 'word_count' => 321,
             ]],
             'artifacts' => [
-                ['kind' => 'pdf'],
+                ['kind' => 'pdf', 'url' => valyuPdfUrl(), 'expires_at' => '2026-09-10T13:10:00Z'],
                 ['kind' => 'chart', 'provider_asset_id' => 'image-1', 'title' => 'Chart'],
                 ['kind' => 'csv', 'provider_asset_id' => 'deliverable-1', 'status' => 'completed', 'title' => 'Data', 'row_count' => 4, 'column_count' => 2],
             ],
@@ -113,7 +115,8 @@ it('submits, polls a known handle, retrieves twice, and maps a durable specializ
     expect(json_encode($result->toArray(), JSON_THROW_ON_ERROR))
         ->not->toContain('dr-private-1')
         ->not->toContain('testing-valyu-key')
-        ->not->toContain('token=ephemeral')
+        ->not->toContain('data.csv?token=ephemeral')
+        ->not->toContain('chart.png?signature=ephemeral')
         ->not->toContain('secret/internal')
         ->not->toContain('cost_breakdown');
 });
@@ -163,8 +166,10 @@ it('validates Research options through the shared Profile validator', function (
 })->with([
     'unknown option' => [['unknown' => true]],
     'bad mode' => [['mode' => 'extreme']],
-    'unpriced mode' => [['mode' => 'heavy']],
-    'unpriced PDF output' => [['output_formats' => ['markdown', 'pdf']]],
+    'PDF without Markdown' => [['output_formats' => ['pdf']]],
+    'reordered output formats' => [['output_formats' => ['pdf', 'markdown']]],
+    'string timeout' => [['request_timeout_seconds' => '600']],
+    'zero timeout' => [['request_timeout_seconds' => 0]],
     'bad source filter' => [['search' => ['included_sources' => []]]],
     'both source filters' => [['search' => ['included_sources' => ['a'], 'excluded_sources' => ['b']]]],
     'bad date' => [['search' => ['end_date' => '2026-02-30']]],
@@ -372,6 +377,156 @@ it('rejects an escaped credential reflected in terminal output', function (): vo
         });
 });
 
+it('runs each mode against its own default deadline unless a timeout or the shared deadline is shorter', function (string $mode, array $options, int $sharedSeconds, int $expectedSeconds): void {
+    Sleep::fake(syncWithCarbon: true);
+    $startedAt = CarbonImmutable::now();
+    $failedAt = null;
+    Http::fake(function (Request $request) use ($mode) {
+        return match (true) {
+            $request->method() === 'POST' && str_ends_with($request->url(), '/cancel') => Http::response(['success' => true]),
+            $request->method() === 'POST' => Http::response(valyuResearchSubmission('dr-deadline', $mode), 202),
+            default => Http::response(valyuResearchTask('dr-deadline', 'running', $mode)),
+        };
+    });
+
+    expect(fn () => app(ValyuResearchDriver::class)->run(valyuResearchRequest(
+        options: ['mode' => $mode, ...$options],
+        deadline: $startedAt->addSeconds($sharedSeconds),
+    )))->toThrow(function (DriverException $exception) use (&$failedAt): void {
+        $failedAt = CarbonImmutable::now();
+        expect($exception->errorCode)->toBe('valyu_research.deadline_exceeded');
+    });
+
+    expect((int) $startedAt->diffInSeconds($failedAt))->toBe($expectedSeconds);
+    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://api.valyu.ai/v1/deepresearch/tasks'
+        && $request['mode'] === $mode
+        && ! array_key_exists('request_timeout_seconds', $request->data()));
+    Http::assertSent(fn (Request $request): bool => str_ends_with($request->url(), '/dr-deadline/cancel'));
+})->with([
+    'fast default' => ['fast', [], 86400, 600],
+    'standard default' => ['standard', [], 86400, 1800],
+    'heavy default' => ['heavy', [], 86400, 7200],
+    'max default' => ['max', [], 86400, 10800],
+    'explicit timeout wins' => ['max', ['request_timeout_seconds' => 45], 86400, 45],
+    'explicit timeout may exceed the mode default' => ['fast', ['request_timeout_seconds' => 900], 86400, 900],
+    'shared deadline caps the mode default' => ['heavy', [], 120, 120],
+]);
+
+it('maps a completed report for every mode and rejects a mode the provider did not run', function (string $mode): void {
+    Http::fake(['https://api.valyu.ai/v1/deepresearch/tasks*' => Http::sequence()
+        ->push(valyuResearchSubmission('dr-mode', $mode), 202)
+        ->push(valyuResearchTask('dr-mode', 'completed', $mode))
+        ->push(valyuResearchCompleted('dr-mode', $mode))]);
+
+    $result = app(ValyuResearchDriver::class)->run(valyuResearchRequest(options: ['mode' => $mode]));
+
+    expect(data_get($result->providerMeta, 'valyu:research.mode'))->toBe($mode);
+})->with(['fast', 'standard', 'heavy', 'max']);
+
+it('rejects a report produced by a different mode than the Profile requested', function (): void {
+    Http::fake(['https://api.valyu.ai/v1/deepresearch/tasks*' => Http::sequence()
+        ->push(valyuResearchSubmission('dr-mode', 'fast'), 202)
+        ->push(valyuResearchTask('dr-mode', 'completed', 'fast'))
+        ->push(valyuResearchCompleted('dr-mode', 'max'))]);
+
+    expect(fn () => app(ValyuResearchDriver::class)->run(valyuResearchRequest(options: ['mode' => 'fast'])))
+        ->toThrow(fn (DriverException $exception) => expect($exception->errorCode)->toBe('valyu_research.invalid_response'));
+});
+
+it('records the PDF bearer link and its expiry only when the URL is safe and states one', function (mixed $pdfUrl, array $artifact): void {
+    Http::fake(['https://api.valyu.ai/v1/deepresearch/tasks*' => Http::sequence()
+        ->push(valyuResearchSubmission('dr-pdf-private', 'standard'), 202)
+        ->push(valyuResearchTask('dr-pdf-private', 'completed', 'standard'))
+        ->push([...valyuResearchCompleted('dr-pdf-private', 'standard'), 'pdf_url' => $pdfUrl])]);
+
+    $result = app(ValyuResearchDriver::class)->run(valyuResearchRequest(options: ['output_formats' => ['markdown', 'pdf']]));
+
+    Http::assertSent(fn (Request $request): bool => $request->method() !== 'POST' || $request['output_formats'] === ['markdown', 'pdf']);
+    expect(data_get($result->providerMeta, 'valyu:research.artifacts.0'))->toBe($artifact);
+})->with([
+    'SigV4 lifetime' => [valyuPdfUrl(), ['kind' => 'pdf', 'url' => valyuPdfUrl(), 'expires_at' => '2026-09-10T13:10:00Z']],
+    'Google V4 lifetime' => [
+        'https://storage.googleapis.com/valyu/report.pdf?X-Goog-Date=20260910T120000Z&X-Goog-Expires=900&X-Goog-Signature=abc',
+        ['kind' => 'pdf', 'url' => 'https://storage.googleapis.com/valyu/report.pdf?X-Goog-Date=20260910T120000Z&X-Goog-Expires=900&X-Goog-Signature=abc', 'expires_at' => '2026-09-10T12:15:00Z'],
+    ],
+    'epoch Expires' => [
+        'https://cdn.valyu.ai/report.pdf?Expires=1789128000&Signature=abc',
+        ['kind' => 'pdf', 'url' => 'https://cdn.valyu.ai/report.pdf?Expires=1789128000&Signature=abc', 'expires_at' => '2026-09-11T12:00:00Z'],
+    ],
+    'unsigned token has no stated expiry' => [
+        'https://storage.valyu.ai/report.pdf?token=opaque',
+        ['kind' => 'pdf', 'url' => 'https://storage.valyu.ai/report.pdf?token=opaque'],
+    ],
+    'no stated expiry' => ['https://storage.valyu.ai/pdfs/report.pdf', ['kind' => 'pdf', 'url' => 'https://storage.valyu.ai/pdfs/report.pdf']],
+    'malformed signing date' => [
+        'https://storage.valyu.ai/report.pdf?X-Amz-Date=20260231T120000Z&X-Amz-Expires=60',
+        ['kind' => 'pdf', 'url' => 'https://storage.valyu.ai/report.pdf?X-Amz-Date=20260231T120000Z&X-Amz-Expires=60'],
+    ],
+    'plain HTTP withheld' => ['http://storage.valyu.ai/report.pdf', ['kind' => 'pdf']],
+    'embedded credentials withheld' => ['https://user:pass@storage.valyu.ai/report.pdf', ['kind' => 'pdf']],
+    'private task handle withheld' => ['https://storage.valyu.ai/dr-pdf-private/report.pdf', ['kind' => 'pdf']],
+    'credential withheld' => ['https://storage.valyu.ai/report.pdf?for=testing-valyu-key', ['kind' => 'pdf']],
+]);
+
+it('keeps the PDF bearer link out of captured evidence, diagnostics, and errors', function (bool $succeeds): void {
+    // Unsigned-looking, so generic URL redaction keeps it; only the Valyu capture filter removes it.
+    $pdfUrl = 'https://storage.valyu.ai/pdfs/9f2c41e7-report.pdf';
+    config()->set('services.valyu.key', 'testing-valyu-key');
+    config()->set('librarium.profiles.valyu-research.options', ['mode' => 'standard', 'output_formats' => ['markdown', 'pdf']]);
+    $completed = [...valyuResearchCompleted('dr-pdf-private', 'standard'), 'pdf_url' => $pdfUrl, 'output' => "# Report\n\nDownload: ".$pdfUrl];
+    if (! $succeeds) {
+        $completed['sources'] = 'malformed';
+    }
+    Http::fake(['https://api.valyu.ai/v1/deepresearch/tasks*' => Http::sequence()
+        ->push(valyuResearchSubmission('dr-pdf-private', 'standard'), 202)
+        ->push([...valyuResearchTask('dr-pdf-private', 'completed', 'standard'), 'pdf_url' => $pdfUrl])
+        ->push($completed)]);
+
+    $collected = Librarium::query('clinical question')->using('valyu-research')->collect();
+    $evidence = json_encode([$collected->evidence, $collected->diagnostics, $collected->response->errors], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+
+    expect($collected->evidence)->toHaveCount(3)
+        ->and($evidence)->not->toContain('9f2c41e7-report')
+        ->and($collected->evidence->last()->body)->toContain('"pdf_url":"[REDACTED]"');
+    if ($succeeds) {
+        expect(data_get($collected->response->results->sole()->providerMeta, 'valyu:research.artifacts.0.url'))->toBe($pdfUrl);
+    } else {
+        expect($collected->response->results)->toBeEmpty()
+            ->and($collected->response->errors->sole()->code)->toBe('valyu_research.invalid_response');
+    }
+})->with(['completed' => true, 'failed mapping' => false]);
+
+it('keeps max mode out of every built-in group while explicit and custom selection still work', function (string $mode, bool $grouped): void {
+    config()->set('services.valyu.key', 'testing-valyu-key');
+    config()->set('librarium.profiles.valyu-research.options.mode', $mode);
+    config()->set('librarium.profiles.valyu-research.pricing.model', "research-{$mode}");
+    config()->set('librarium.groups.custom:costly', ['valyu-research']);
+    $catalog = app(ProfileCatalog::class);
+    $ids = fn (string $group): array => $catalog->group($group)['profiles']->pluck('id')->all();
+
+    expect(in_array('valyu-research', $ids('deep'), true))->toBe($grouped)
+        ->and(in_array('valyu-research', $ids('all'), true))->toBe($grouped)
+        ->and($ids('custom:costly'))->toBe(['valyu-research'])
+        ->and($catalog->resolve(['valyu-research'])['profiles']->pluck('id')->all())->toBe(['valyu-research']);
+})->with([
+    'standard' => ['standard', true],
+    'heavy' => ['heavy', true],
+    'max' => ['max', false],
+]);
+
+it('requires the pricing identity of the configured mode', function (array $options, string $pricingModel, ?string $reason): void {
+    config()->set('services.valyu.key', 'testing-valyu-key');
+    config()->set('librarium.profiles.valyu-research.options', $options);
+    config()->set('librarium.profiles.valyu-research.pricing.model', $pricingModel);
+
+    expect(app(ProfileCatalog::class)->find('valyu-research')?->reasons)->toBe($reason === null ? [] : [$reason]);
+})->with([
+    'shipped standard' => [['mode' => 'standard'], 'research-standard', null],
+    'implicit standard' => [[], 'research-standard', null],
+    'matching max' => [['mode' => 'max'], 'research-max', null],
+    'heavy quoted as standard' => [['mode' => 'heavy'], 'research-standard', 'The pricing identity must be [valyu:research-heavy] to quote the configured research target.'],
+]);
+
 /** @return array<string, mixed> */
 function valyuResearchSubmission(string $id, string $mode): array
 {
@@ -419,7 +574,7 @@ function valyuResearchCompleted(string $id, string $mode, mixed $cost = 2.5): ar
             'title' => 'Private nested source',
             'url' => 'https://storage.valyu.ai/source?redirect%5Btoken%5D=ephemeral',
         ]],
-        'pdf_url' => 'https://storage.valyu.ai/report.pdf?token=ephemeral',
+        'pdf_url' => valyuPdfUrl(),
         'images' => [[
             'image_id' => 'image-1',
             'image_type' => 'chart',
@@ -474,4 +629,9 @@ function valyuResearchRequest(
         deadline: $deadline ?? CarbonImmutable::now()->addMinutes(20),
         progressCallback: static fn (): null => null,
     );
+}
+
+function valyuPdfUrl(): string
+{
+    return 'https://storage.valyu.ai/pdfs/report.pdf?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20260910T121000Z&X-Amz-Expires=3600&X-Amz-Signature=pdf-bearer-signature';
 }

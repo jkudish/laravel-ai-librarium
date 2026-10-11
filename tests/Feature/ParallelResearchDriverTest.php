@@ -11,6 +11,8 @@ use Jkudish\LaravelAiLibrarium\Drivers\Parallel\ParallelResearchDriver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profile;
+use Jkudish\LaravelAiLibrarium\ProfileCatalog;
+use Jkudish\LaravelAiLibrarium\ProfileOptionValidator;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
@@ -256,6 +258,7 @@ it('rejects invalid profile targets, options, input, credentials, and deadlines 
     'unsupported processor' => fn () => [parallelResearchRequest(model: 'pro-fast'), 'parallel.invalid_profile'],
     'wrong result kind' => fn () => [parallelResearchRequest(resultKind: ResultKind::GroundedAnswer), 'parallel.invalid_profile'],
     'unknown option' => fn () => [parallelResearchRequest(options: ['processor' => 'pro']), 'parallel.invalid_options'],
+    'invalid Task option' => fn () => [parallelResearchRequest(options: ['metadata' => ['nested' => ['a' => 'b']]]), 'parallel.invalid_options'],
     'invalid source' => fn () => [parallelResearchRequest(options: ['include_domains' => ['https://example.com']]), 'parallel.invalid_options'],
     'blank input' => fn () => [parallelResearchRequest(prompt: '   '), 'parallel.invalid_request'],
     'missing credential' => fn () => [parallelResearchRequest(credential: null), 'parallel.authentication'],
@@ -305,6 +308,183 @@ it('rejects credentials and private handles reflected into retained Research out
 })->with([
     'credential in report' => ['testing-parallel-key', 'content'],
     'private handle in basis' => [parallelResearchRunId(), 'basis'],
+]);
+
+it('sends every supported Task Run option with the text report schema', function (): void {
+    Http::fake(['https://api.parallel.ai/v1/tasks/runs*' => Http::sequence()
+        ->push(parallelResearchRun('queued'), 202)
+        ->push(parallelResearchRun('completed'))
+        ->push(parallelResearchResult())]);
+
+    $result = app(ParallelResearchDriver::class)->run(parallelResearchRequest(options: [
+        'include_domains' => ['.EDU'],
+        'after_date' => '2026-01-01',
+        'location' => 'gb',
+        'output_schema' => 'A short briefing with a risks section.',
+        'metadata' => ['tenant' => 'acme', 'attempt' => 2, 'priority' => 0.5, 'audited' => true],
+        'memory_scope_key' => 'acme_research-1',
+        'request_timeout_seconds' => 900,
+    ]));
+
+    Http::assertSent(fn (Request $request): bool => $request->method() === 'POST' && $request->data() === [
+        'input' => 'Research current Parallel APIs deeply.',
+        'processor' => 'pro',
+        'metadata' => ['tenant' => 'acme', 'attempt' => 2, 'priority' => 0.5, 'audited' => true],
+        'memory_scope_key' => 'acme_research-1',
+        'task_spec' => ['output_schema' => ['type' => 'text', 'description' => 'A short briefing with a risks section.']],
+        'source_policy' => ['include_domains' => ['.edu'], 'after_date' => '2026-01-01'],
+        'advanced_settings' => ['location' => 'GB'],
+    ]);
+    expect($result->contentFormat)->toBe(ContentFormat::Markdown);
+});
+
+it('requests and returns structured JSON output for a JSON Schema', function (): void {
+    $schema = [
+        'type' => 'object',
+        'properties' => ['vendors' => ['type' => 'array', 'items' => ['type' => 'string']], 'summary' => ['type' => 'string']],
+        'required' => ['vendors', 'summary'],
+        'additionalProperties' => false,
+    ];
+    Http::fake(['https://api.parallel.ai/v1/tasks/runs*' => Http::sequence()
+        ->push(parallelResearchRun('queued'), 202)
+        ->push(parallelResearchRun('completed'))
+        ->push(parallelResearchResult(output: [
+            'type' => 'json',
+            'content' => ['vendors' => ['Parallel', 'Valyu'], 'summary' => 'Two vendors.', 'notes' => []],
+            'basis' => [[
+                'field' => 'vendors',
+                'reasoning' => 'Listed on vendor sites.',
+                'confidence' => 'high',
+                'citations' => [['url' => 'https://example.com/vendors', 'title' => 'Vendors', 'excerpts' => ['Parallel and Valyu.']]],
+            ]],
+        ]))]);
+
+    $result = app(ParallelResearchDriver::class)->run(parallelResearchRequest(options: ['output_schema' => $schema]));
+
+    Http::assertSent(fn (Request $request): bool => $request->method() !== 'POST'
+        || $request['task_spec'] === ['output_schema' => ['type' => 'json', 'json_schema' => $schema]]);
+    expect($result->contentFormat)->toBe(ContentFormat::Json)
+        ->and(json_encode($result->content, JSON_THROW_ON_ERROR))->toBe('{"vendors":["Parallel","Valyu"],"summary":"Two vendors.","notes":[]}')
+        ->and($result->citations->sole()->source->url)->toBe('https://example.com/vendors')
+        ->and(data_get($result->providerMeta, 'parallel:research.basis.0.field'))->toBe('vendors');
+});
+
+it('rejects output that does not match the requested schema type', function (array $options, array $output): void {
+    Http::fake(['https://api.parallel.ai/v1/tasks/runs*' => Http::sequence()
+        ->push(parallelResearchRun('queued'), 202)
+        ->push(parallelResearchRun('completed'))
+        ->push(parallelResearchResult(output: $output))]);
+
+    expect(fn () => app(ParallelResearchDriver::class)->run(parallelResearchRequest(options: $options)))
+        ->toThrow(fn (DriverException $exception) => expect($exception->errorCode)->toBe('parallel.invalid_response'));
+})->with([
+    'text for a JSON Schema' => [['output_schema' => ['type' => 'object']], ['type' => 'text', 'content' => 'Report', 'basis' => []]],
+    'empty JSON object' => [['output_schema' => ['type' => 'object']], ['type' => 'json', 'content' => [], 'basis' => []]],
+    'JSON for a text description' => [['output_schema' => 'A report.'], ['type' => 'json', 'content' => ['a' => 1], 'basis' => []]],
+]);
+
+it('submits each listed processor and polls it until its own default deadline unless a timeout or the shared deadline is shorter', function (string $processor, array $options, int $sharedSeconds, int $expectedSeconds): void {
+    $startedAt = CarbonImmutable::now();
+    $failedAt = null;
+    $run = fn (string $status): array => [...parallelResearchRun($status), 'processor' => $processor];
+    Http::fake(function (Request $request) use ($run) {
+        if ($request->method() === 'POST') {
+            return Http::response($run('queued'), 202);
+        }
+        // Each status poll observes five minutes passing, which divides every expected deadline.
+        CarbonImmutable::setTestNow(CarbonImmutable::now()->addSeconds(300));
+
+        return Http::response($run('running'));
+    });
+
+    expect(fn () => app(ParallelResearchDriver::class)->run(parallelResearchRequest(
+        model: $processor,
+        options: $options,
+        deadline: $startedAt->addSeconds($sharedSeconds),
+    )))->toThrow(function (DriverException $exception) use (&$failedAt): void {
+        $failedAt = CarbonImmutable::now();
+        expect($exception->errorCode)->toBe('parallel.deadline_exceeded');
+    });
+
+    expect((int) $startedAt->diffInSeconds($failedAt))->toBe($expectedSeconds);
+    Http::assertSent(fn (Request $request): bool => $request->method() !== 'POST'
+        || ($request['processor'] === $processor && ! array_key_exists('request_timeout_seconds', $request->data())));
+})->with([
+    'lite' => ['lite', [], 86400, 1800],
+    'base' => ['base', [], 86400, 1800],
+    'core' => ['core', [], 86400, 1800],
+    'core2x' => ['core2x', [], 86400, 1800],
+    'pro' => ['pro', [], 86400, 1800],
+    'ultra' => ['ultra', [], 86400, 2700],
+    'ultra2x' => ['ultra2x', [], 86400, 4500],
+    'ultra4x' => ['ultra4x', [], 86400, 8100],
+    'ultra8x' => ['ultra8x', [], 86400, 10800],
+    'explicit timeout below the default' => ['ultra8x', ['request_timeout_seconds' => 600], 86400, 600],
+    'explicit timeout above the default' => ['lite', ['request_timeout_seconds' => 3600], 86400, 3600],
+    'shared deadline caps the default' => ['ultra', [], 1200, 1200],
+]);
+
+it('accepts every documented processor and rejects delisted ones', function (?string $processor, bool $valid): void {
+    Http::fake(['https://api.parallel.ai/v1/tasks/runs*' => Http::response([...parallelResearchRun('queued'), 'processor' => $processor], 202)]);
+    Sleep::whenFakingSleep(static function (): void {
+        throw new RuntimeException('submitted');
+    });
+
+    expect(fn () => app(ParallelResearchDriver::class)->run(parallelResearchRequest(model: $processor)))
+        ->toThrow($valid ? RuntimeException::class : DriverException::class, $valid ? 'submitted' : null);
+    Http::assertSentCount($valid ? 1 : 0);
+})->with([
+    'lite' => ['lite', true],
+    'core2x' => ['core2x', true],
+    'ultra4x' => ['ultra4x', true],
+    'delisted pro-fast' => ['pro-fast', false],
+    'delisted ultra-fast' => ['ultra-fast', false],
+    'unknown ultra16x' => ['ultra16x', false],
+    'missing' => [null, false],
+]);
+
+it('validates Research options through the shared Profile validator', function (array $options, bool $valid): void {
+    expect(app(ProfileOptionValidator::class)->errors(ParallelResearchDriver::class, $options) === [])->toBe($valid);
+})->with([
+    'all supported options' => [[
+        'include_domains' => ['example.com/docs'],
+        'exclude_domains' => ['.ai'],
+        'after_date' => '2026-02-28',
+        'location' => 'US',
+        'output_schema' => ['type' => 'object'],
+        'metadata' => ['sixteen_chars_ok' => str_repeat('x', 512)],
+        'memory_scope_key' => str_repeat('k', 128),
+        'request_timeout_seconds' => 86400,
+    ], true],
+    'impossible date' => [['after_date' => '2026-02-30'], false],
+    'metadata key over 16 characters' => [['metadata' => ['seventeen_chars_x' => 'v']], false],
+    'metadata string over 512 characters' => [['metadata' => ['note' => str_repeat('x', 513)]], false],
+    'nested metadata' => [['metadata' => ['nested' => ['a' => 'b']]], false],
+    'metadata list' => [['metadata' => ['a', 'b']], false],
+    'empty metadata' => [['metadata' => []], false],
+    'memory scope key with spaces' => [['memory_scope_key' => 'tenant one'], false],
+    'memory scope key over 128 characters' => [['memory_scope_key' => str_repeat('k', 129)], false],
+    'blank memory scope key' => [['memory_scope_key' => ''], false],
+    'blank output description' => [['output_schema' => ' '], false],
+    'list output schema' => [['output_schema' => ['object']], false],
+    'string timeout' => [['request_timeout_seconds' => '600'], false],
+    'zero timeout' => [['request_timeout_seconds' => 0], false],
+    'processor is the Profile model' => [['processor' => 'ultra'], false],
+]);
+
+it('requires the pricing identity of the configured processor', function (string $processor, string $pricingModel, bool $eligible): void {
+    config()->set('services.parallel.key', 'testing-parallel-key');
+    config()->set('librarium.profiles.parallel-research.model', $processor);
+    config()->set('librarium.profiles.parallel-research.pricing.model', $pricingModel);
+
+    $availability = app(ProfileCatalog::class)->find('parallel-research');
+
+    expect($availability?->isEligible())->toBe($eligible)
+        ->and($availability?->reasons)->toBe($eligible ? [] : ["The pricing identity must be [parallel:research-{$processor}] to quote the configured research target."]);
+})->with([
+    'shipped pro' => ['pro', 'research-pro', true],
+    'matching ultra8x' => ['ultra8x', 'research-ultra8x', true],
+    'ultra quoted as pro' => ['ultra', 'research-pro', false],
 ]);
 
 /** @return array<string, mixed> */

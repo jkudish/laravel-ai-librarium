@@ -157,8 +157,8 @@ Public recovery currently supports:
 | `gemini-deep-research` | Gemini interaction | `GET /interactions/{id}` |
 | `perplexity-deep-research` | Perplexity managed `medium` Agent run | `GET /v1/agent/{id}` |
 | `perplexity-sonar-deep` | Perplexity managed `high` Agent run | `GET /v1/agent/{id}` |
-| `parallel-research` | Parallel `pro` task run | `GET /v1/tasks/runs/{id}` and, only after completion, its result GET |
-| `valyu-research` | Valyu `standard` research task | `GET /v1/deepresearch/tasks/{id}/status` |
+| `parallel-research` | Parallel task run on the configured processor (default `pro`) | `GET /v1/tasks/runs/{id}` and, only after completion, its result GET |
+| `valyu-research` | Valyu research task in the configured mode (default `standard`) | `GET /v1/deepresearch/tasks/{id}/status` |
 | `dataforseo-chatgpt` | DataForSEO ChatGPT Standard task | One known-task GET |
 | `dataforseo-gemini` | DataForSEO Gemini Standard task | One known-task GET |
 | `dataforseo-google-ai-mode` | DataForSEO Google AI Mode Standard task | One known-task GET |
@@ -193,8 +193,8 @@ unknown options fail preflight instead of being ignored.
 | Jina Search | `services.jina.key` / suggested `JINA_API_KEY` | Captured | No | fixed search binding |
 | SerpAPI | `services.serpapi.key` / suggested `SERPAPI_API_KEY` | Captured | No | fixed Google search binding |
 | SerpBase Search/News | `services.serpbase.key` / `SERPBASE_API_KEY` | Captured | No | one page/request; `hl`, `gl`, and `page`; Search-only `device` and opt-in bounded rich text |
-| Parallel Search/Research | `services.parallel.key` / suggested `PARALLEL_API_KEY` | Captured | `parallel-research` | managed or exact search mode, query/result/fetch limits, location/source policy; Research fixed to `pro` with location/domain policy |
-| Valyu Search/Research | `services.valyu.key` / suggested `VALYU_API_KEY` | Captured | `valyu-research` | search type/result/price/relevance/date/country/source controls; Research fixed to `standard` with source/date/country policy |
+| Parallel Search/Research | `services.parallel.key` / suggested `PARALLEL_API_KEY` | Captured | `parallel-research` | managed or exact search mode, query/result/fetch limits, location/source policy; Research processor `lite` through `ultra8x` (default `pro`) with location/domain/date policy, output schema, metadata, memory scope, and deadline ([details](parallel-valyu-research.md)) |
+| Valyu Search/Research | `services.valyu.key` / suggested `VALYU_API_KEY` | Captured | `valyu-research` | search type/result/price/relevance/date/country/source controls; Research modes `fast`/`standard`/`heavy`/`max` (default `standard`), PDF output, source/date/country policy, and deadline ([details](parallel-valyu-research.md)) |
 | DataForSEO surface Profiles | `librarium.providers.dataforseo.login/password` / `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` | Captured | three Standard task Profiles | required location/language plus supported device, OS, and web-search controls |
 
 Applications with a previously published `librarium.php` must add an explicit

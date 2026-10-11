@@ -32,6 +32,24 @@ final readonly class DriverRequest
         private ?Closure $partialCaptureCallback = null,
     ) {}
 
+    /** Returns this request with its deadline shortened to at most the given number of seconds from now. */
+    public function withinSeconds(int $seconds): self
+    {
+        $deadline = CarbonImmutable::now()->addSeconds($seconds);
+
+        return $deadline->greaterThanOrEqualTo($this->deadline) ? $this : new self(
+            requestId: $this->requestId,
+            requestedProfile: $this->requestedProfile,
+            profile: $this->profile,
+            prompt: $this->prompt,
+            deadline: $deadline,
+            progressCallback: $this->progressCallback,
+            responseCallback: $this->responseCallback,
+            noResponseCallback: $this->noResponseCallback,
+            partialCaptureCallback: $this->partialCaptureCallback,
+        );
+    }
+
     public function progress(string $message): void
     {
         $progress = Str::of($message)

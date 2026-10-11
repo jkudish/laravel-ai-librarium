@@ -52,7 +52,12 @@ final readonly class ParallelOptions
             'include_domains.*' => ['required', 'string', 'max:253', self::sourceRule(true)],
             'exclude_domains' => ['sometimes', 'array', 'list', 'min:1', 'max:200'],
             'exclude_domains.*' => ['required', 'string', 'max:253', self::sourceRule(true)],
+            'after_date' => ['sometimes', 'date_format:Y-m-d'],
             'location' => ['sometimes', 'string', self::locationRule()],
+            'output_schema' => ['sometimes', 'filled', self::outputSchemaRule()],
+            'metadata' => ['sometimes', 'array', self::metadataRule()],
+            'memory_scope_key' => ['sometimes', 'filled', 'string', 'regex:/^[A-Za-z0-9_-]{1,128}$/D'],
+            'request_timeout_seconds' => ['sometimes', 'integer:strict', 'min:1', 'max:86400'],
         ];
     }
 
@@ -127,6 +132,34 @@ final readonly class ParallelOptions
                 $fail($allowPath
                     ? 'The :attribute field must be a domain, domain path, or bare extension.'
                     : 'The :attribute field must be a domain or bare extension.');
+            }
+        };
+    }
+
+    /** A text description keeps the Markdown report; a JSON Schema object requests a JSON result. */
+    private static function outputSchemaRule(): Closure
+    {
+        return static function (string $attribute, mixed $value, Closure $fail): void {
+            $valid = is_string($value)
+                ? trim($value) !== ''
+                : is_array($value) && $value !== [] && ! array_is_list($value);
+            if (! $valid) {
+                $fail('The :attribute field must be a text description or a JSON Schema object.');
+            }
+        };
+    }
+
+    /** Parallel stores metadata keys of up to 16 characters with scalar values; strings may hold 512 characters. */
+    private static function metadataRule(): Closure
+    {
+        return static function (string $attribute, mixed $value, Closure $fail): void {
+            $valid = is_array($value) && $value !== [] && ! array_is_list($value)
+                && array_all($value, static fn (mixed $item, int|string $key): bool => is_string($key)
+                    && $key !== '' && mb_strlen($key) <= 16
+                    && (is_bool($item) || is_int($item) || (is_float($item) && is_finite($item))
+                        || (is_string($item) && mb_strlen($item) <= 512)));
+            if (! $valid) {
+                $fail('The :attribute field must map keys of at most 16 characters to scalar values.');
             }
         };
     }

@@ -54,6 +54,26 @@ First stable release.
   reason, because SearchAPI withdrew its `perplexity` engine without a
   replacement. A copy left in a published configuration is reported
   unavailable and never sent.
+- `parallel-research` accepts every processor Parallel lists, from `lite`
+  through `ultra8x`. The default stays `pro`, and the delisted `-fast`
+  processors are rejected. Each processor has its own default polling
+  deadline, from 30 minutes to 180 minutes. Research also accepts
+  `after_date`, `output_schema` (a text description, or a JSON Schema for a
+  JSON result), `metadata`, and `memory_scope_key`, using the TypeScript
+  option names. See `docs/parallel-valyu-research.md` for prices and the
+  Task Run parameters left out, with reasons.
+- `valyu-research` accepts the `fast`, `standard` (default), `heavy`, and
+  `max` modes, each with a default deadline sized from Valyu's documented
+  runtimes, and PDF output. A Profile configured for `max` is never a member
+  of the built-in `deep` or `all` groups.
+- Parallel and Valyu research Profiles accept `request_timeout_seconds`, which
+  replaces the processor or mode default; the shared research deadline still
+  caps it. A Profile whose pricing identity does not match its processor or
+  mode is reported unavailable instead of being quoted at another price.
+- The Valyu PDF artifact keeps the signed `pdf_url` bearer link, plus
+  `expires_at` when the signed URL states an expiry. The driver strips the link
+  from captured provider responses, so redacted evidence, sensitive
+  collections, diagnostics, and errors never contain it.
 - Exa Research preserves API-output observation provenance across synchronous
   and durable results and validates explicit native run budgets from $1
   through $100.

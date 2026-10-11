@@ -641,12 +641,12 @@ and provenance semantics.
 
 - **Workflow:** deep
 - **Semantics:** research_report; required; api_output; web; research_agent/direct; parallel
-- **Target:** configurable preset `pro`
+- **Target:** configurable processor `lite` through `ultra8x`, default `pro` ([details](parallel-valyu-research.md))
 - **PHP path:** #3604 core parity; provider implementation #2844
 - **Binding:** Parallel task-run submit, poll, and result APIs
 - **Execution:** background/durable; poll then retrieve
 - **Terminal:** HTTP report
-- **Pricing:** fixed successful processor-request units quoted through `laravel-ai-pricing`
+- **Pricing:** fixed successful processor-request units quoted through `laravel-ai-pricing` under `parallel:research-<processor>`
 - **Test and proof:** Durable fake with ambiguous-submit no-retry; D + L
 
 ### `valyu/search`
@@ -665,12 +665,12 @@ and provenance semantics.
 
 - **Workflow:** deep
 - **Semantics:** research_report; required; api_output; web+specialized; research_agent/direct; valyu
-- **Target:** configurable preset `standard`
+- **Target:** configurable mode `fast`, `standard`, `heavy`, or `max`, default `standard`; `max` is never a built-in group member
 - **PHP path:** #3604 core parity; provider implementation #2845
 - **Binding:** Valyu deep-research tasks API
 - **Execution:** background/durable; only accepted Profile advertising exact-profile remote cancellation
 - **Terminal:** HTTP report
-- **Pricing:** standard base plus explicit optional units quoted through `laravel-ai-pricing`
+- **Pricing:** mode base plus explicit optional units quoted through `laravel-ai-pricing` under `valyu:research-<mode>`
 - **Test and proof:** Durable fake with private best-effort cancellation and ambiguous-submit no-retry; D + L
 
 ## #3650 SerpBase: landed parity Profiles (2)
