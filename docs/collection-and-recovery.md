@@ -194,7 +194,7 @@ unknown options fail preflight instead of being ignored.
 | SerpAPI | `services.serpapi.key` / suggested `SERPAPI_API_KEY` | Captured | No | fixed Google search binding |
 | SerpBase Search/News | `services.serpbase.key` / `SERPBASE_API_KEY` | Captured | No | one page/request; `hl`, `gl`, and `page`; Search-only `device` and opt-in bounded rich text |
 | Parallel Search/Research | `services.parallel.key` / suggested `PARALLEL_API_KEY` | Captured | `parallel-research` | managed or exact search mode, query/result/fetch limits, location/source policy; Research processor `lite` through `ultra8x` (default `pro`) with location/domain/date policy, output schema, metadata, memory scope, and deadline ([details](parallel-valyu-research.md)) |
-| Valyu Search/Research | `services.valyu.key` / suggested `VALYU_API_KEY` | Captured | `valyu-research` | search type/result/price/relevance/date/country/source controls; Research modes `fast`/`standard`/`heavy`/`max` (default `standard`), PDF output, source/date/country policy, and deadline ([details](parallel-valyu-research.md)) |
+| Valyu Search/Research | `services.valyu.key` / suggested `VALYU_API_KEY` | Captured | `valyu-research` | search type/result/price/relevance/date/country/source controls; Research modes `fast`/`standard`/`heavy`/`max` (default `standard`), PDF output by default, source/date/country policy, and deadline ([details](parallel-valyu-research.md)) |
 | DataForSEO surface Profiles | `librarium.providers.dataforseo.login/password` / `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` | Captured | three Standard task Profiles | required location/language plus supported device, OS, and web-search controls |
 
 Applications with a previously published `librarium.php` must add an explicit

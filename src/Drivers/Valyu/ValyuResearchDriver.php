@@ -66,6 +66,9 @@ final readonly class ValyuResearchDriver implements DurableDriver
     /** Valyu bills PDF output inside the fixed task price; it is not a deliverable. */
     private const array OUTPUT_FORMATS = [['markdown'], ['markdown', 'pdf']];
 
+    /** The signed PDF link is exposed by default; ['markdown'] opts out. */
+    private const array DEFAULT_OUTPUT_FORMATS = ['markdown', 'pdf'];
+
     private const array COUNTRY_CODES = [
         'ALL', 'AR', 'AU', 'AT', 'BE', 'BR', 'CA', 'CL', 'DK', 'FI', 'FR', 'DE', 'HK', 'IN', 'ID', 'IT', 'JP', 'KR',
         'MY', 'MX', 'NL', 'NZ', 'NO', 'CN', 'PL', 'PT', 'PH', 'RU', 'SA', 'ZA', 'ES', 'SE', 'CH', 'TW', 'TR', 'GB', 'US',
@@ -232,7 +235,7 @@ final readonly class ValyuResearchDriver implements DurableDriver
                 $validator->errors()->add('options.report_format', 'Research strategy and report format are too long.');
             }
 
-            if (! in_array($options['output_formats'] ?? ['markdown'], self::OUTPUT_FORMATS, true)) {
+            if (! in_array($options['output_formats'] ?? self::DEFAULT_OUTPUT_FORMATS, self::OUTPUT_FORMATS, true)) {
                 $validator->errors()->add('options.output_formats', 'The output formats are invalid.');
             }
 
@@ -385,7 +388,7 @@ final readonly class ValyuResearchDriver implements DurableDriver
         $payload = [
             'query' => $request->prompt,
             'mode' => $this->mode($request),
-            'output_formats' => $options['output_formats'] ?? ['markdown'],
+            'output_formats' => $options['output_formats'] ?? self::DEFAULT_OUTPUT_FORMATS,
         ];
 
         foreach (['research_strategy', 'report_format', 'urls'] as $key) {

@@ -67,8 +67,9 @@ First stable release.
   Task Run parameters left out, with reasons.
 - `valyu-research` accepts the `fast`, `standard` (default), `heavy`, and
   `max` modes, each with a default deadline sized from Valyu's documented
-  runtimes, and PDF output. A Profile configured for `max` is never a member
-  of the built-in `deep` or `all` groups.
+  runtimes. It requests Markdown plus PDF output by default; `output_formats:
+  ['markdown']` opts out of the PDF. A Profile configured for `max` is never a
+  member of the built-in `deep` or `all` groups.
 - Parallel and Valyu research Profiles accept `request_timeout_seconds`, which
   replaces the processor or mode default; the shared research deadline still
   caps it. A Profile whose pricing identity does not match its processor or

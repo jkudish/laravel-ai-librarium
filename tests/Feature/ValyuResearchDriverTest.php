@@ -121,7 +121,7 @@ it('submits, polls a known handle, retrieves twice, and maps a durable specializ
         ->not->toContain('cost_breakdown');
 });
 
-it('uses standard all-corpus defaults and invents no unavailable price', function (): void {
+it('uses standard all-corpus defaults with the PDF link and invents no unavailable price', function (): void {
     Http::fake(['https://api.valyu.ai/v1/deepresearch/tasks*' => Http::sequence()
         ->push(valyuResearchSubmission('dr-default', 'standard'), 202)
         ->push(valyuResearchTask('dr-default', 'completed', 'standard'))
@@ -132,7 +132,7 @@ it('uses standard all-corpus defaults and invents no unavailable price', functio
     Http::assertSent(fn (Request $request): bool => $request->method() !== 'POST' || $request->data() === [
         'query' => 'clinical question',
         'mode' => 'standard',
-        'output_formats' => ['markdown'],
+        'output_formats' => ['markdown', 'pdf'],
     ]);
     expect($result->provenance->corpora->all())->toBe([Corpus::Web, Corpus::Specialized])
         ->and($result->usage)->toBeNull();

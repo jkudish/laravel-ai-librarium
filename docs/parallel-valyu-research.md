@@ -99,8 +99,9 @@ Valyu prices each task at a fixed amount per mode.
 the built-in `deep` and `all` groups and runs only when selected by ID or
 through a custom group.
 
-`options.output_formats` is `['markdown']` (default) or `['markdown', 'pdf']`.
-Valyu's pricing states that PDF output is not a billed deliverable.
+`options.output_formats` is `['markdown', 'pdf']` (default, so the signed PDF
+link is exposed) or `['markdown']` to opt out of the PDF. Valyu's pricing
+states that PDF output is not a billed deliverable.
 `options.request_timeout_seconds` (1–86400) replaces the mode's default
 deadline.
 
