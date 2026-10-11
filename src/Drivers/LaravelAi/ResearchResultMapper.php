@@ -29,6 +29,9 @@ use stdClass;
 /** @internal */
 final readonly class ResearchResultMapper
 {
+    /** The Usage contract's largest count (the JSON-safe integer maximum). */
+    private const int MAX_SAFE_INTEGER = 9_007_199_254_740_991;
+
     public function map(
         AgentResponse $response,
         DriverRequest|RecoveryRequest $request,
@@ -293,7 +296,7 @@ final readonly class ResearchResultMapper
                 return null;
             }
 
-            if ($value > PHP_INT_MAX - $total) {
+            if ($value > self::MAX_SAFE_INTEGER - $total) {
                 return null;
             }
 
@@ -316,8 +319,9 @@ final readonly class ResearchResultMapper
      *
      * Like every metered count here, the result is all-or-nothing: a value
      * that is not a list, an entry without a string type, a google_search
-     * entry without a nonnegative integer count, or a sum that cannot be
-     * represented exactly returns null rather than a partial count. An
+     * entry without a nonnegative integer count (a present null is
+     * malformed, not absent), or a sum above the Usage contract's
+     * 9,007,199,254,740,991 maximum returns null rather than a partial count. An
      * empty list, or one without google_search entries, is a reported zero.
      */
     public static function googleSearchQueries(mixed $counts): ?int
@@ -337,10 +341,10 @@ final readonly class ResearchResultMapper
                 continue;
             }
 
-            $count = $entry['count'] ?? null;
-            $value = $entry['search_query_count'] ?? $count;
+            $reported = array_values(array_intersect_key($entry, ['count' => true, 'search_query_count' => true]));
+            $value = $reported[0] ?? null;
 
-            if (! is_int($value) || $value < 0 || ($count !== null && $count !== $value) || $value > PHP_INT_MAX - $total) {
+            if (! is_int($value) || $value < 0 || (array_key_exists(1, $reported) && $reported[1] !== $value) || $value > self::MAX_SAFE_INTEGER - $total) {
                 return null;
             }
 

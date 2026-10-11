@@ -119,6 +119,8 @@ it('counts only reported Google Search grounding queries and fails closed otherw
     'no search entries is a reported zero' => [[['type' => 'google_maps', 'count' => 9]], 0],
     'empty list is a reported zero' => [[], 0],
     'counts that disagree' => [[['type' => 'google_search', 'count' => 3, 'search_query_count' => 5]], null],
+    'present null count beside a query count' => [[['type' => 'google_search', 'count' => null, 'search_query_count' => 24]], null],
+    'present null query count beside a count' => [[['type' => 'google_search', 'count' => 24, 'search_query_count' => null]], null],
     'search entry without a count' => [[['type' => 'google_search']], null],
     'string count' => [[['type' => 'google_search', 'count' => '24']], null],
     'negative count' => [[['type' => 'google_search', 'count' => -1]], null],
@@ -126,7 +128,9 @@ it('counts only reported Google Search grounding queries and fails closed otherw
     'one malformed entry poisons the sum' => [[['type' => 'google_search', 'count' => 3], 'oops'], null],
     'map instead of list' => [['google_search' => 24], null],
     'not an array' => ['24', null],
-    'overflow' => [[['type' => 'google_search', 'count' => PHP_INT_MAX], ['type' => 'google_search', 'count' => 1]], null],
+    'Usage contract maximum' => [[['type' => 'google_search', 'count' => 9_007_199_254_740_991]], 9_007_199_254_740_991],
+    'above the Usage contract maximum' => [[['type' => 'google_search', 'count' => 9_007_199_254_740_992]], null],
+    'sum crossing the Usage contract maximum' => [[['type' => 'google_search', 'count' => 9_007_199_254_740_991], ['type' => 'google_search', 'count' => 1]], null],
 ]);
 
 it('leaves the Gemini search count unknown when grounding_tool_count is absent or malformed', function (array $usage): void {
