@@ -74,7 +74,7 @@ it('runs one explicitly approved provider-parity canary', function (
 
     $result = $run->result($source);
 
-    expect($run->status())->toBe('completed')
+    expect($run->status())->toBe('done')
         ->and($run->toArray()['depth'])->toBe($depth)
         ->and($result['provenance']['variant'])->toBe($profile)
         ->and($result['provenance']['provider'])->toBe($provider)

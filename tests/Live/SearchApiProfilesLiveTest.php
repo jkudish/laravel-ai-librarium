@@ -21,7 +21,7 @@ it('runs a live SearchAPI query through each profile', function (string $profile
         ->run();
     $result = $run->result($source);
 
-    expect($run->status())->toBe('completed')
+    expect($run->status())->toBe('done')
         ->and($result['source'])->toBe($source)
         ->and($result['provenance']['variant'])->toBe($profile)
         ->and($run->evidence($source))->not->toBeEmpty();

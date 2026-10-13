@@ -32,7 +32,7 @@ it('runs one explicitly approved DataForSEO surface canary', function (string $p
 
     $result = $run->result($engine);
 
-    expect($run->status())->toBe('completed')
+    expect($run->status())->toBe('done')
         ->and($result['source'])->toBe($engine)
         ->and($result['provenance']['variant'])->toBe($profile)
         ->and($result['provenance']['provider'])->toBe('dataforseo')

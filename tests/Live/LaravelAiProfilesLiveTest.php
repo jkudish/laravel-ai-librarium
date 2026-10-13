@@ -17,7 +17,7 @@ it('runs a live grounded query through each Laravel AI Profile', function (strin
 
     $result = $run->result($source);
 
-    expect($run->status())->toBe('completed')
+    expect($run->status())->toBe('done')
         ->and($run->toArray()['results'])->toHaveCount(1)
         ->and($result['provenance']['provider'])->toBe($provider)
         ->and($result['provenance']['variant'])->toBe($profile)

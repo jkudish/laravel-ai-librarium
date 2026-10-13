@@ -25,7 +25,7 @@ it('runs one live OpenAI background research request', function (): void {
         ->run();
     $result = $run->result('openai');
 
-    expect($run->status())->toBe('completed')
+    expect($run->status())->toBe('done')
         ->and($run->toArray()['depth'])->toBe('deep')
         ->and($result['provenance']['provider'])->toBe('openai')
         ->and($result['provenance']['variant'])->toBe('openai-research')

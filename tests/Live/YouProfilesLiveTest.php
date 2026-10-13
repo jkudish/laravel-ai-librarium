@@ -43,7 +43,7 @@ it('runs an explicitly funded You.com canary', function (
     $run = $pending->maxCost($estimate)->run();
     $result = $run->result('you');
 
-    expect($run->status())->toBe('completed')
+    expect($run->status())->toBe('done')
         ->and($result['provenance']['variant'])->toBe($profile)
         ->and($result['provenance']['provider'])->toBe($provider)
         ->and($result['citations'])->not->toBeEmpty();
