@@ -2,11 +2,14 @@
 
 declare(strict_types=1);
 
+use Illuminate\Contracts\Container\Container;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
 use Jkudish\LaravelAiLibrarium\Contracts\RunStore;
+use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\Spec;
 use Jkudish\LaravelAiLibrarium\StoredRun;
 use Jkudish\LaravelAiLibrarium\Stores\CacheRunStore;
@@ -29,6 +32,25 @@ it('passes the shared store contract', function (string $driver): void {
     };
     (new StoreContract($store))->assertRunStoreContract();
 })->with(['memory', 'cache', 'filesystem', 'encrypted', 'database']);
+
+it('stores and finds queued Runs through registered and class-name stores', function (string $registration): void {
+    Bus::fake();
+    config(['librarium.runs.store' => $registration === 'class' ? MemoryRunStore::class : 'custom', 'librarium.runs.marker' => 'factory-config']);
+    if ($registration === 'extension') {
+        Librarium::extendStore('custom', function (Container $app, array $settings): RunStore {
+            expect($settings['marker'])->toBe('factory-config');
+
+            return $app->make(MemoryRunStore::class);
+        });
+    }
+    $queued = Librarium::research('Stored with a custom registration')->deep()->only(['openai'])->queue();
+    $id = $queued->id();
+    unset($queued);
+    $run = Librarium::find($id);
+    expect($run)->not->toBeNull()->and($run->status())->toBe('running')
+        ->and($run->toArray()['question'])->toBe('Stored with a custom registration')
+        ->and($run->result('openai')['status'])->toBe('queued');
+})->with(['extension', 'class']);
 
 it('reads the shared unencrypted filesystem folder', function (): void {
     $disk = Storage::fake('interop');
