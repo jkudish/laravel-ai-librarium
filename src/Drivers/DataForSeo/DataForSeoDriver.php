@@ -13,7 +13,7 @@ use Illuminate\Support\Sleep;
 use Illuminate\Support\Str;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
 use Jkudish\LaravelAiLibrarium\Contracts\DefinesSpendingBound;
-use Jkudish\LaravelAiLibrarium\Contracts\DurableDriver;
+use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profile;
@@ -31,7 +31,7 @@ use Jkudish\LaravelAiPricing\ValueObjects\Usage as PricingUsage;
  * Standard submission is intentionally never retried. Its private task ID is
  * used only for bounded retrieval polling during this process.
  */
-final readonly class DataForSeoDriver implements DefinesSpendingBound, DurableDriver
+readonly class DataForSeoDriver implements DefinesSpendingBound, Driver
 {
     private const string ORIGIN = 'https://api.dataforseo.com';
 

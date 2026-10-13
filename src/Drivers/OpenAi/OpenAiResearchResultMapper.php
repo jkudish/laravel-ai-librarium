@@ -9,6 +9,7 @@ use Illuminate\Support\Collection;
 use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\ResearchResultMapper;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
+use Jkudish\LaravelAiLibrarium\Recovery\RecoveryRequest;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 use Jkudish\LaravelAiLibrarium\Responses\Usage as ResearchUsage;
 use Laravel\Ai\Responses\AgentResponse;
@@ -31,7 +32,7 @@ final readonly class OpenAiResearchResultMapper
     public function __construct(private ResearchResultMapper $results) {}
 
     /** @param array<array-key, mixed> $response */
-    public function map(array $response, DriverRequest $request): ResearchResult
+    public function map(array $response, DriverRequest|RecoveryRequest $request): ResearchResult
     {
         $reported = $this->reportedUsage($response);
         $result = $this->results->map(
@@ -58,7 +59,7 @@ final readonly class OpenAiResearchResultMapper
     }
 
     /** @param array<array-key, mixed> $response */
-    public function toAgentResponse(array $response, DriverRequest $request): AgentResponse
+    public function toAgentResponse(array $response, DriverRequest|RecoveryRequest $request): AgentResponse
     {
         return $this->agentResponse($response, $request, $this->reportedUsage($response));
     }
@@ -67,7 +68,7 @@ final readonly class OpenAiResearchResultMapper
      * @param  array<array-key, mixed>  $response
      * @param  ReportedUsage|null  $usage
      */
-    private function agentResponse(array $response, DriverRequest $request, ?array $usage): AgentResponse
+    private function agentResponse(array $response, DriverRequest|RecoveryRequest $request, ?array $usage): AgentResponse
     {
         $parts = $this->outputTextParts($response);
         $citations = $this->citations($response);

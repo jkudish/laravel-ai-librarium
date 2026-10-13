@@ -10,7 +10,6 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
 use Jkudish\LaravelAiLibrarium\Profile;
-use Jkudish\LaravelAiLibrarium\ResearchPlan;
 use Throwable;
 
 final readonly class ResponseRedactor
@@ -30,11 +29,6 @@ final readonly class ResponseRedactor
         private ConfigRepository $config,
         private ValidationFactory $validator,
     ) {}
-
-    public function prepare(ResearchPlan $plan): RedactionPolicy
-    {
-        return $this->prepareProfiles($plan->preview->profiles->concat($plan->preview->fallbacks));
-    }
 
     /** @param Collection<int, Profile> $profiles */
     public function prepareProfiles(Collection $profiles): RedactionPolicy

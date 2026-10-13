@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
-use Jkudish\LaravelAiLibrarium\Facades\Librarium;
+use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\ProfileCatalog;
 use Jkudish\LaravelAiLibrarium\SpendingBoundKind;
 use Laravel\Ai\Ai;
@@ -85,11 +85,9 @@ function openRouterControlsCompletion(): array
 it('sends the shipped Sonnet 5.5 effort, adaptive thinking and max_tokens and reads the answer around thinking blocks', function (): void {
     Http::fake(['https://api.anthropic.com/v1/messages' => Http::response(sonnet55Message())]);
 
-    $response = Librarium::query('What is Laravel AI?')->using('claude-chat')->run();
-    $result = $response->results->sole();
+    $result = variantRun('claude-chat', 'What is Laravel AI?');
 
-    expect($response->status->value)->toBe('succeeded')
-        ->and($result->model)->toBe('claude-sonnet-5-5')
+    expect($result->model)->toBe('claude-sonnet-5-5')
         ->and($result->content)->toBe('Laravel AI ships a first-party SDK.')
         ->and($result->citations->map(fn ($citation): ?string => $citation->source->url)->all())->toBe(['https://example.com/laravel-ai'])
         ->and($result->usage?->serverToolSearchRequests)->toBe(1);
@@ -118,7 +116,7 @@ it('sends configured Claude controls, including between_tools thinking at high e
     ]);
     Http::fake(['https://api.anthropic.com/v1/messages' => Http::response(sonnet55Message())]);
 
-    Librarium::query('What is Laravel AI?')->using('claude-chat')->run();
+    variantRun('claude-chat', 'What is Laravel AI?');
 
     Http::assertSent(fn (Request $request): bool => $request['thinking'] === ['type' => 'between_tools']
         && $request['output_config'] === ['effort' => 'low']
@@ -132,11 +130,11 @@ it('fails a Sonnet 5.5 refusal instead of returning its text as an answer', func
         'stop_details' => ['type' => 'refusal', 'category' => 'cyber'],
     ]))]);
 
-    $response = Librarium::query('What is Laravel AI?')->using('claude-chat')->run();
+    $run = variantResearch('claude-chat', 'What is Laravel AI?')->run();
 
-    expect($response->status->value)->toBe('failed')
-        ->and($response->results)->toBeEmpty()
-        ->and($response->errors->sole()->code)->toBe('laravel_ai.refused');
+    expect($run->status())->toBe('failed')
+        ->and($run->result('probe')['answer'])->toBeNull()
+        ->and($run->result('probe')['error']['code'])->toBe('laravel_ai.refused');
     Http::assertSentCount(1);
 });
 
@@ -144,10 +142,8 @@ it('rejects Claude controls the provider or model cannot honor before any reques
     config()->set("librarium.profiles.{$profile}.options", $options);
     Http::fake();
 
-    $response = Librarium::query('What is Laravel AI?')->using($profile)->run();
-
-    expect($response->errors->sole()->code)->toBe('laravel_ai.invalid_options')
-        ->and($response->errors->sole()->message)->toContain($message);
+    expect(fn () => variantRun($profile, 'What is Laravel AI?'))
+        ->toThrow(DriverException::class, $message);
     Http::assertNothingSent();
 })->with([
     'between_tools at xhigh' => ['claude-chat', ['web_search' => true, 'effort' => 'xhigh', 'thinking' => 'between_tools'], 'between_tools'],
@@ -174,7 +170,7 @@ it('makes a Profile unavailable for Claude and OpenRouter controls outside the s
 it('keeps exact OpenRouter routing and the model reasoning default when no control is configured', function (): void {
     Http::fake(['https://openrouter.ai/api/v1/chat/completions' => Http::response(openRouterControlsCompletion())]);
 
-    Librarium::query('Default routing.')->using('openrouter-chat')->run();
+    variantRun('openrouter-chat', 'Default routing.');
 
     Http::assertSent(fn (Request $request): bool => $request['model'] === 'openai/gpt-6-luna'
         && $request['provider'] === ['require_parameters' => true, 'allow_fallbacks' => false]
@@ -194,9 +190,9 @@ it('sends configured OpenRouter routing, privacy and reasoning controls', functi
     ]);
     Http::fake(['https://openrouter.ai/api/v1/chat/completions' => Http::response(openRouterControlsCompletion())]);
 
-    $response = Librarium::query('Private routing.')->using('openrouter-chat')->run();
+    $response = variantRun('openrouter-chat', 'Private routing.');
 
-    expect($response->status->value)->toBe('succeeded');
+    expect($response->content)->not->toBeEmpty();
     Http::assertSent(fn (Request $request): bool => $request['provider'] === [
         'order' => ['azure', 'openai'],
         'require_parameters' => false,
@@ -214,7 +210,7 @@ it('sends a configured OpenRouter reasoning effort unmodified', function (string
     ]);
     Http::fake(['https://openrouter.ai/api/v1/chat/completions' => Http::response(openRouterControlsCompletion())]);
 
-    Librarium::query('Reason first.')->using('openrouter-chat')->run();
+    variantRun('openrouter-chat', 'Reason first.');
 
     Http::assertSent(fn (Request $request): bool => $request['reasoning'] === ['effort' => $effort]);
 })->with(['none', 'minimal', 'xhigh', 'max']);
@@ -223,10 +219,8 @@ it('rejects OpenRouter controls that conflict before any request', function (arr
     config()->set('librarium.profiles.openrouter-chat.options', $options);
     Http::fake();
 
-    $response = Librarium::query('Conflicting controls.')->using('openrouter-chat')->run();
-
-    expect($response->errors->sole()->code)->toBe('laravel_ai.invalid_options')
-        ->and($response->errors->sole()->message)->toContain($message);
+    expect(fn () => variantRun('openrouter-chat', 'Conflicting controls.'))
+        ->toThrow(DriverException::class, $message);
     Http::assertNothingSent();
 })->with([
     'zdr with web search' => [['web_search' => true, 'search_engine' => 'exa', 'zdr' => true], 'disable web search before enabling zdr'],
@@ -249,9 +243,9 @@ it('rejects zdr on the always-grounded OpenRouter Profile', function (): void {
     config()->set('librarium.profiles.openrouter-grounded.options.zdr', true);
     Http::fake();
 
-    $response = Librarium::query('Grounded and private.')->using('openrouter-grounded')->run();
+    $run = variantResearch('openrouter-grounded', 'Grounded and private.')->run();
 
-    expect($response->errors->sole()->code)->toBe('laravel_ai.invalid_options');
+    expect($run->result('probe')['error']['code'])->toBe('laravel_ai.invalid_options');
     Http::assertNothingSent();
 });
 
@@ -266,10 +260,10 @@ it('keeps the bounded OpenRouter route unknown when a control overrides its pinn
         'max_steps' => 1,
         'max_prompt_bytes' => 4096,
     ]);
-    $bounded = Librarium::query('Bound this.')->using('openrouter-chat')->spendingBound();
+    $bounded = variantBound('openrouter-chat', 'Bound this.');
 
     config()->set('librarium.profiles.openrouter-chat.options', [...config('librarium.profiles.openrouter-chat.options'), ...$override]);
-    $overridden = Librarium::query('Bound this.')->using('openrouter-chat')->spendingBound();
+    $overridden = variantBound('openrouter-chat', 'Bound this.');
 
     expect($bounded->kind)->toBe(SpendingBoundKind::BillableQuantities)
         ->and($overridden->kind)->toBe(SpendingBoundKind::Unknown);
@@ -291,6 +285,6 @@ it('keeps the no-search Sonnet 5.5 bound unknown for a thinking mode the model r
         'max_prompt_bytes' => 4096,
     ]);
 
-    expect(Librarium::query('Bound this.')->using('claude-chat')->spendingBound()->kind)->toBe(SpendingBoundKind::Unknown);
+    expect(variantBound('claude-chat', 'Bound this.')->kind)->toBe(SpendingBoundKind::Unknown);
     Http::assertNothingSent();
 });

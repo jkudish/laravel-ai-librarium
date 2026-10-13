@@ -9,7 +9,6 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Validation\ValidationException;
-use Jkudish\LaravelAiLibrarium\Collection\Enums\CaptureCoverage;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\FailureCategory;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\SubmissionState;
 use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\LaravelAiDriver;
@@ -22,7 +21,6 @@ use Jkudish\LaravelAiLibrarium\Profile;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
-use Jkudish\LaravelAiLibrarium\Responses\Enums\ResponseStatus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 use Laravel\Ai\Ai;
@@ -60,10 +58,7 @@ it('runs each configured Laravel AI Profile through one exact SDK provider and m
         ),
     ])->preventStrayPrompts();
 
-    $response = Librarium::query('Research this question.')
-        ->using($profile)
-        ->timeout(120)
-        ->run();
+    $response = variantRun($profile, 'Research this question.');
 
     ResearchAgent::assertPrompted(function (AgentPrompt $prompt) use ($provider, $model): bool {
         if (! $prompt->agent instanceof ResearchAgent) {
@@ -82,12 +77,10 @@ it('runs each configured Laravel AI Profile through one exact SDK provider and m
             ] : []);
     });
 
-    expect($response->status)->toBe(ResponseStatus::Succeeded)
-        ->and($response->results)->toHaveCount(1)
-        ->and($response->results->sole()->provider)->toBe($provider)
-        ->and($response->results->sole()->profile)->toBe($profile)
-        ->and($response->results->sole()->model)->toBe($model)
-        ->and($response->results->sole()->citations)->toHaveCount(1);
+    expect($response->provider)->toBe($provider)
+        ->and($response->profile)->toBe($profile)
+        ->and($response->model)->toBe($model)
+        ->and($response->citations)->toHaveCount(1);
 })->with([
     'Gemini grounded' => ['gemini-grounded', 'gemini', 'gemini-3.8-flash'],
     'OpenRouter grounded' => ['openrouter-grounded', 'openrouter', 'openai/gpt-6-luna'],
@@ -108,10 +101,11 @@ it('rejects an unexpected SDK provider identity for an exact built-in Profile', 
         ),
     ])->preventStrayPrompts();
 
-    expect(fn () => Librarium::query('Research this question.')
-        ->using('gemini-grounded')
-        ->run())
-        ->toThrow(LogicException::class, 'unexpected provider identity for Profile [gemini-grounded]');
+    config(['librarium.runs.store' => 'memory']);
+    $run = Librarium::research('Research this question.')->only(['gemini'])->run();
+    expect($run->status())->toBe('failed')
+        ->and($run->result('gemini')['answer'])->toBeNull()
+        ->and($run->result('gemini')['error']['code'])->toBe('librarium.invalid_result');
 });
 
 it('returns an honest model answer when optional web search is disabled', function (): void {
@@ -124,33 +118,16 @@ it('returns an honest model answer when optional web search is disabled', functi
         ),
     ])->preventStrayPrompts();
 
-    $preview = Librarium::query('Answer without web search.')
-        ->using('gemini-chat')
-        ->preview();
-    $profile = $preview->profiles->sole();
-    $matching = Librarium::query('Answer without web search.')
-        ->matching(
-            resultKind: ResultKind::ModelAnswer,
-            grounding: GroundingPolicy::None,
-            observation: ObservationMode::ApiOutput,
-            retrievalMethods: [RetrievalMethod::ModelOnly],
-        )
-        ->preview();
-    $response = Librarium::query('Answer without web search.')
-        ->using('gemini-chat')
-        ->run();
+    $profile = variantRequest('gemini-chat', 'Answer without web search.')->profile;
+    $result = variantRun('gemini-chat', 'Answer without web search.');
 
     ResearchAgent::assertPrompted(fn (AgentPrompt $prompt): bool => $prompt->agent instanceof ResearchAgent
         && collect($prompt->agent->tools())->isEmpty());
-
-    $result = $response->results->sole();
 
     expect($profile->resultKind)->toBe(ResultKind::ModelAnswer)
         ->and($profile->grounding)->toBe(GroundingPolicy::None)
         ->and($profile->corpora)->toBeEmpty()
         ->and($profile->retrievalMethods->all())->toBe([RetrievalMethod::ModelOnly])
-        ->and($matching->profiles->pluck('id')->all())->toContain('gemini-chat')
-        ->and($response->status)->toBe(ResponseStatus::Succeeded)
         ->and($result->provenance->resultKind)->toBe(ResultKind::ModelAnswer)
         ->and($result->provenance->corpora)->toBeEmpty()
         ->and($result->provenance->retrievalMethods->all())->toBe([RetrievalMethod::ModelOnly])
@@ -179,13 +156,10 @@ it('sends bounded no-search Claude controls through the real SDK and never conti
         ]),
     ]);
 
-    $response = Librarium::query('Answer directly once.')
-        ->using('claude-chat')
-        ->run();
+    $response = variantRun('claude-chat', 'Answer directly once.');
 
-    expect($response->status)->toBe(ResponseStatus::Succeeded)
-        ->and($response->results->sole()->content)->toBe('A paused direct answer.')
-        ->and($response->results->sole()->model)->toBe('claude-sonnet-5-5');
+    expect($response->content)->toBe('A paused direct answer.')
+        ->and($response->model)->toBe('claude-sonnet-5-5');
     Http::assertSent(function (Request $request): bool {
         $body = $request->data();
 
@@ -236,9 +210,7 @@ it('rejects required grounding with web search disabled before execution', funct
     config()->set('librarium.profiles.gemini-grounded.options.web_search', false);
     ResearchAgent::fake()->preventStrayPrompts();
 
-    expect(fn () => Librarium::query('Research this question.')
-        ->using('gemini-grounded')
-        ->preview())
+    expect(fn () => variantRequest('gemini-grounded', 'Research this question.'))
         ->toThrow(ValidationException::class, 'Required-grounding Profiles must enable web search.');
 
     ResearchAgent::assertNeverPrompted();
@@ -628,15 +600,14 @@ it('treats an SDK failure without an exposed HTTP cause as a possibly accepted r
         fn (): never => throw RateLimitedException::forProvider('gemini'),
     ])->preventStrayPrompts();
 
-    $collected = Librarium::query('Research this question.')
-        ->using('gemini-grounded')
-        ->collect();
-    $diagnostic = $collected->diagnostics->sole();
+    config(['librarium.runs.store' => 'memory']);
+    $run = Librarium::research('Research this question.')->only(['gemini'])->run();
+    $diagnostic = $run->diagnostics()[0];
 
-    expect($collected->coverage)->toBe(CaptureCoverage::NoResponse)
-        ->and($diagnostic->category)->toBe(FailureCategory::RateLimit)
-        ->and($diagnostic->submissionState)->toBe(SubmissionState::PossiblyAccepted)
-        ->and($diagnostic->httpStatus)->toBeNull();
+    expect($run->evidence('gemini'))->toBeEmpty()
+        ->and($diagnostic['category'])->toBe(FailureCategory::RateLimit->value)
+        ->and($diagnostic['submission_state'])->toBe(SubmissionState::PossiblyAccepted->value)
+        ->and($diagnostic['http_status'] ?? null)->toBeNull();
 });
 
 it('does not hide unexpected programming failures', function (): void {

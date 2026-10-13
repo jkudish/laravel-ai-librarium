@@ -1,185 +1,70 @@
 # PHP 1.0 release checklist
 
-This checklist separates package checks that are safe to run offline from live,
-cross-repository, publication, and human-authorization gates. It prepares a
-candidate; it does not authorize provider calls, GitHub writes, publication,
-release, deployment, or merge.
+The candidate is `release/1.0-prep`, not `main`. This checklist authorizes no
+provider call, signoff, merge, tag, release, migration or publication.
 
-## Read the current blockers
+## Offline compatibility
 
-Run the fail-closed local readiness guard:
+In isolated checkouts with separate vendor directories:
 
 ```bash
-composer release:check
-```
-
-The command is expected to fail until every entry in
-`tools/release-readiness.json` is complete, `tests/Support/typescript-pin.json`
-pins the accepted TypeScript `v2.0.0` tag, `laravel-ai-pricing` uses a stable
-constraint, and `CHANGELOG.md` has exactly one section, a dated 1.0.0 heading.
-It fails closed if the vendored contract or Profile inventory drifts from the
-pin record. It also pins the release compatibility policy to PHP
-8.4+, Laravel 13.30+, Testbench 11.0+, `laravel-ai-pricing` 0.3.1+,
-Laravel AI SDK 1.0.1+, Laravel Prompts 0.3.15+, CommonMark 2.10.2+, and
-Standard Webhooks 1.0+.
-
-A gate may be marked `complete` only with an `https` evidence URI without
-userinfo, a query string, or a fragment, plus the lowercase SHA-256 digest of
-the referenced evidence artifact:
-
-```json
-{
-    "uri": "https://example.com/durable-evidence",
-    "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-}
-```
-
-The digest gives reviewers a stable content identity; the offline checker
-validates its shape but does not fetch or authenticate the referenced content.
-Keep PlanMode as the task authority; reconcile the manifest from accepted
-PlanMode outcomes rather than independently declaring a gate complete.
-
-`release:check` makes no network or provider call. It checks repository state
-only. Exact-SHA package verification comes later because recording its result
-in the manifest would change the SHA being certified.
-
-## Prove the supported compatibility matrix
-
-This library does not commit `composer.lock`. Run each lane in a clean,
-disposable checkout, then retain the PHP version, Composer version, and
-`composer show --direct` output with the candidate evidence. Never reuse a
-vendor directory between lanes.
-
-### Lowest supported lane
-
-Use PHP 8.4 and resolve the lowest stable versions allowed by `composer.json`:
-
-```bash
-php -v
+# PHP 8.4
 composer update --prefer-lowest --prefer-stable --no-interaction --prefer-dist
-composer compatibility:check
-composer show --direct
-```
-
-The resolved inventory must include Laravel 13.30, Laravel AI SDK 1.0.1,
-`laravel-ai-pricing` 0.3.1, Laravel Prompts 0.3.15, CommonMark 2.10.2, and
-Standard Webhooks 1.0.0. Each runtime floor is the lowest version this lane
-installs and passes:
-
-- Laravel starts at 13.30 because Composer's advisory filter blocks every
-  earlier `laravel/framework` 13 release (PKSA-d5tc-s1qs-h781, debug-page XSS,
-  affects below 13.30.0).
-- Development dependencies are ranges, so this lane resolves the older Pest 4,
-  PHPUnit 12, and Testbench 11.0 toolchain that Laravel 13.30 accepts, while
-  the highest lane resolves the latest Pest 5, PHPUnit 13, and Testbench.
-  Pest 5.3 needs PHPUnit 13.1, which only Testbench Core 11.6 accepts, and
-  that conflicts with `laravel/framework` below 13.35.
-- Laravel AI SDK 1.0.0 is excluded by
-  [GHSA-6qhr-3g93-pxhw](https://github.com/laravel/ai/security/advisories/GHSA-6qhr-3g93-pxhw).
-- Prompts below 0.3.15 fail the interactive console tests.
-- Composer's advisory filter blocks CommonMark releases below 2.10.2.
-
-`prefer-lowest` is the resolver input;
-inspect the resulting inventory rather than assuming it selected the intended
-floor. If another constraint raises a package above its declared minimum,
-record the effective floor and reconcile `composer.json` before release. Keep
-the `php-8.4-lowest-compatibility` manifest gate blocked until the complete lane
-passes and its evidence is retained.
-
-### Highest supported lane
-
-Use PHP 8.5 and resolve the latest stable versions allowed by the same candidate:
-
-```bash
-php -v
-composer update --prefer-stable --no-interaction --prefer-dist
-composer compatibility:check
-composer show --direct
-```
-
-This lane must exercise the latest allowed Laravel 13 and Laravel AI SDK 1.x.
-Neither lane may add `composer.lock` to Git. Dependency resolution may access
-Composer repositories during setup; `compatibility:check` itself runs only the
-installed platform check, test suite, static analysis, and formatting check.
-Keep the `php-8.5-highest-compatibility` manifest gate blocked until the
-complete lane passes and its evidence is retained.
-
-## Reconcile shared contracts
-
-Run the focused conformance suite:
-
-```bash
+composer test
+composer analyse
+composer format:check
+composer validate --strict
 composer test:conformance
+composer show --direct
+
+# PHP 8.5: same checks after highest resolution
+composer update --prefer-stable --no-interaction --prefer-dist
 ```
 
-It verifies three independent boundaries:
+Retain PHP/Composer versions and resolved package inventory with the candidate
+evidence. Do not commit the library's lock file. Tests must prevent provider
+traffic. Shared selection, valid/invalid Runs, and run-store contract fixtures
+come from the exact `librarium-spec` pin. Read the shared unencrypted folder
+fixture and prove quick/queued-deep/find/refresh smoke tests through all stores.
 
-1. the checksum-pinned terminal interchange schema and semantic fixtures;
-2. the checksum-pinned TypeScript v2 Profile inventory against the PHP
-   matrix, landed Profile semantics, and `quick`, `visibility`, and `deep`
-   memberships; and
-3. an application-defined Driver executing through the public Laravel query
-   runtime without provider access.
+## Shared data and readiness
 
-`tests/Support/typescript-pin.json` records the pinned `jkudish/librarium`
-ref, commit, tag, and every digest. Repin the contract snapshot, the Profile
-inventory, the snapshot README, and the matrix authority block together from a
-clean checkout with its npm dependencies installed:
+`composer release:check` checks stable runtime constraints, compatibility
+floors, the dated first-release changelog and canonical evidence gates in
+`tools/release-readiness.json`. The development spec pin deliberately blocks
+publication until replaced by a compatible stable release. Do not restore the
+removed TypeScript repin or vendored contract machinery.
 
-```bash
-composer typescript:repin -- /path/to/librarium <ref>
-```
+Gate evidence is a durable HTTPS URI without userinfo/query/fragment plus its
+lowercase SHA-256. The checker validates shape, not remote evidence content.
+Reconcile gates from accepted PlanMode outcomes; historical receipts are not
+proof that the new candidate ran those scenarios. Pricing remains owned by
+`laravel-ai-pricing ^0.3.1`, not the spec package.
 
-The PHP-only DataForSEO Profiles and `perplexity-low-frozen` remain explicit
-extensions and are not rows in the TypeScript inventory. SerpBase Search and
-News are shared parity rows.
+## Exact candidate
 
-## Complete external gates
-
-Before creating the final package candidate:
-
-- finish the SearchAPI/Firecrawl fidelity decision and SearchAPI canaries;
-- finish DataForSEO acceptance;
-- complete every remaining release-required canary under
-  `live-provider-canaries.md`, each with separate approval and spend controls;
-- publish a stable `laravel-ai-pricing` release, then replace `dev-main` with
-  its compatible stable constraint;
-- repin against the accepted TypeScript `v2.0.0` tag with
-  `composer typescript:repin`; and
-- set the final publication date on the single 1.0.0 changelog section.
-
-These are completion gates, not authorization to perform them. A canary approval
-does not authorize a retry or another Profile. Publication and GitHub writes
-require their own explicit authorization.
-
-PlanMode/Agentsy dogfood (#2594) remains a nonblocking follow-up rather than a
-package release gate. Package and consumer compatibility—including the
-application-defined Driver conformance proof above—remain required.
-
-## Certify the exact candidate
-
-After all intended files are committed and the worktree is clean:
+After committing every intended change and requiring a clean worktree:
 
 ```bash
-composer release:check
 composer pr:check
 ```
 
-`pr:check` reruns the repository-owned ordered offline plan and writes its
-exact-SHA receipt beneath Git administrative storage. Inspect the package
-archive separately:
+Setup runs separately. The offline gate stores an exact-SHA, repository, plan,
+runtime and Composer-package-bound private receipt under Git administrative
+storage. Any drift invalidates it. It performs no installation, provider call,
+release, deployment or GitHub status write.
 
-```bash
-composer archive --format=tar --dir=/tmp
-tar -tf /tmp/jkudish-laravel-ai-librarium-*.tar
-```
+Open the authorized draft PR to the candidate branch and request independent
+review. Only a separate human approval of its full lowercase SHA permits
+`pr:signoff`. This worker must never run signoff. Signoff grants no merge or
+publication authority. Inspect the package archive to exclude credentials,
+vendor, tests, tools, local environment files and composer.lock.
 
-The archive must contain runtime package files, package-owned
-`config/librarium.php`, and documentation, but not `.agents`, `.github`,
-`tests`, `tools`, credentials, local environment files, `vendor`, or
-`composer.lock`.
+## External gates
 
-Only after the branch and open pull request point at that same full SHA may a
-human explicitly approve the exact lowercase SHA for `composer pr:signoff`.
-That attestation still does not authorize merge, tag creation, publication, or
-release.
+Live canaries need newly scoped approval, exact heads, isolated credentials,
+one paid submission, an enforceable per-call/aggregate cap and sanitized
+receipts. Follow [live canary policy](live-provider-canaries.md). Offline
+fakes prove package behavior, not provider enforcement. No old approval is
+reused. Final publication, tag creation, release and merge each need explicit
+authority, and the changelog date must be set to the actual publication date.

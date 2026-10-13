@@ -18,18 +18,45 @@
     ],
     "require": {
         "php": "^8.4",
+        "illuminate/cache": "^13.30",
         "illuminate/console": "^13.30",
         "illuminate/contracts": "^13.30",
+        "illuminate/database": "^13.30",
+        "illuminate/encryption": "^13.30",
+        "illuminate/filesystem": "^13.30",
         "illuminate/http": "^13.30",
         "illuminate/routing": "^13.30",
         "illuminate/support": "^13.30",
         "illuminate/validation": "^13.30",
         "jkudish/laravel-ai-pricing": "^0.3.1",
+        "jkudish/librarium-spec": "dev-spec-15c8a306",
         "laravel/ai": "^1.0.1",
         "laravel/prompts": "^0.3.15",
         "league/commonmark": "^2.10.2",
+        "opis/json-schema": "^2.6",
         "standard-webhooks/standard-webhooks": "^1.0"
     },
+    "repositories": [
+        {
+            "type": "package",
+            "package": {
+                "name": "jkudish/librarium-spec",
+                "version": "dev-spec-15c8a306",
+                "type": "library",
+                "license": "MIT",
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/jkudish/librarium-spec.git",
+                    "reference": "15c8a30673b43b006944623be2ddf99f216b846c"
+                },
+                "dist": {
+                    "type": "zip",
+                    "url": "https://api.github.com/repos/jkudish/librarium-spec/zipball/15c8a30673b43b006944623be2ddf99f216b846c",
+                    "reference": "15c8a30673b43b006944623be2ddf99f216b846c"
+                }
+            }
+        }
+    ],
     "require-dev": {
         "laravel/pint": "^1.32.1",
         "larastan/larastan": "^3.13",
@@ -54,7 +81,7 @@
         "prepare": "@php vendor/bin/testbench package:discover --ansi",
         "analyse": "vendor/bin/phpstan analyse --memory-limit=1G",
         "test": "vendor/bin/pest tests/ArchTest.php tests/Feature tests/Unit",
-        "test:conformance": "vendor/bin/pest tests/Feature/ApplicationDefinedDriverTest.php tests/Feature/ProfileBindingMatrixTest.php tests/Unit/ContractSnapshotTest.php tests/Unit/ResearchResponseTest.php",
+        "test:conformance": "vendor/bin/pest tests/Feature/SharedFixturesTest.php tests/Feature/RunStoreTest.php",
         "test:live:gemini": [
             "@php -r \"if (getenv('LIBRARIUM_LIVE_TESTS') !== '1') { fwrite(STDERR, 'LIBRARIUM_LIVE_TESTS=1 is required to opt in to live provider tests.'.PHP_EOL); exit(1); }\"",
             "@php -r \"if (! is_string(getenv('GEMINI_API_KEY')) || trim((string) getenv('GEMINI_API_KEY')) === '') { fwrite(STDERR, 'GEMINI_API_KEY is required for the live Gemini canary.'.PHP_EOL); exit(1); }\"",
@@ -87,7 +114,6 @@
         "pr:check": "@php tools/pr-check.php",
         "pr:signoff": "@php tools/pr-signoff.php",
         "release:check": "@php tools/release-check.php",
-        "typescript:repin": "@php tools/repin-typescript.php",
         "check": [
             "@composer format:check",
             "@composer analyse",

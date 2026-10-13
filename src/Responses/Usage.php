@@ -45,15 +45,8 @@ final readonly class Usage implements JsonSerializable
      * field, so it is never added to the priced partitions, which derive
      * only from the provider's inclusive input and cache totals.
      *
-     * server_tool_search_requests and tool_use_tokens are wire fields of
-     * this PHP value object beyond the checksum-pinned v1 interchange
-     * schema (tests/Support/Contracts/v1), which does not list them; they
-     * must not be added to that frozen schema without new interchange-
-     * snapshot authority. Consequence for rollback: a payload carrying
-     * these fields is rejected by older package versions, whose usage
-     * reader treats unknown fields as invalid, so persisted payloads with
-     * the audit counts cannot be re-read after rolling back; the priced
-     * partitions and costs are unaffected either way.
+     * These are internal driver usage fields, not the shared public Run
+     * shape. Runs expose only estimated and provider-reported USD cost.
      */
     public function __construct(
         public ?int $promptTokens = null,

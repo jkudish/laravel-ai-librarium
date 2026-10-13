@@ -11,7 +11,6 @@ use Jkudish\LaravelAiLibrarium\Drivers\OpenAi\OpenAiResearchDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\OpenAi\OpenAiResearchResultMapper;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
-use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\Profile;
 use Jkudish\LaravelAiLibrarium\ProfileCatalog;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
@@ -464,7 +463,7 @@ it('sends the configured reasoning effort, return-token budget and tool-call cap
 });
 
 it('ships OpenAI Research on GPT-6.1 Sol with the shared defaults left to the driver', function (): void {
-    $profile = Librarium::query('Research this.')->using('openai-research')->preview()->profiles->sole();
+    $profile = variantRequest('openai-research', 'Research this.')->profile;
 
     expect($profile->model)->toBe('gpt-6.1-sol')
         ->and($profile->options)->toBe([])

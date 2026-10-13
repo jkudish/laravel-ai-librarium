@@ -7,16 +7,16 @@ This repository contains `jkudish/laravel-ai-librarium`, a Laravel-native resear
 ## Sibling implementation
 
 - The TypeScript sibling is [`jkudish/librarium`](https://github.com/jkudish/librarium), normally checked out locally at `../librarium`.
-- Consult its accepted, released interchange contract and semantic fixtures when implementing cross-language behavior. Do not copy its CLI, Node, filesystem, or private runtime architecture into this package.
+- Use the pinned `jkudish/librarium-spec` schemas, catalog and fixtures as the shared interchange authority. Do not copy the sibling's CLI, Node or private runtime architecture into this package.
 
 ## Architecture boundaries
 
 - Use Laravel AI SDK primitives before adding custom AI integration code.
-- Keep the core package free of application-owned persistence, Eloquent models, migrations, UI, and TypeScript runtime artifacts.
+- Keep the core package free of application-owned persistence, Eloquent models, UI, and TypeScript runtime artifacts. Package-owned Run storage is approved: files, cache, memory, and query-builder database storage with one optional, publishable migration. Never run that migration automatically.
 - TypeScript Librarium and this package share semantic interchange, not internal runtime architecture.
 - Consumers own evidence policy, verification thresholds, conversation storage, and domain workflows.
 - Substantial optional SDKs or browser runtimes belong in separate adapter packages.
-- Do not add selector, execution-policy, provider-roster, fallback, budget, or deadline APIs until their PlanMode checkpoint is approved.
+- Joey approved the simplified-surface SPEC.md on 2026-10-12 (PlanMode #4954): source selection, depth, max_cost, Run storage, and queue/find/refresh are authorized by that checkpoint. Follow the pinned jkudish/librarium-spec catalog, schemas, and fixtures. New policy APIs outside that spec still require approval; fallbacks are removed.
 
 ## Code conventions
 

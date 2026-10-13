@@ -489,51 +489,39 @@ it('requires the pricing identity of the configured processor', function (string
     'ultra quoted as pro' => ['ultra', 'research-pro', false],
 ]);
 
-it('warns in the compiled plan when a research deadline exceeds the shared timeout', function (string $profile, array $settings, ?int $timeout, array $warnings): void {
+it('warns when a source task can outlive the wait timeout', function (string $source, array $options, int $timeout, bool $warns): void {
     config()->set('services.parallel.key', 'testing-parallel-key');
     config()->set('services.valyu.key', 'testing-valyu-key');
-    foreach ($settings as $key => $value) {
-        config()->set($key, $value);
+    config(['librarium.timeout' => $timeout]);
+    $plan = Librarium::research('Research deeply.')->deep()->only([$source])->options([$source => $options])->dryRun();
+    expect($plan->toArray()['notices'])->toHaveCount($warns ? 1 : 0);
+    if ($warns) {
+        expect($plan->toArray()['notices'][0]['code'])->toBe('wait_timeout')
+            ->and($plan->toArray()['notices'][0]['message'])->toContain('recoverable', 'bill the task');
     }
-    $pending = Librarium::query('Research deeply.')->using($profile);
-    if ($timeout !== null) {
-        $pending->timeout($timeout);
-    }
-
-    expect($pending->preview()->warnings->all())->toBe($warnings);
+    Http::assertNothingSent();
 })->with([
-    'shipped pro fits' => ['parallel-research', [], null, []],
-    'ultra2x fits the shipped timeout' => ['parallel-research', ['librarium.profiles.parallel-research.model' => 'ultra2x', 'librarium.profiles.parallel-research.pricing.model' => 'research-ultra2x'], null, []],
-    'ultra4x needs the timeout and queue timeout raised' => ['parallel-research', ['librarium.profiles.parallel-research.model' => 'ultra4x', 'librarium.profiles.parallel-research.pricing.model' => 'research-ultra4x'], null, [
-        'Profile [parallel-research] waits up to 8100 seconds for its provider task, but the research timeout is 6900 seconds, so it would stop waiting while the provider may still finish and bill the task. Raise librarium.timeout to at least 8100, librarium.queue.timeout to at least 8101, or set the Profile\'s options.request_timeout_seconds to at most 6900.',
-    ]],
-    'ultra8x also needs the transient TTLs raised' => ['parallel-research', ['librarium.profiles.parallel-research.model' => 'ultra8x', 'librarium.profiles.parallel-research.pricing.model' => 'research-ultra8x'], null, [
-        'Profile [parallel-research] waits up to 10800 seconds for its provider task, but the research timeout is 6900 seconds, so it would stop waiting while the provider may still finish and bill the task. Raise librarium.timeout to at least 10800, librarium.queue.timeout to at least 10801, librarium.status_ttl to at least 10802, librarium.webhook_signal_ttl to at least 10802, or set the Profile\'s options.request_timeout_seconds to at most 6900.',
-    ]],
-    'ultra8x with raised settings fits' => ['parallel-research', ['librarium.profiles.parallel-research.model' => 'ultra8x', 'librarium.profiles.parallel-research.pricing.model' => 'research-ultra8x', 'librarium.timeout' => 10800, 'librarium.queue.timeout' => 10801, 'librarium.status_ttl' => 10802, 'librarium.webhook_signal_ttl' => 10802], null, []],
-    'ultra8x shortened by its own timeout fits' => ['parallel-research', ['librarium.profiles.parallel-research.model' => 'ultra8x', 'librarium.profiles.parallel-research.pricing.model' => 'research-ultra8x', 'librarium.profiles.parallel-research.options' => ['request_timeout_seconds' => 6900]], null, []],
-    'an explicit short timeout names the requested timeout' => ['parallel-research', [], 600, [
-        'Profile [parallel-research] waits up to 1800 seconds for its provider task, but the research timeout is 600 seconds, so it would stop waiting while the provider may still finish and bill the task. Raise the requested timeout (--timeout or timeout()) to at least 1800, or set the Profile\'s options.request_timeout_seconds to at most 600.',
-    ]],
-    'valyu heavy needs the queue timeout raised' => ['valyu-research', ['librarium.profiles.valyu-research.options.mode' => 'heavy', 'librarium.profiles.valyu-research.pricing.model' => 'research-heavy'], null, [
-        'Profile [valyu-research] waits up to 7200 seconds for its provider task, but the research timeout is 6900 seconds, so it would stop waiting while the provider may still finish and bill the task. Raise librarium.timeout to at least 7200, librarium.queue.timeout to at least 7201, or set the Profile\'s options.request_timeout_seconds to at most 6900.',
-    ]],
-    'valyu standard fits' => ['valyu-research', [], null, []],
+    'pro fits' => ['parallel', [], 6900, false],
+    'ultra2x fits' => ['parallel', ['processor' => 'ultra2x'], 6900, false],
+    'ultra4x outlives wait' => ['parallel', ['processor' => 'ultra4x'], 6900, true],
+    'ultra8x outlives wait' => ['parallel', ['processor' => 'ultra8x'], 6900, true],
+    'ultra8x at boundary' => ['parallel', ['processor' => 'ultra8x'], 10800, false],
+    'short wait' => ['parallel', [], 600, true],
+    'valyu heavy outlives wait' => ['valyu', ['mode' => 'heavy'], 6900, true],
+    'valyu standard fits' => ['valyu', [], 6900, false],
 ]);
 
-it('shows the deadline warning in the agent preview', function (): void {
+it('shows a recoverable deadline notice in the JSON dry Run', function (): void {
     config()->set('services.valyu.key', 'testing-valyu-key');
-    config()->set('librarium.profiles.valyu-research.options.mode', 'max');
-    config()->set('librarium.profiles.valyu-research.pricing.model', 'research-max');
+    config()->set('librarium.sources.valyu.mode', 'max');
 
-    $exit = Artisan::call('librarium:query', ['query' => 'Research deeply.', '--agent' => true, '--profile' => ['valyu-research']]);
-    $preview = json_decode(Artisan::output(), true, 512, JSON_THROW_ON_ERROR);
+    $exit = Artisan::call('librarium:research', ['question' => 'Research deeply.', '--deep' => true, '--dry-run' => true, '--json' => true, '--only' => 'valyu']);
+    $run = json_decode(Artisan::output(), true, 512, JSON_THROW_ON_ERROR);
 
     expect($exit)->toBe(0)
-        ->and($preview['type'])->toBe('preview')
-        ->and($preview['warnings'])->toBe([
-            'Profile [valyu-research] waits up to 10800 seconds for its provider task, but the research timeout is 6900 seconds, so it would stop waiting while the provider may still finish and bill the task. Raise librarium.timeout to at least 10800, librarium.queue.timeout to at least 10801, librarium.status_ttl to at least 10802, librarium.webhook_signal_ttl to at least 10802, or set the Profile\'s options.request_timeout_seconds to at most 6900.',
-        ]);
+        ->and($run['status'])->toBe('planned')
+        ->and($run['notices'][0]['code'])->toBe('wait_timeout')
+        ->and($run['notices'][0]['message'])->toContain('10800', '6900', 'recoverable');
     Http::assertNothingSent();
 });
 

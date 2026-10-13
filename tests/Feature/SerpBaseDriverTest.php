@@ -9,7 +9,6 @@ use Illuminate\Support\Facades\Http;
 use Jkudish\LaravelAiLibrarium\Drivers\SerpBase\SerpBaseDriver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
-use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\Profile;
 use Jkudish\LaravelAiLibrarium\ProfileCatalog;
 use Jkudish\LaravelAiLibrarium\ProfileOptionValidator;
@@ -386,9 +385,9 @@ it('keeps pricing unavailable without an account-configured credit price', funct
         ->and($profile?->pricingUsage?->toArray())->toBe(['credits' => '1'])
         ->and($profile?->pricingUsageConservative)->toBeTrue();
 
-    $preview = Librarium::query('pricing')->using($profileId)->preview();
-    expect($preview->pricingStatus)->toBe('unavailable')
-        ->and($preview->preflightCostCheckAvailable)->toBeFalse();
+    $quote = variantQuote($profileId);
+    expect($quote->completeness->value)->toBe('unavailable')
+        ->and($quote->cost)->toBeNull();
     Http::assertNothingSent();
 })->with([
     'search' => ['serpbase-search', 'serpbase:search'],
@@ -400,10 +399,10 @@ it('uses account-configured credit prices rather than a public headline minimum'
         'credits' => ['amount' => '0.00047', 'currency' => 'USD'],
     ]);
 
-    $configured = Librarium::query('pricing')->using($profileId)->preview();
-    expect($configured->pricingStatus)->toBe('complete')
-        ->and($configured->maximumEstimatedCost)->toBe('0.00047')
-        ->and($configured->pricingQuotes->sole()['quote']->source->value)->toBe('configured');
+    $configured = variantQuote($profileId);
+    expect($configured->completeness->value)->toBe('complete')
+        ->and((string) $configured->cost->amount)->toBe('0.00047')
+        ->and($configured->source->value)->toBe('configured');
     Http::assertNothingSent();
 })->with([
     'search' => ['serpbase-search', 'serpbase:search'],

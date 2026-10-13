@@ -8,8 +8,6 @@ use DateTimeImmutable;
 use JsonException;
 use RuntimeException;
 
-require_once __DIR__.'/TypeScriptPin.php';
-
 final readonly class ReleaseReadiness
 {
     /** @var list<array{id: string, title: string}> */
@@ -57,14 +55,7 @@ final readonly class ReleaseReadiness
             throw new RuntimeException('CHANGELOG.md is unreadable.');
         }
 
-        $pin = TypeScriptPin::load($this->root);
-        $profileHash = is_file($this->root.'/'.TypeScriptPin::PROFILES_PATH) ? hash_file('sha256', $this->root.'/'.TypeScriptPin::PROFILES_PATH) : false;
-        $contractHash = is_file($this->root.'/'.TypeScriptPin::CONTRACTS_PATH.'/checksums.sha256') ? hash_file('sha256', $this->root.'/'.TypeScriptPin::CONTRACTS_PATH.'/checksums.sha256') : false;
-        if (! is_string($profileHash) || ! is_string($contractHash)) {
-            throw new RuntimeException('The pinned TypeScript Profile inventory or contract checksum index is unreadable.');
-        }
-
-        return self::evaluate($composer, $changelog, $manifest, $pin, $profileHash, $contractHash);
+        return self::evaluate($composer, $changelog, $manifest);
     }
 
     public function check(): void
@@ -77,9 +68,6 @@ final readonly class ReleaseReadiness
     }
 
     /**
-     * The pin record must describe the vendored files exactly. A file that
-     * drifted from its pin is an integrity failure, not a release blocker.
-     *
      * @param  array<string, mixed>  $composer
      * @param  array<string, mixed>  $manifest
      * @return list<string>
@@ -88,15 +76,8 @@ final readonly class ReleaseReadiness
         array $composer,
         string $changelog,
         array $manifest,
-        TypeScriptPin $pin,
-        string $profileSnapshotHash,
-        string $contractChecksumsHash,
     ): array {
         self::validateManifest($manifest);
-
-        if (! hash_equals($pin->profilesSha256, $profileSnapshotHash) || ! hash_equals($pin->contractChecksumsSha256, $contractChecksumsHash)) {
-            throw new RuntimeException('The vendored TypeScript Profile inventory or contract snapshot does not match tests/Support/typescript-pin.json; regenerate it with composer typescript:repin.');
-        }
 
         $blockers = [];
         $requirements = $composer['require'] ?? null;
@@ -145,14 +126,8 @@ final readonly class ReleaseReadiness
             $blockers[] = "CHANGELOG.md must contain only the first 1.0.0 release section; found [{$found}].";
         }
 
-        /** @var array{version: string, tag: string} $typescript */
-        $typescript = $manifest['typescript'];
-        if ($pin->packageVersion !== $typescript['version']) {
-            $blockers[] = "The TypeScript pin is package version {$pin->packageVersion}, not the accepted {$typescript['version']}.";
-        }
-
-        if ($pin->tag !== $typescript['tag']) {
-            $blockers[] = "The accepted TypeScript {$typescript['tag']} release tag is not pinned; the contract and Profile inventory are pinned to commit {$pin->commit} (ref {$pin->ref}). Rerun composer typescript:repin against {$typescript['tag']}.";
+        if (! isset($requirements['jkudish/librarium-spec'])) {
+            $blockers[] = 'The shared librarium-spec package must be required; its conformance fixtures replace TypeScript snapshots.';
         }
 
         /** @var list<array{id: string, title: string, status: string, evidence: mixed}> $gates */
@@ -177,20 +152,17 @@ final readonly class ReleaseReadiness
      */
     private static function validateManifest(array $manifest): void
     {
-        $typescript = $manifest['typescript'] ?? null;
         $gates = $manifest['gates'] ?? null;
 
         if (
-            array_keys($manifest) !== ['schema_version', 'target_version', 'typescript', 'gates']
+            array_keys($manifest) !== ['schema_version', 'target_version', 'gates']
             || $manifest['schema_version'] !== 1
             || $manifest['target_version'] !== '1.0.0'
-            || ! is_array($typescript)
-            || $typescript !== ['version' => '2.0.0', 'tag' => 'v2.0.0']
             || ! is_array($gates)
             || ! array_is_list($gates)
             || $gates === []
         ) {
-            throw new RuntimeException('The release-readiness manifest is malformed or does not require the accepted TypeScript v2.0.0 release.');
+            throw new RuntimeException('The release-readiness manifest is malformed.');
         }
 
         $ids = [];

@@ -10,7 +10,7 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
-use Jkudish\LaravelAiLibrarium\Contracts\DurableDriver;
+use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
@@ -32,7 +32,7 @@ use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
  * See docs/perplexity-spending-bounds.md for the sourced provider limitations
  * and the alternative control sets a provable bound would require.
  */
-final readonly class PerplexityAgentDriver implements DurableDriver
+readonly class PerplexityAgentDriver implements Driver
 {
     private const string ENDPOINT = 'https://api.perplexity.ai/v1/agent';
 

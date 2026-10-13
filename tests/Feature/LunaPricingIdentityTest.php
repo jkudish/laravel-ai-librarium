@@ -5,10 +5,11 @@ declare(strict_types=1);
 use Illuminate\Cache\CacheManager;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Support\Facades\Http;
-use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiPricing\Enums\CostCompleteness;
 use Jkudish\LaravelAiPricing\Enums\PricingSource;
+use Jkudish\LaravelAiPricing\Facades\AiPricing;
 use Jkudish\LaravelAiPricing\Sources\PortkeyPricingSource;
+use Jkudish\LaravelAiPricing\ValueObjects\Usage;
 
 /**
  * Seed the fallback catalog exactly as a host's ai-pricing sync would, from a
@@ -44,23 +45,17 @@ it('quotes OpenAI chat against the tiered Luna billing basis because the generic
     // unblocked identity, so the Luna refusal below is the block itself.
     // pricing snapshot v12 fallback-blocks openai:gpt-5.6-sol, so the control
     // uses an identity the snapshot leaves to the fallback catalog.
-    config()->set('librarium.profiles.openai-research.pricing.model', 'o3');
-    $control = Librarium::query('Research this.')->using('openai-research')->preview()->pricingQuotes->sole();
-    expect($control['identity']?->key())->toBe('openai:o3')
-        ->and($control['quote']->source)->toBe(PricingSource::Portkey);
+    $usage = new Usage(['input_tokens' => 100, 'output_tokens' => 200, 'web_searches' => 1]);
+    $control = AiPricing::quote('openai', 'o3', $usage);
+    expect($control->source)->toBe(PricingSource::Portkey);
 
-    config()->set('librarium.profiles.openai-chat.pricing.model', 'gpt-6-luna');
-    $generic = Librarium::query('Research this.')->using('openai-chat')->preview()->pricingQuotes->sole();
-    expect($generic['identity']?->key())->toBe('openai:gpt-6-luna')
-        ->and($generic['quote']->completeness)->toBe(CostCompleteness::Unavailable);
+    $generic = AiPricing::quote('openai', 'gpt-6-luna', $usage);
+    expect($generic->completeness)->toBe(CostCompleteness::Unavailable);
 
-    config()->set('librarium.profiles.openai-chat.pricing.model', 'gpt-6-luna-standard-short');
-    $tiered = Librarium::query('Research this.')->using('openai-chat')->preview()->pricingQuotes->sole();
-    expect($tiered['identity']?->key())->toBe('openai:gpt-6-luna-standard-short')
-        ->and($tiered['quote']->completeness)->not->toBe(CostCompleteness::Unavailable)
-        ->and($tiered['quote']->source)->toBe(PricingSource::ProviderNative)
-        ->and($tiered['quote']->completeness)->toBe(CostCompleteness::Complete)
-        ->and($tiered['quote']->missingUnits)->toBe([]);
+    $tiered = AiPricing::quote('openai', 'gpt-6-luna-standard-short', $usage);
+    expect($tiered->source)->toBe(PricingSource::ProviderNative)
+        ->and($tiered->completeness)->toBe(CostCompleteness::Complete)
+        ->and($tiered->missingUnits)->toBe([]);
 });
 
 it('ships OpenAI chat with the tiered Luna pricing identity and an unchanged model', function (): void {

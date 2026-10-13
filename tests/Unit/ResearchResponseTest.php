@@ -23,7 +23,7 @@ use Jkudish\LaravelAiLibrarium\Responses\Usage;
 /** @return array<string, mixed> */
 function responseFixture(string $path): array
 {
-    $contents = File::get(__DIR__.'/../Support/Contracts/v1/fixtures/'.$path);
+    $contents = File::get(__DIR__.'/../Support/DriverValues/'.$path);
 
     /** @var array<string, mixed> $fixture */
     $fixture = json_decode($contents, true, 512, JSON_THROW_ON_ERROR);

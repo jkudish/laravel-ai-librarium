@@ -4,230 +4,93 @@ declare(strict_types=1);
 
 namespace Jkudish\LaravelAiLibrarium;
 
-use Closure;
-use Illuminate\Contracts\Validation\Factory as ValidationFactory;
-use Illuminate\Validation\ValidationException;
-use Jkudish\LaravelAiLibrarium\Collection\CollectedResponse;
-use Jkudish\LaravelAiLibrarium\Collection\ResponseRedactor;
-use Jkudish\LaravelAiLibrarium\Collection\SensitiveCollection;
-use Jkudish\LaravelAiLibrarium\Contracts\CollectsResearch;
-use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
-use Jkudish\LaravelAiLibrarium\Contracts\RecoversResearch;
-use Jkudish\LaravelAiLibrarium\Execution\SpendingBoundResolver;
-use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
-use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
-use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
-use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
-use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
-use Jkudish\LaravelAiLibrarium\Responses\ResearchResponse;
+use BadMethodCallException;
+use Illuminate\Support\Facades\Validator;
+use Jkudish\LaravelAiLibrarium\Contracts\Librarium;
 
 final class PendingResearch
 {
-    private ?string $selector = null;
+    /** @var array{question: string, depth: string, only?: list<string>, skip: list<string>, max_cost?: string, options: array<string, array<string, mixed>>} */
+    private array $request;
 
-    /** @var string|list<string>|array<string, mixed>|null */
-    private string|array|null $selection = null;
-
-    /** @var list<string> */
-    private array $fallbackProfiles = [];
-
-    private ?string $maximumCost = null;
-
-    private ?string $maximumCostCurrency = null;
-
-    private ?int $timeoutSeconds = null;
-
-    /**
-     * @param  Closure(): ExecutesResearch  $resolveExecutor
-     * @param  Closure(): CollectsResearch  $resolveCollector
-     * @param  Closure(): RecoversResearch  $resolveRecovery
-     */
-    public function __construct(
-        public readonly string $input,
-        public readonly string $requestId,
-        private readonly ValidationFactory $validator,
-        private readonly ResearchCompiler $compiler,
-        private readonly Closure $resolveExecutor,
-        private readonly Closure $resolveCollector,
-        private readonly Closure $resolveRecovery,
-        private readonly ResponseRedactor $redactor,
-        private readonly ?SpendingBoundResolver $spendingBounds = null,
-    ) {}
-
-    public function using(string $profile): self
+    public function __construct(string $question, private readonly Librarium $manager)
     {
-        $this->validateProfileId($profile, 'using');
-
-        return $this->select('using', $profile);
+        Validator::make(['question' => $question], ['question' => ['required', 'string']])->validate();
+        $this->request = ['question' => $question, 'depth' => 'quick', 'skip' => [], 'options' => []];
     }
 
-    public function group(string $group): self
+    public function deep(): self
     {
-        $this->validator->make(['group' => $group], ['group' => ['required', 'string', 'min:1']])->validate();
-
-        return $this->select('group', $group);
-    }
-
-    /** @param list<string> $profiles */
-    public function fanOut(array $profiles): self
-    {
-        $this->validateProfileIds($profiles, 'fanOut');
-
-        return $this->select('fanOut', $profiles);
-    }
-
-    /**
-     * @param  list<Corpus>  $corpora
-     * @param  list<RetrievalMethod>  $retrievalMethods
-     */
-    public function matching(
-        ?ResultKind $resultKind = null,
-        ?GroundingPolicy $grounding = null,
-        ?ObservationMode $observation = null,
-        array $corpora = [],
-        array $retrievalMethods = [],
-    ): self {
-        if ($resultKind === null && $grounding === null && $observation === null && $corpora === [] && $retrievalMethods === []) {
-            throw ValidationException::withMessages(['matching' => 'At least one matching requirement is required.']);
-        }
-
-        return $this->select('matching', compact('resultKind', 'grounding', 'observation', 'corpora', 'retrievalMethods'));
-    }
-
-    /** @param list<string> $profiles */
-    public function fallbacks(array $profiles): self
-    {
-        $this->validateProfileIds($profiles, 'fallbacks');
-        $this->fallbackProfiles = $profiles;
+        $this->request['depth'] = 'deep';
 
         return $this;
     }
 
-    public function maxCost(int|float|string $amount, string $currency = 'USD'): self
+    /** @param list<string> $names */
+    public function only(array $names): self
     {
-        $this->validator->make(
-            ['amount' => $amount, 'currency' => $currency],
-            [
-                'amount' => ['required', 'decimal:0,6', 'gt:0', 'lte:1000000'],
-                'currency' => ['required', 'string', 'size:3', 'uppercase'],
-            ],
-        )->validate();
-
-        $this->maximumCost = (string) $amount;
-        $this->maximumCostCurrency = $currency;
+        $this->names($names);
+        $this->request['only'] = $names;
 
         return $this;
     }
 
-    public function timeout(int $seconds): self
+    /** @param list<string> $names */
+    public function skip(array $names): self
     {
-        $this->validator->make(['seconds' => $seconds], ['seconds' => ['integer', 'min:1', 'max:86400']])->validate();
-        $this->timeoutSeconds = $seconds;
+        $this->names($names);
+        $this->request['skip'] = $names;
 
         return $this;
     }
 
-    public function preview(): ResearchPreview
+    public function maxCost(int|float|string $amount): self
     {
-        return $this->compiler->compile($this)->preview;
+        Validator::make(['amount' => (string) $amount], ['amount' => ['required', 'regex:/^(0|[1-9][0-9]*)(\.[0-9]+)?$/D']])->validate();
+        $this->request['max_cost'] = (string) $amount;
+
+        return $this;
     }
 
-    public function spendingBound(): SpendingBound
+    /** @param array<string, array<string, mixed>> $options */
+    public function options(array $options): self
     {
-        if ($this->spendingBounds === null) {
-            throw new \LogicException('The spending-bound resolver is not configured.');
-        }
+        $this->request['options'] = $options;
 
-        return $this->spendingBounds->resolve($this);
+        return $this;
     }
 
-    public function run(): ResearchResponse
+    public function run(): Run
     {
-        return ($this->resolveExecutor)()->run($this->compiler->compile($this));
+        return $this->manager->execute($this->request, false);
     }
 
-    public function collect(): CollectedResponse
+    public function dryRun(): Run
     {
-        $plan = $this->compiler->compile($this);
-        $policy = $this->redactor->prepare($plan);
-
-        return $this->redactor->redact(($this->resolveCollector)()->collect($plan), $policy);
-    }
-
-    public function collectSensitive(): SensitiveCollection
-    {
-        return ($this->resolveCollector)()->collect($this->compiler->compile($this));
-    }
-
-    public function submit(bool $capture = true): DurableOutcome
-    {
-        if ($this->selector !== 'using' || $this->fallbackProfiles !== []) {
-            throw ValidationException::withMessages([
-                'selector' => 'Durable submission requires using() with one exact Profile and no fallbacks.',
-            ]);
-        }
-
-        return ($this->resolveRecovery)()->submit($this->compiler->compile($this), $capture);
+        return $this->manager->plan($this->request)->run;
     }
 
     public function queue(): QueuedResearchResponse
     {
-        return ($this->resolveExecutor)()->queue($this->compiler->compile($this));
+        return $this->manager->enqueue($this->request);
     }
 
-    /** @return array{kind: string|null, value: string|list<string>|array<string, mixed>|null} */
-    public function selector(): array
+    /** @param list<mixed> $arguments */
+    public function __call(string $method, array $arguments): never
     {
-        return ['kind' => $this->selector, 'value' => $this->selection];
+        $replacement = match ($method) {
+            'using', 'fanOut', 'group', 'matching', 'fallbacks' => 'only(), skip() and deep()',
+            'preview', 'spendingBound' => 'dryRun()',
+            'collect', 'collectSensitive' => 'run() and Run::evidence()/diagnostics()',
+            'submit' => 'queue() and Librarium::find()->refresh()',
+            default => null,
+        };
+        throw new BadMethodCallException($replacement === null ? "Unknown research method [{$method}]." : "[{$method}()] was removed; use {$replacement}.");
     }
 
-    /** @return list<string> */
-    public function fallbackProfiles(): array
+    /** @param list<string> $names */
+    private function names(array $names): void
     {
-        return $this->fallbackProfiles;
-    }
-
-    /** @return array{amount: string, currency: string}|null */
-    public function maximumCost(): ?array
-    {
-        if ($this->maximumCost === null || $this->maximumCostCurrency === null) {
-            return null;
-        }
-
-        return ['amount' => $this->maximumCost, 'currency' => $this->maximumCostCurrency];
-    }
-
-    public function timeoutSeconds(): ?int
-    {
-        return $this->timeoutSeconds;
-    }
-
-    /** @param string|list<string>|array<string, mixed> $value */
-    private function select(string $selector, string|array $value): self
-    {
-        if ($this->selector !== null) {
-            throw ValidationException::withMessages([
-                'selector' => "The [{$this->selector}] selector is already set; [{$selector}] cannot also be used.",
-            ]);
-        }
-
-        $this->selector = $selector;
-        $this->selection = $value;
-
-        return $this;
-    }
-
-    private function validateProfileId(string $profile, string $path): void
-    {
-        $this->validator->make([$path => $profile], [$path => ['required', 'string', 'min:1']])->validate();
-    }
-
-    /** @param list<string> $profiles */
-    private function validateProfileIds(array $profiles, string $path): void
-    {
-        $this->validator->make(
-            [$path => $profiles],
-            [$path => ['required', 'array', 'list', 'min:1'], $path.'.*' => ['required', 'string', 'min:1', 'distinct']],
-        )->validate();
+        Validator::make(['names' => $names], ['names' => ['array', 'list'], 'names.*' => ['required', 'string', 'max:64']])->validate();
     }
 }

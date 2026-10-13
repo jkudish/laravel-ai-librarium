@@ -17,6 +17,11 @@ final class QueuedResearchResponse
         private readonly PendingDispatch $dispatchable,
     ) {}
 
+    public function id(): string
+    {
+        return $this->requestId;
+    }
+
     public function then(Closure $callback): self
     {
         if (! $this->dispatchable instanceof FakePendingDispatch) {

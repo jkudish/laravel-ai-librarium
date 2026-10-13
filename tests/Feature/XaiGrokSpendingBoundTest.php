@@ -5,7 +5,6 @@ declare(strict_types=1);
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Drivers\Xai\XaiGrokDriver;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
@@ -16,7 +15,6 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 use Jkudish\LaravelAiLibrarium\SpendingBoundKind;
-use Jkudish\LaravelAiPricing\Enums\CostCompleteness;
 
 /*
  * Offline spending-bound coverage for the exact `grok` Profile (grok-4.7, web-only corpus,
@@ -37,9 +35,7 @@ afterEach(function (): void {
 });
 
 it('retains an unknown pre-dispatch bound for the exact grok-4.7 web-only grounded profile', function (): void {
-    $bound = Librarium::query('Research current xAI information.')
-        ->using('grok')
-        ->spendingBound();
+    $bound = variantBound('grok', 'Research current xAI information.');
 
     expect($bound->kind)->toBe(SpendingBoundKind::Unknown)
         ->and($bound->toArray())->toBe(['kind' => 'unknown'])
@@ -52,9 +48,7 @@ it('retains an unknown pre-dispatch bound for the exact grok-4.7 web-only ground
 it('keeps the bound unknown even when every documented request control is explicit', function (array $options): void {
     config()->set('librarium.profiles.grok.options', $options);
 
-    $bound = Librarium::query('Research current xAI information.')
-        ->using('grok')
-        ->spendingBound();
+    $bound = variantBound('grok', 'Research current xAI information.');
 
     expect($bound->kind)->toBe(SpendingBoundKind::Unknown)
         ->and($bound->toArray())->toBe(['kind' => 'unknown']);
@@ -72,9 +66,7 @@ it('keeps the bound unknown even when every documented request control is explic
 ]);
 
 it('keeps the X-only and combined search routes unknown too', function (string $profile): void {
-    $bound = Librarium::query('Research current xAI information.')
-        ->using($profile)
-        ->spendingBound();
+    $bound = variantBound($profile, 'Research current xAI information.');
 
     expect($bound->kind)->toBe(SpendingBoundKind::Unknown)
         ->and($bound->toArray())->toBe(['kind' => 'unknown']);
@@ -99,22 +91,11 @@ it('fails the X-search pricing contract closed instead of quoting search calls',
         ],
     ]);
 
-    $preview = Librarium::query('Research current xAI information.')
-        ->using($profile)
-        ->preview();
-    $entry = $preview->pricingQuotes->sole();
+    $search = $profile === 'grok-x-only' ? 'x' : 'both';
+    $plan = Librarium::research('Research current xAI information.')->only(['grok'])->options(['grok' => ['search' => $search]])->maxCost('1.00')->dryRun();
 
-    expect($entry['identity'])->toBeNull()
-        ->and($entry['usage'])->toBeNull()
-        ->and($entry['quote']->completeness)->toBe(CostCompleteness::Unavailable)
-        ->and($entry['quote']->cost)->toBeNull()
-        ->and($preview->pricingStatus)->toBe('unavailable')
-        ->and($preview->preflightCostCheckAvailable)->toBeFalse();
-
-    expect(fn () => Librarium::query('Research current xAI information.')
-        ->using($profile)
-        ->maxCost('1.00')
-        ->preview())->toThrow(ValidationException::class);
+    expect($plan->toArray()['results'])->toBeEmpty()
+        ->and($plan->toArray()['skipped'])->toContain(['source' => 'grok', 'reason' => 'unpriced']);
 
     Http::assertNothingSent();
 })->with([
@@ -135,20 +116,14 @@ it('keeps pricing the web-only route on its native search-call count', function 
         ],
     ]);
 
-    $preview = Librarium::query('Research current xAI information.')
-        ->using('grok')
-        ->preview();
-    $entry = $preview->pricingQuotes->sole();
+    $profile = variantRequest('grok', 'Research current xAI information.')->profile;
 
-    expect($entry['identity']?->provider.':'.$entry['identity']?->model)->toBe('xai:grok-4.7')
-        ->and($entry['usage']?->toArray())->toBe([
+    expect($profile->pricingIdentity?->key())->toBe('xai:grok-4.7')
+        ->and($profile->pricingUsage?->toArray())->toBe([
             'input_tokens' => '100000',
             'output_tokens' => '100000',
             'searches' => '100',
-        ])
-        ->and($entry['quote']->completeness)->toBe(CostCompleteness::Partial)
-        ->and($entry['quote']->cost?->toArray())->toBe(['amount' => '0.5', 'currency' => 'USD'])
-        ->and($entry['quote']->missingUnits)->toBe(['input_tokens', 'output_tokens']);
+        ])->and($profile->pricingUsageConservative)->toBeFalse();
 
     Http::assertNothingSent();
 });
@@ -156,9 +131,7 @@ it('keeps pricing the web-only route on its native search-call count', function 
 it('fails unknown for an unsupported grok model instead of borrowing another identity', function (): void {
     config()->set('librarium.profiles.grok.model', 'grok-4.5');
 
-    $bound = Librarium::query('Research current xAI information.')
-        ->using('grok')
-        ->spendingBound();
+    $bound = variantBound('grok', 'Research current xAI information.');
 
     expect($bound->kind)->toBe(SpendingBoundKind::Unknown)
         ->and($bound->toArray())->toBe(['kind' => 'unknown']);
@@ -189,9 +162,7 @@ it('sends the exact documented controls while the pre-dispatch bound remains unk
     });
     Http::assertSentCount(1);
 
-    $bound = Librarium::query('Research current xAI information.')
-        ->using('grok')
-        ->spendingBound();
+    $bound = variantBound('grok', 'Research current xAI information.');
 
     expect($bound->kind)->toBe(SpendingBoundKind::Unknown);
     Http::assertSentCount(1);
@@ -222,9 +193,7 @@ it('accepts a synthetic response billing more successful web search calls than t
     Http::assertSentCount(1);
 
     // Settlement evidence never becomes a pre-dispatch bound.
-    $bound = Librarium::query('Research current xAI information.')
-        ->using('grok')
-        ->spendingBound();
+    $bound = variantBound('grok', 'Research current xAI information.');
 
     expect($bound->kind)->toBe(SpendingBoundKind::Unknown);
     Http::assertSentCount(1);
@@ -251,9 +220,7 @@ it('accepts a synthetic response whose cumulative billed input exceeds one conte
         ->and($result->usage?->actualCost)->toBe('0.29');
     Http::assertSentCount(1);
 
-    $bound = Librarium::query('Research current xAI information.')
-        ->using('grok')
-        ->spendingBound();
+    $bound = variantBound('grok', 'Research current xAI information.');
 
     expect($bound->kind)->toBe(SpendingBoundKind::Unknown);
     Http::assertSentCount(1);

@@ -8,11 +8,9 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
-use Jkudish\LaravelAiLibrarium\Collection\SensitiveProviderResponse;
 use Jkudish\LaravelAiLibrarium\Drivers\Valyu\ValyuResearchDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Valyu\ValyuSupport;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
-use Jkudish\LaravelAiLibrarium\Exceptions\RecoveryException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\Profile;
@@ -20,6 +18,7 @@ use Jkudish\LaravelAiLibrarium\ProfileCatalog;
 use Jkudish\LaravelAiLibrarium\ProfileOptionValidator;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
+use Jkudish\LaravelAiLibrarium\Recovery\RecoveryRequest;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ContentFormat;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
@@ -30,6 +29,7 @@ beforeEach(function (): void {
     CarbonImmutable::setTestNow('2026-09-10T12:00:00Z');
     Http::preventStrayRequests();
     Sleep::fake();
+    config(['librarium.runs.store' => 'memory']);
 });
 
 afterEach(function (): void {
@@ -500,24 +500,23 @@ it('keeps the PDF bearer link out of captured evidence, diagnostics, and errors'
     }
     Http::fake(['https://api.valyu.ai/v1/deepresearch/tasks*' => Http::sequence()
         ->push(valyuResearchSubmission('dr-pdf-private', 'standard'), 202)
-        ->push([...valyuResearchTask('dr-pdf-private', 'completed', 'standard'), 'pdf_url' => $pdfUrl])
         ->push($completed)]);
 
-    $collected = Librarium::query('clinical question')->using('valyu-research')->collect();
-    $evidence = json_encode([$collected->evidence, $collected->diagnostics, $collected->response->errors], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+    $run = Librarium::research('clinical question')->deep()->only(['valyu'])->run();
+    $evidence = json_encode([$run->evidence('valyu'), $run->diagnostics(), $run->result('valyu')['error']], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
 
     // The task handle is private in the result, so evidence redacts it too:
     // in the submission, status and retrieval bodies, and inside the link.
-    expect($collected->evidence)->toHaveCount(3)
+    expect($run->evidence('valyu'))->toHaveCount(2)
         ->and($evidence)->not->toContain('dr-pdf-private')
         ->and($evidence)->not->toContain(valyuPdfAssetId())
-        ->and($collected->evidence->first()->body)->toContain('"deepresearch_id":"[REDACTED]"')
-        ->and($collected->evidence->last()->body)->toContain('"pdf_url":"[REDACTED]"');
+        ->and($run->evidence('valyu')[0]['body'])->toContain('"deepresearch_id":"[REDACTED]"')
+        ->and($run->evidence('valyu')[1]['body'])->toContain('"pdf_url":"[REDACTED]"');
     if ($succeeds) {
-        expect(data_get($collected->response->results->sole()->providerMeta, 'valyu:research.artifacts.0.url'))->toBe($pdfUrl);
+        expect($run->status())->toBe('done');
     } else {
-        expect($collected->response->results)->toBeEmpty()
-            ->and($collected->response->errors->sole()->code)->toBe('valyu_research.invalid_response');
+        expect($run->status())->toBe('failed')
+            ->and($run->result('valyu')['error']['code'])->toBe('valyu_research.invalid_response');
     }
 })->with(['completed' => true, 'failed mapping' => false]);
 
@@ -540,23 +539,26 @@ it('rejects a result that reflects the PDF link anywhere but the artifact', func
     'bare extended link as the report' => ['{pdf}&extra=value'],
 ]);
 
-it('keeps the PDF link through public durable retrieval', function (): void {
+it('keeps the PDF artifact link in the durable driver result', function (): void {
     config()->set('services.valyu.key', 'testing-valyu-key');
     Http::fake(['https://api.valyu.ai/v1/deepresearch/tasks*' => Http::sequence()
         ->push(valyuResearchSubmission('dr-durable-pdf', 'standard'), 202)
         ->push(valyuResearchCompleted('dr-durable-pdf', 'standard'))]);
 
-    $submitted = Librarium::query('clinical question')->using('valyu-research')->submit();
-    $retrieved = Librarium::retrieve($submitted->handle);
+    $driver = app(ValyuResearchDriver::class);
+    $request = valyuResearchRequest();
+    $submitted = $driver->submitDurable($request);
+    $recovery = new RecoveryRequest(
+        $request->requestId, $request->requestedProfile, $request->profile, $request->deadline,
+        static function (): void {}, static function (): void {}, $submitted->usage,
+    );
+    $retrieved = $driver->retrieveDurable($recovery, $submitted->reference);
 
-    expect($retrieved->pending())->toBeFalse()
-        ->and(data_get($retrieved->response?->results->sole()->providerMeta, 'valyu:research.artifacts.0'))
-        ->toBe(['kind' => 'pdf', 'url' => valyuPdfUrl('dr-durable-pdf')])
-        ->and(json_encode([$submitted->evidence, $retrieved->evidence, $retrieved->diagnostics], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES))
-        ->not->toContain('dr-durable-pdf');
+    expect(data_get($retrieved?->providerMeta, 'valyu:research.artifacts.0'))
+        ->toBe(['kind' => 'pdf', 'url' => valyuPdfUrl('dr-durable-pdf')]);
 });
 
-it('redacts the task handle and PDF link from captured bodies under any valid JSON escaping', function (bool $sensitive): void {
+it('redacts the task handle and PDF link from stored bodies under valid JSON escaping', function (): void {
     config()->set('services.valyu.key', 'testing-valyu-key');
     config()->set('librarium.profiles.valyu-research.options', ['mode' => 'standard', 'output_formats' => ['markdown', 'pdf']]);
     $completed = json_encode([...valyuResearchCompleted('dr-pdf-private', 'standard'), 'deepresearch_id' => '@@ID@@', 'pdf_url' => '@@PDF@@'], JSON_THROW_ON_ERROR);
@@ -568,22 +570,18 @@ it('redacts the task handle and PDF link from captured bodies under any valid JS
     );
     Http::fake(['https://api.valyu.ai/v1/deepresearch/tasks*' => Http::sequence()
         ->push(str_replace('"dr-pdf-private"', '"\\u0064r-pdf-private"', (string) json_encode(valyuResearchSubmission('dr-pdf-private', 'standard'))), 202, ['Content-Type' => 'application/json'])
-        ->push(valyuResearchTask('dr-pdf-private', 'completed', 'standard'))
         ->push($raw, 200, ['Content-Type' => 'application/json'])]);
 
-    $query = Librarium::query('clinical question')->using('valyu-research');
-    $collected = $sensitive ? $query->collectSensitive() : $query->collect();
-    $bodies = $sensitive
-        ? collect($collected->responses())->map(fn (SensitiveProviderResponse $response): string => $response->body())
-        : $collected->evidence->map(fn (object $response): string => $response->body);
+    $run = Librarium::research('clinical question')->deep()->only(['valyu'])->run();
+    $bodies = collect($run->evidence('valyu'))->pluck('body');
     $decoded = $bodies->map(fn (string $body): string => json_encode(json_decode($body, true), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES))->implode("\n");
 
-    expect($bodies)->toHaveCount(3)
+    expect($bodies)->toHaveCount(2)
         ->and($bodies->implode("\n"))->not->toContain('pdf-private')
         ->and($decoded)->not->toContain('dr-pdf-private')
         ->and($decoded)->not->toContain(valyuPdfAssetId())
         ->and($decoded)->not->toContain('c3ludGhldGljLXNpZ25hdHVyZQ');
-})->with(['redacted collection' => false, 'sensitive collection' => true]);
+});
 
 it('never keeps a task handle that only a lossy JSON decoding would hide', function (string $body, string $taskId): void {
     $captured = ValyuSupport::capturedBody($body, $taskId);
@@ -601,28 +599,18 @@ it('rejects a durable result that reflects the handle outside the PDF artifact',
         ->push(valyuResearchSubmission('dr-durable-pdf', 'standard'), 202)
         ->push([...valyuResearchCompleted('dr-durable-pdf', 'standard'), 'output' => valyuPdfUrl('dr-durable-pdf').'&extra=value'])]);
 
-    $submitted = Librarium::query('clinical question')->using('valyu-research')->submit();
-
-    expect(fn () => Librarium::retrieve($submitted->handle))->toThrow(RecoveryException::class);
+    $run = Librarium::research('clinical question')->deep()->only(['valyu'])->run();
+    expect($run->status())->toBe('failed')
+        ->and($run->result('valyu')['error']['code'])->toBe('valyu_research.invalid_response');
 });
 
-it('keeps max mode out of every built-in group while explicit and custom selection still work', function (string $mode, bool $grouped): void {
+it('selects each Valyu mode through source options and saved groups', function (string $mode): void {
     config()->set('services.valyu.key', 'testing-valyu-key');
-    config()->set('librarium.profiles.valyu-research.options.mode', $mode);
-    config()->set('librarium.profiles.valyu-research.pricing.model', "research-{$mode}");
-    config()->set('librarium.groups.custom:costly', ['valyu-research']);
-    $catalog = app(ProfileCatalog::class);
-    $ids = fn (string $group): array => $catalog->group($group)['profiles']->pluck('id')->all();
-
-    expect(in_array('valyu-research', $ids('deep'), true))->toBe($grouped)
-        ->and(in_array('valyu-research', $ids('all'), true))->toBe($grouped)
-        ->and($ids('custom:costly'))->toBe(['valyu-research'])
-        ->and($catalog->resolve(['valyu-research'])['profiles']->pluck('id')->all())->toBe(['valyu-research']);
-})->with([
-    'standard' => ['standard', true],
-    'heavy' => ['heavy', true],
-    'max' => ['max', false],
-]);
+    config(['librarium.sources.valyu.mode' => $mode, 'librarium.groups.costly' => ['valyu']]);
+    $run = Librarium::research('Research')->deep()->only(['costly'])->dryRun();
+    expect(array_column($run->toArray()['results'], 'source'))->toBe(['valyu']);
+    Http::assertNothingSent();
+})->with(['standard', 'heavy', 'max']);
 
 it('requires the pricing identity of the configured mode', function (array $options, string $pricingModel, ?string $reason): void {
     config()->set('services.valyu.key', 'testing-valyu-key');

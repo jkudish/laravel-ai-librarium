@@ -6,7 +6,7 @@ use Brick\Math\BigDecimal;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Http;
 use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\ResearchResultMapper;
-use Jkudish\LaravelAiLibrarium\Facades\Librarium;
+use Jkudish\LaravelAiLibrarium\ProfileCatalog;
 use Jkudish\LaravelAiPricing\Enums\CostCompleteness;
 use Jkudish\LaravelAiPricing\Facades\AiPricing;
 use Jkudish\LaravelAiPricing\ValueObjects\Usage as PricingUsage;
@@ -73,7 +73,7 @@ function fakeGeminiInteraction(array $usage): void
 it('reports the Gemini grounding search count in normalized usage and prices it', function (string $profile): void {
     fakeGeminiInteraction(canaryGeminiUsage());
 
-    $usage = Librarium::query('Which nonprofits use LuxGive?')->using($profile)->run()->results->sole()->usage;
+    $usage = variantRun($profile, 'Which nonprofits use LuxGive?')->usage;
 
     expect($usage?->toArray())->toBe([
         'prompt_tokens' => 493,
@@ -98,14 +98,15 @@ it('reports the Gemini grounding search count in normalized usage and prices it'
 })->with(['gemini-grounded', 'gemini-chat']);
 
 it('includes the Google Search fee in every Gemini grounded quote', function (string $profile): void {
-    $entry = Librarium::query('Which nonprofits use LuxGive?')->using($profile)->preview()->pricingQuotes->sole();
+    $binding = app(ProfileCatalog::class)->find($profile)->profile;
+    $quote = AiPricing::quote($binding->pricingIdentity->provider, $binding->pricingIdentity->model, $binding->pricingUsage);
 
     // 100,000 input x 0.75/M + 100,000 output x 3.75/M + 100 searches x 0.014:
     // the searches are 1.40 of the 1.85 quote.
-    expect($entry['usage']?->quantity('web_searches')->isEqualTo(100))->toBeTrue()
-        ->and($entry['quote']->completeness)->toBe(CostCompleteness::Complete)
-        ->and($entry['quote']->missingUnits)->toBe([])
-        ->and($entry['quote']->cost?->amount->isEqualTo(BigDecimal::of('1.85')))->toBeTrue();
+    expect($binding->pricingUsage?->quantity('web_searches')->isEqualTo(100))->toBeTrue()
+        ->and($quote->completeness)->toBe(CostCompleteness::Complete)
+        ->and($quote->missingUnits)->toBe([])
+        ->and($quote->cost?->amount->isEqualTo(BigDecimal::of('1.85')))->toBeTrue();
     Http::assertNothingSent();
 })->with(['gemini-grounded', 'gemini-chat']);
 
@@ -136,7 +137,7 @@ it('counts only reported Google Search grounding queries and fails closed otherw
 it('leaves the Gemini search count unknown when grounding_tool_count is absent or malformed', function (array $usage): void {
     fakeGeminiInteraction($usage);
 
-    $result = Librarium::query('Which nonprofits use LuxGive?')->using('gemini-grounded')->run()->results->sole();
+    $result = variantRun('gemini-grounded', 'Which nonprofits use LuxGive?');
 
     expect($result->usage?->serverToolSearchRequests)->toBeNull()
         ->and($result->usage?->promptTokens)->toBe(493);

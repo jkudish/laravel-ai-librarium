@@ -8,7 +8,6 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
 use Jkudish\LaravelAiLibrarium\Drivers\Perplexity\PerplexityAgentDriver;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
-use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\Profile;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
@@ -35,7 +34,7 @@ afterEach(function (): void {
 });
 
 it('keeps the exact managed low Profile unproven without any HTTP request', function (): void {
-    $bound = Librarium::query('An exact managed request.')->using('perplexity-sonar-pro')->spendingBound();
+    $bound = variantBound('perplexity-sonar-pro', 'An exact managed request.');
 
     expect($bound->kind)->toBe(SpendingBoundKind::Unknown)
         ->and($bound->maximumCost)->toBeNull()
@@ -46,7 +45,7 @@ it('keeps the exact managed low Profile unproven without any HTTP request', func
 });
 
 it('keeps the exact frozen low configuration unproven without any HTTP request', function (): void {
-    $bound = Librarium::query('An exact frozen request.')->using('perplexity-low-frozen')->spendingBound();
+    $bound = variantBound('perplexity-low-frozen', 'An exact frozen request.');
 
     expect($bound->kind)->toBe(SpendingBoundKind::Unknown)
         ->and($bound->maximumCost)->toBeNull()

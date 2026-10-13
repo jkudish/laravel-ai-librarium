@@ -22,15 +22,10 @@ use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\Profile;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
-use Jkudish\LaravelAiLibrarium\ResearchCompiler;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 use Jkudish\LaravelAiLibrarium\SpendingBoundKind;
-use Jkudish\LaravelAiPricing\Contracts\CostResolver;
-use Jkudish\LaravelAiPricing\ValueObjects\CostQuote;
-use Jkudish\LaravelAiPricing\ValueObjects\PricingObservation;
-use LogicException;
 
 beforeEach(function (): void {
     config()->set('librarium.profiles.brave-answers.enabled', true);
@@ -38,7 +33,7 @@ beforeEach(function (): void {
 });
 
 it('keeps the shipped grounded answer unclassified as any spending bound', function (): void {
-    $bound = Librarium::query('An exact grounded question.')->using('brave-answers')->spendingBound();
+    $bound = variantBound('brave-answers', 'An exact grounded question.');
 
     expect($bound->kind)->toBe(SpendingBoundKind::Unknown)
         ->and($bound->toArray())->toBe(['kind' => 'unknown'])
@@ -48,36 +43,18 @@ it('keeps the shipped grounded answer unclassified as any spending bound', funct
     Http::assertNothingSent();
 });
 
-it('does not promote the configured pricing preview estimate or a maxCost comparison into a bound', function (): void {
-    $resolver = new class implements CostResolver
-    {
-        public int $calls = 0;
+it('skips the unbounded grounded answer under a maxCost cap', function (): void {
+    $plan = Librarium::research('Do not estimate this grounded answer.')->only(['brave'])->maxCost('0.000001')->dryRun();
 
-        public function resolve(PricingObservation $observation): CostQuote
-        {
-            $this->calls++;
-
-            throw new LogicException('Spending-bound compilation must not resolve rates.');
-        }
-    };
-    app()->when(ResearchCompiler::class)
-        ->needs(CostResolver::class)
-        ->give(fn (): CostResolver => $resolver);
-
-    $bound = Librarium::query('Do not estimate this grounded answer.')
-        ->using('brave-answers')
-        ->maxCost('0.000001')
-        ->spendingBound();
-
-    expect($bound->kind)->toBe(SpendingBoundKind::Unknown)
-        ->and($resolver->calls)->toBe(0);
+    expect($plan->toArray()['results'])->toBeEmpty()
+        ->and($plan->toArray()['skipped'])->toContain(['source' => 'brave', 'reason' => 'unpriced']);
     Http::assertNothingSent();
 });
 
 it('stays unknown for every provider-documented Answers model', function (string $model): void {
     config()->set('librarium.profiles.brave-answers.model', $model);
 
-    $bound = Librarium::query('Any grounded question.')->using('brave-answers')->spendingBound();
+    $bound = variantBound('brave-answers', 'Any grounded question.');
 
     expect($bound->kind)->toBe(SpendingBoundKind::Unknown);
     Http::assertNothingSent();
@@ -89,7 +66,7 @@ it('stays unknown for every provider-documented Answers model', function (string
 it('rejects every provider-documented spending control instead of silently accepting it on this Profile', function (array $options): void {
     config()->set('librarium.profiles.brave-answers.options', $options);
 
-    expect(fn () => Librarium::query('An exact grounded question.')->using('brave-answers')->spendingBound())
+    expect(fn () => variantBound('brave-answers', 'An exact grounded question.'))
         ->toThrow(ValidationException::class);
     Http::assertNothingSent();
 })->with([

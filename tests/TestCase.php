@@ -44,9 +44,14 @@ abstract class TestCase extends Orchestra
             $app['config']->set("ai.providers.{$provider}.key", "testing-{$provider}-key");
         }
 
-        foreach (['brave', 'exa', 'jina', 'kagi', 'parallel', 'perplexity', 'searchapi', 'serpapi', 'serpbase', 'tavily', 'valyu'] as $provider) {
+        foreach (['brave', 'exa', 'jina', 'kagi', 'parallel', 'perplexity', 'searchapi', 'serpapi', 'serpbase', 'tavily', 'valyu', 'you'] as $provider) {
             $app['config']->set("services.{$provider}.key", "testing-{$provider}-key");
         }
+
+        // Direct driver tests exercise the private variant bindings, not the
+        // application-facing source selection API.
+        $bindings = require __DIR__.'/../src/Profiles/bindings.php';
+        $app['config']->set('librarium.profiles', $bindings['profiles']);
 
         foreach (['you-answer', 'you-research-grounded', 'you-research-research'] as $profile) {
             $app['config']->set("librarium.profiles.{$profile}.credential", 'testing-you-key');

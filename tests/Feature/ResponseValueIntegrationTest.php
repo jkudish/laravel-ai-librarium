@@ -10,7 +10,7 @@ use Jkudish\LaravelAiLibrarium\Responses\Usage;
 it('keeps terminal response values usable by a Laravel package consumer', function (): void {
     /** @var array<string, mixed> $fixture */
     $fixture = json_decode(
-        File::get(__DIR__.'/../Support/Contracts/v1/fixtures/valid/partial-top-level-usage.json'),
+        File::get(__DIR__.'/../Support/DriverValues/valid/partial-top-level-usage.json'),
         true,
         512,
         JSON_THROW_ON_ERROR,
@@ -28,7 +28,7 @@ it('keeps terminal response values usable by a Laravel package consumer', functi
 it('renders every terminal response value with its canonical wire keys through Laravel JSON responses', function (): void {
     /** @var array<string, mixed> $fixture */
     $fixture = json_decode(
-        File::get(__DIR__.'/../Support/Contracts/v1/fixtures/valid/partial-top-level-usage.json'),
+        File::get(__DIR__.'/../Support/DriverValues/valid/partial-top-level-usage.json'),
         true,
         512,
         JSON_THROW_ON_ERROR,
