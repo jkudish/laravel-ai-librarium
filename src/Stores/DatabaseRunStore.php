@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Jkudish\LaravelAiLibrarium\Stores;
 
-use Carbon\CarbonImmutable;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -79,8 +78,8 @@ final readonly class DatabaseRunStore implements RunStore
         }
         $runs = $this->connection->table($this->table)->where(function (Builder $query) use ($seconds): void {
             foreach (array_unique($seconds) as $second) {
-                $next = CarbonImmutable::parse($second, 'UTC')->addSecond()->format('Y-m-d\TH:i:s');
-                $query->orWhere(fn (Builder $range): Builder => $range->where('created_at', '>=', $second)->where('created_at', '<', $next));
+                // Both index formats lie between the second prefix and its UTC suffix.
+                $query->orWhere(fn (Builder $range): Builder => $range->where('created_at', '>=', $second)->where('created_at', '<=', $second.'Z'));
             }
         })->get()
             ->map(function (object $row): RunSummary {

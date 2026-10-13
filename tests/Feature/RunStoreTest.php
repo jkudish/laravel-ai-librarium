@@ -119,6 +119,31 @@ it('pages earlier draft database indexes alongside current indexes without rewri
         ->and(DB::table('librarium_runs')->orderBy('id')->get()->all())->toEqual($original);
 });
 
+it('lists the maximum RFC3339 year with current and earlier draft database indexes', function (bool $draft): void {
+    config(['database.default' => 'sqlite', 'database.connections.sqlite' => ['driver' => 'sqlite', 'database' => ':memory:']]);
+    (require __DIR__.'/../../database/migrations/create_librarium_runs_table.php')->up();
+    $store = new DatabaseRunStore(DB::connection());
+    $fixture = Spec::read('fixtures/run-store/stored-run.json');
+    $ids = [];
+    foreach (['9999-12-31T23:59:59.1Z', '9999-12-31T23:59:59.9Z', '9999-12-31T23:59:58.9Z'] as $index => $timestamp) {
+        $id = 'run_01J000000000000000000000'.str_pad((string) ($index + 1), 2, '0', STR_PAD_LEFT);
+        $ids[] = $id;
+        $fixture['run']['id'] = $id;
+        $fixture['run']['created_at'] = $timestamp;
+        expect($store->save(StoredRun::fromArray($fixture), null))->toBe(1)
+            ->and($store->find($id)->run->toArray()['created_at'])->toBe($timestamp);
+        if ($draft) {
+            DB::table('librarium_runs')->where('id', $id)->update(['created_at' => str_replace(['.1Z', '.9Z'], ['.100000Z', '.900000Z'], $timestamp)]);
+        }
+    }
+    $original = DB::table('librarium_runs')->orderBy('id')->get()->all();
+    expect(array_column($store->list(1), 'id'))->toBe([$ids[1]])
+        ->and(array_column($store->list(1, $ids[1]), 'id'))->toBe([$ids[0]])
+        ->and(array_column($store->list(1, $ids[0]), 'id'))->toBe([$ids[2]])
+        ->and($store->list(1, $ids[2]))->toBeEmpty()
+        ->and(DB::table('librarium_runs')->orderBy('id')->get()->all())->toEqual($original);
+})->with(['current' => false, 'earlier draft' => true]);
+
 it('stores and finds queued Runs through registered and class-name stores', function (string $registration): void {
     Bus::fake();
     config(['librarium.runs.store' => $registration === 'class' ? MemoryRunStore::class : 'custom', 'librarium.runs.marker' => 'factory-config']);
