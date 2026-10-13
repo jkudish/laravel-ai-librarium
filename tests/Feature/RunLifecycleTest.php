@@ -79,41 +79,17 @@ it('runs offline quick and durable queued research through every built-in store'
     Http::assertSentCount(4);
 })->with(['memory', 'cache', 'filesystem', 'database']);
 
-it('fails closed when cache rejects a claim handle or index write', function (string $failure): void {
+it('rejects an unsupported cache backend before storing or submitting work', function (): void {
     $backend = new class extends ArrayStore
     {
-        public int $documentWrites = 0;
-
-        public int $rejectDocument = 0;
-
-        public bool $rejectIndex = false;
-
         public function put($key, $value, $seconds): bool
         {
-            if (str_ends_with($key, 'index')) {
-                if ($this->rejectIndex) {
-                    return false;
-                }
-            } elseif (++$this->documentWrites === $this->rejectDocument) {
-                return false;
-            }
-
-            return parent::put($key, $value, $seconds);
+            throw new LogicException('Unsupported backend must never be written.');
         }
     };
-    $backend->rejectDocument = match ($failure) {
-        'claim' => 2, 'handle' => 3, default => 0
-    };
-    $backend->rejectIndex = $failure === 'index';
     Librarium::extendStore('rejecting', fn () => new CacheRunStore(new Repository($backend)));
-    config(['librarium.runs.store' => 'rejecting', 'librarium.timeout' => 2]);
-    Http::fake(['https://api.openai.com/v1/responses' => Http::response(['id' => 'resp_accepted_123', 'status' => 'queued'])]);
-    expect(fn () => Librarium::research('Rejected persistence')->deep()->only(['openai'])->run())->toThrow(LogicException::class, 'persist');
-    if ($failure === 'handle') {
-        Http::assertSentCount(1);
-        $id = app(LibrariumManager::class)->store()->list(1)[0]->id;
-        expect(app(LibrariumManager::class)->store()->find($id)->state)->not->toHaveKey('handles');
-    } else {
-        Http::assertNothingSent();
-    }
-})->with(['claim', 'handle', 'index']);
+    config(['librarium.runs.store' => 'rejecting']);
+    expect(fn () => Librarium::research('Rejected persistence')->deep()->only(['openai'])->run())->toThrow(LogicException::class, 'undecorated');
+    Http::assertNothingSent();
+    expect($backend->all())->toBeEmpty();
+});

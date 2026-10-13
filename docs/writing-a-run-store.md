@@ -11,11 +11,19 @@ public function delete(string $id): void;
 ```
 
 Persist the whole StoredRun (`run`, private `state`, UTF-8 `files`, `version`).
-`StoredRun::fromArray()` validates the shared schema. Return a new version from
+`StoredRun::fromArray()` validates the shared schema. When decoding JSON, use
+`StoredRun::fromJson()` to retain nested empty objects in opaque foreign state;
+associative decoding can turn `{}` into `[]` and invalidate a signed handle.
+Return a new version from
 save; do not mutate the immutable document. Null expectedVersion means create
 only, not unconditional overwrite. Updates must atomically compare the stored
 version, increment it, or throw `Exceptions\RunStoreConflict`. A read/check/write
 sequence without a lock or conditional write is unsafe.
+Expiring leases are insufficient: a paused writer must not commit after its
+lease expires and a newer writer commits. Serialize the complete commit or
+use a native conditional/fenced backend operation. Built-in support is local
+filesystem, Array/standalone Redis, database and memory; other backends belong
+in custom stores with their own executable concurrency and failure proofs.
 
 Return null for a missing Run; delete is idempotent. List newest first by
 created_at then id descending, with an exclusive `before` id cursor and the

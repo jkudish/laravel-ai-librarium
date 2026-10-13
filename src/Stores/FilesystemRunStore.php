@@ -4,33 +4,28 @@ declare(strict_types=1);
 
 namespace Jkudish\LaravelAiLibrarium\Stores;
 
-use Illuminate\Cache\Repository;
-use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Contracts\Encryption\Encrypter;
 use Illuminate\Contracts\Filesystem\Filesystem;
+use Illuminate\Filesystem\FilesystemAdapter;
+use Illuminate\Support\Str;
 use InvalidArgumentException;
 use Jkudish\LaravelAiLibrarium\Contracts\RunStore;
 use Jkudish\LaravelAiLibrarium\Exceptions\RunStoreConflict;
 use Jkudish\LaravelAiLibrarium\RunSummary;
 use Jkudish\LaravelAiLibrarium\StoredRun;
+use League\Flysystem\Local\LocalFilesystemAdapter;
 use LogicException;
 
 final readonly class FilesystemRunStore implements RunStore
 {
-    private LockProvider $backend;
-
     public function __construct(
         private Filesystem $disk,
-        private Repository $locks,
         private string $path = 'librarium',
         private ?Encrypter $encrypter = null,
-        private string $lockNamespace = 'default',
     ) {
-        $backend = $locks->getStore();
-        if (! $backend instanceof LockProvider) {
-            throw new LogicException('Filesystem Run storage requires a cache store with atomic locks.');
+        if (! $disk instanceof FilesystemAdapter || $disk->getAdapter()::class !== LocalFilesystemAdapter::class) {
+            throw new LogicException('Filesystem Run storage requires a local Laravel disk; use a custom RunStore for other disks.');
         }
-        $this->backend = $backend;
     }
 
     public function find(string $id): ?StoredRun
@@ -38,7 +33,7 @@ final readonly class FilesystemRunStore implements RunStore
         $folder = $this->folder($id);
 
         /** @var StoredRun|null $run */
-        $run = $this->backend->lock($this->lockKey($id), 30)->block(10, fn (): ?StoredRun => $this->read($folder));
+        $run = $this->locked($folder, fn (): ?StoredRun => $this->read($folder));
 
         return $run;
     }
@@ -49,7 +44,7 @@ final readonly class FilesystemRunStore implements RunStore
         $folder = $this->folder($id);
 
         /** @var int $version */
-        $version = $this->backend->lock($this->lockKey($id), 30)->block(10, function () use ($run, $folder, $expectedVersion): int {
+        $version = $this->locked($folder, function () use ($run, $folder, $expectedVersion): int {
             $existing = $this->read($folder);
             if ($existing?->version !== $expectedVersion) {
                 throw new RunStoreConflict('The Run was changed by another writer.');
@@ -90,7 +85,15 @@ final readonly class FilesystemRunStore implements RunStore
     public function delete(string $id): void
     {
         $folder = $this->folder($id);
-        $this->backend->lock($this->lockKey($id), 30)->block(10, fn (): bool => $this->disk->deleteDirectory($folder));
+        $this->locked($folder, function () use ($folder): void {
+            // Keep the marker in place until commit/release. Removing its
+            // parent directory would let another writer acquire a new marker.
+            foreach ($this->disk->allFiles($folder) as $file) {
+                if ($file !== $folder.'/run.json.lock' && ! $this->disk->delete($file)) {
+                    throw new LogicException('Could not delete the Run.');
+                }
+            }
+        });
     }
 
     private function folder(string $id): string
@@ -102,9 +105,50 @@ final readonly class FilesystemRunStore implements RunStore
         return rtrim($this->path, '/').'/'.$id;
     }
 
-    private function lockKey(string $id): string
+    /** @param callable(): mixed $action */
+    private function locked(string $folder, callable $action): mixed
     {
-        return 'librarium:filesystem:'.hash('sha256', $this->lockNamespace.':'.$this->path.':'.$id);
+        if (! $this->disk->makeDirectory($folder)) {
+            throw new LogicException('Could not create the Run folder.');
+        }
+        /** @var FilesystemAdapter $disk */
+        $disk = $this->disk;
+        $marker = $disk->path($folder.'/run.json.lock');
+        $token = (string) Str::uuid();
+        $deadline = microtime(true) + 10;
+        do {
+            $mask = umask(0077);
+            try {
+                $stream = @fopen($marker, 'x+b');
+            } finally {
+                umask($mask);
+            }
+            if ($stream !== false) {
+                break;
+            }
+            clearstatcache(true, $marker);
+            if (! is_file($marker) || microtime(true) >= $deadline) {
+                throw new LogicException('Cannot acquire run.json.lock; confirm its owner stopped before manually removing a crashed-owner marker.');
+            }
+            usleep(20000);
+        } while (true);
+        try {
+            $owner = json_encode(['token' => $token, 'pid' => getmypid(), 'createdAt' => (int) (microtime(true) * 1000)], JSON_THROW_ON_ERROR);
+            if (fwrite($stream, $owner) !== strlen($owner) || ! fflush($stream)) {
+                throw new LogicException('Could not persist the Run lock owner.');
+            }
+
+            return $action();
+        } finally {
+            fclose($stream);
+            $owner = @file_get_contents($marker);
+            $owner = is_string($owner) ? json_decode($owner, true) : null;
+            if (is_array($owner) && ($owner['token'] ?? null) === $token) {
+                if (! unlink($marker)) {
+                    throw new LogicException('Could not release the Run lock.');
+                }
+            }
+        }
     }
 
     private function read(string $folder): ?StoredRun

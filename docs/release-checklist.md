@@ -27,6 +27,25 @@ traffic. Shared selection, valid/invalid Runs, and run-store contract fixtures
 come from the exact `librarium-spec` pin. Read the shared unencrypted folder
 fixture and prove quick/queued-deep/find/refresh smoke tests through all stores.
 
+Redis proof is required separately and must not be reported as passed when
+skipped. Setup installs Redis/PhpRedis but never starts a shared Redis service.
+In an orb, start a disposable loopback server with no persistence:
+
+```bash
+amp orb service start librarium-redis --command 'redis-server --bind 127.0.0.1 --port 16379 --save "" --appendonly no'
+LIBRARIUM_REDIS_TEST_PORT=16379 composer test:redis
+LIBRARIUM_REDIS_TEST_PORT=16379 composer pr:check
+amp orb service stop librarium-redis
+```
+
+Run the Redis gate in both lanes. It uses unique test namespaces and disposable
+ACL users on that loopback server, not application Redis credentials. Both real
+PhpRedis and Predis paths must pass the shared contract, TTL, two-process stale
+writer barrier, and denied claim/handle/index writes. The candidate gate carries
+only this numeric loopback port into its otherwise credential-free environment.
+The ordinary suite also checks the shared filesystem marker, no stale-age
+takeover, Array lock lifetime, and fail-closed unsupported configurations.
+
 ## Shared data and readiness
 
 `composer release:check` checks stable runtime constraints, compatibility

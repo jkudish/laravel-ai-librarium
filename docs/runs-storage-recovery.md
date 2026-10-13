@@ -44,8 +44,12 @@ before handle persistence cannot be made exactly-once by a local store.
 ],
 ```
 
-- **filesystem:** any Laravel disk. Uses a shared atomic-lock cache for
-  read/write/delete; all processes must use the same disk/path and lock backend.
+- **filesystem:** local Laravel disks only. Read/write/delete use the common
+  JS/PHP `run.json.lock` exclusive-create marker, with no age-based expiry and
+  token-checked release. All writers/readers must participate in this protocol.
+  A blocked operation fails after ten seconds; this does not expire the owner.
+  If its owner crashed, confirm no process can still access that Run before
+  manually removing the marker. Never remove a live owner's marker.
   Default encryption uses Laravel's app key; key rotation requires recovering
   old ciphertext before removing the old key. Set `encrypt: false` only for a
   protected interchange directory.
@@ -55,10 +59,28 @@ before handle persistence cannot be made exactly-once by a local store.
   One query-builder row stores run, state, files and version. No automatic
   migration and no Eloquent model. The supplied migration creates the default
   table; customize it if changing the configured name/connection.
-- **cache:** set `cache_store` and `ttl` (seconds, default 604800). Requires
-  atomic locks. Expiry deletes recovery material: use persistent storage if
-  losing a paid task handle is unacceptable.
+- **cache:** set `cache_store` and `ttl` (seconds, default 604800). Supported
+  backends are undecorated ArrayStore (process-local nonexpiring token lock)
+  and plain standalone RedisStore. Redis requires Redis 7+, uncompressed and
+  unserialized PhpRedis or Predis 3.4+'s native StreamConnection, native command
+  retries disabled, and permission to run Lua with INFO/GET/TYPE/SET/SADD/DEL/SREM
+  ACL preflight. INFO confirms the server is not a cluster node before mutation.
+  Configure the dedicated Laravel Redis connection with `max_retries: 0`;
+  leave serializer/compression/retry options unset or disabled. Redis commits
+  compare the complete prior JSON and atomically write document TTL and index
+  membership. Cluster, decorated, memoized and failover caches are rejected.
+  Expiry or eviction deletes recovery material: use persistent storage if
+  losing a paid task handle is unacceptable. Stale index members never restore
+  expired documents and are removed by explicit deletion.
 - **memory:** process-local, useful for tests. Not shared between workers.
+
+Other disks/caches can implement the [RunStore contract](writing-a-run-store.md).
+The built-in stores are not transactions over provider acceptance. A lost
+Redis commit response is indeterminate; inspect persisted state, never treat
+the exception as permission to submit again. Filesystem state is written last,
+but a crash mid-write can leave an incomplete folder requiring operator recovery.
+Deletion retains empty filesystem directories so another writer cannot bypass
+the shared marker while the first writer deletes files.
 
 All stores implement optimistic concurrency. `save($doc, null)` creates;
 `save($doc, $version)` updates only that version. A stale writer throws
@@ -70,6 +92,7 @@ never regress terminal results or submit a claimed source again.
 ```text
 <path>/<run_id>/run.json
 <path>/<run_id>/state.json
+<path>/<run_id>/run.json.lock (only while owned, or after an owner crash)
 <path>/<run_id>/answers/<source>.md
 <path>/<run_id>/evidence/<source>.json
 ```

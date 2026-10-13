@@ -77,9 +77,11 @@ and the optional Firecrawl agent collector also save signed handles.
 There is no automatic paid resubmission or fallback. Inline work cannot be resumed
 after process loss; submitted tasks with saved handles can.
 
-Run stores are `filesystem` (default; encrypted with the app key), `database`,
-`cache` with a TTL, and `memory`. The database store uses the query builder and
-one optional migration, never Eloquent or an automatic migration.
+Run stores are local Laravel `filesystem` disks (default; encrypted with the
+app key), `database`, `cache` with a TTL, and `memory`. Built-in cache support is
+process-local ArrayStore or plain standalone Redis 7+ with native atomic CAS;
+unsupported disks/caches require a custom RunStore. The database store uses the
+query builder and one optional migration, never Eloquent or an automatic migration.
 See [Runs, storage and recovery](docs/runs-storage-recovery.md) and
 [writing a RunStore](docs/writing-a-run-store.md).
 

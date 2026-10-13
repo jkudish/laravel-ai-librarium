@@ -117,10 +117,14 @@ final class LibrariumManager implements Librarium
 
             return $this->resolvedStore = $store;
         }
-        $cacheName = $settings['cache_store'] ?? null;
-        $cache = $this->container->make(CacheManager::class)->store(is_string($cacheName) ? $cacheName : null);
-        if (! $cache instanceof \Illuminate\Cache\Repository) {
-            throw new LogicException('Run stores require a Laravel cache repository.');
+        if ($name === 'cache') {
+            $cacheName = $settings['cache_store'] ?? null;
+            $cache = $this->container->make(CacheManager::class)->store(is_string($cacheName) ? $cacheName : null);
+            if (! $cache instanceof \Illuminate\Cache\Repository) {
+                throw new LogicException('Run stores require a Laravel cache repository.');
+            }
+
+            return $this->resolvedStore = new CacheRunStore($cache, is_int($settings['ttl'] ?? null) ? $settings['ttl'] : 604800);
         }
         $disk = $settings['disk'] ?? null;
         $connection = $settings['connection'] ?? null;
@@ -129,13 +133,10 @@ final class LibrariumManager implements Librarium
             'memory' => new MemoryRunStore,
             'filesystem' => new FilesystemRunStore(
                 $this->container->make(FilesystemManager::class)->disk(is_string($disk) ? $disk : null),
-                $cache,
                 is_string($settings['path'] ?? null) ? $settings['path'] : 'librarium',
                 ($settings['encrypt'] ?? true) === false ? null : $this->container->make(Encrypter::class),
-                is_string($disk) ? $disk : 'default',
             ),
             'database' => new DatabaseRunStore($this->container->make(DatabaseManager::class)->connection(is_string($connection) ? $connection : null), is_string($settings['table'] ?? null) ? $settings['table'] : 'librarium_runs'),
-            'cache' => new CacheRunStore($cache, is_int($settings['ttl'] ?? null) ? $settings['ttl'] : 604800),
             default => throw new LogicException("Unknown RunStore [{$name}]."),
         };
     }

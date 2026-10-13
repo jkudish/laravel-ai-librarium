@@ -15,6 +15,7 @@ This repository contains `jkudish/laravel-ai-librarium`, a Laravel-native resear
 - Keep the core package free of application-owned persistence, Eloquent models, UI, and TypeScript runtime artifacts. Package-owned Run storage is approved: files, cache, memory, and query-builder database storage with one optional, publishable migration. Never run that migration automatically.
 - TypeScript Librarium and this package share semantic interchange, not internal runtime architecture.
 - Consumers own evidence policy, verification thresholds, conversation storage, and domain workflows.
+- Built-in Run storage supports local Laravel disks (shared JS/PHP nonexpiring owner-checked marker), process-local ArrayStore, plain standalone uncompressed/unserialized Redis 7+ with native atomic CAS, query-builder database, and memory. Reject unsupported disks, Redis clusters, decorated/failover caches and native command retries; custom RunStores own other backends.
 - Substantial optional SDKs or browser runtimes belong in separate adapter packages.
 - Joey approved the simplified-surface SPEC.md on 2026-10-12 (PlanMode #4954): source selection, depth, max_cost, Run storage, and queue/find/refresh are authorized by that checkpoint. Follow the pinned jkudish/librarium-spec catalog, schemas, and fixtures. New policy APIs outside that spec still require approval; fallbacks are removed.
 
@@ -37,6 +38,7 @@ composer test
 composer analyse
 composer format:check
 composer validate --strict
+LIBRARIUM_REDIS_TEST_PORT=<disposable-loopback-port> composer test:redis
 composer pr:check
 ```
 

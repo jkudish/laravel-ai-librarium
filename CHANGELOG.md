@@ -14,6 +14,14 @@ Unreleased first-release candidate; this date is not a publication claim.
 - Provide encrypted filesystem, opt-in query-builder database, cache/TTL and
   memory stores, custom store registration and shared contract tests. Ship one
   publishable migration, never automatically executed; no Eloquent models.
+- Restrict built-in files to local Laravel disks with the shared nonexpiring
+  JS/PHP marker; support process-local Array or standalone plain Redis 7+ CAS
+  for cache storage. Reject unsupported/decorated/failover/cluster backends;
+  custom RunStores support other backends. Disable native Redis command replay.
+- Reject failed persistence before submission, retain late accepted handles,
+  validate every request option, sanitize operational logs, preserve opaque
+  JSON object/list shapes, and sort mixed-precision timestamps chronologically.
+  Forward quick OpenAI effort through the native Laravel AI SDK option seam.
 - Keep the encrypted one-attempt job, drivers, redaction, pricing and deadlines.
   Save signed handles for every durable driver, including OpenAI and You.com
   research, DataForSEO standard engines and optional async collectors.

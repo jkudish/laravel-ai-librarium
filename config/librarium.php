@@ -16,6 +16,8 @@ return [
     'groups' => [],
     'max_cost' => null,
     'runs' => [
+        // Built-in files require local Laravel disks. Cache requires Array or
+        // standalone plain Redis 7+; use a custom RunStore for other backends.
         'store' => 'filesystem',
         'disk' => null,
         'path' => 'librarium',
