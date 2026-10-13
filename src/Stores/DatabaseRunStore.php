@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Jkudish\LaravelAiLibrarium\Stores;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Database\ConnectionInterface;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Jkudish\LaravelAiLibrarium\Contracts\RunStore;
 use Jkudish\LaravelAiLibrarium\Exceptions\RunStoreConflict;
@@ -54,19 +56,33 @@ final readonly class DatabaseRunStore implements RunStore
             return [];
         }
         $query = $this->connection->table($this->table);
+        $seconds = [];
         if ($before !== null) {
             $cursor = $this->find($before);
             if ($cursor === null) {
                 return [];
             }
             $created = explode('.', RunListing::createdAt($cursor->run->toArray()['created_at']), 2)[0];
-            $query->where('created_at', '<=', $created);
+            $seconds[] = $created;
+            $query->where('created_at', '<', $created);
         }
 
-        // Index whole-second buckets without capping fraction length. Include complete
-        // buckets, then order their documents exactly; a cursor may exhaust its own bucket.
-        $seconds = (clone $query)->select('created_at')->distinct()->orderByDesc('created_at')->limit($limit + 1)->pluck('created_at');
-        $runs = $query->whereIn('created_at', $seconds)->get()
+        // Earlier draft indexes include fractions; current indexes contain only seconds.
+        // Read complete second ranges for bounded candidates and the cursor, then sort
+        // documents exactly. Neither index representation determines within-second order.
+        foreach ($query->select('created_at')->orderByDesc('created_at')->limit($limit)->get() as $row) {
+            /** @var object{created_at: string} $row */
+            $seconds[] = substr($row->created_at, 0, 19);
+        }
+        if ($seconds === []) {
+            return [];
+        }
+        $runs = $this->connection->table($this->table)->where(function (Builder $query) use ($seconds): void {
+            foreach (array_unique($seconds) as $second) {
+                $next = CarbonImmutable::parse($second, 'UTC')->addSecond()->format('Y-m-d\TH:i:s');
+                $query->orWhere(fn (Builder $range): Builder => $range->where('created_at', '>=', $second)->where('created_at', '<', $next));
+            }
+        })->get()
             ->map(function (object $row): RunSummary {
                 /** @var object{document: string} $row */
                 return RunSummary::fromRun(StoredRun::fromJson($row->document)->run);

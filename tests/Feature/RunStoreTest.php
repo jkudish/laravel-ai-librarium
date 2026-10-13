@@ -77,6 +77,48 @@ it('passes the shared store contract', function (string $driver): void {
     expect($paged)->toBe($expected)->and($store->list(2, $cursor))->toBeEmpty();
 })->with(['memory', 'cache', 'filesystem', 'encrypted', 'database']);
 
+it('pages earlier draft database indexes alongside current indexes without rewriting stored rows', function (): void {
+    config(['database.default' => 'sqlite', 'database.connections.sqlite' => ['driver' => 'sqlite', 'database' => ':memory:']]);
+    (require __DIR__.'/../../database/migrations/create_librarium_runs_table.php')->up();
+    $store = new DatabaseRunStore(DB::connection());
+    $fixture = Spec::read('fixtures/run-store/stored-run.json');
+    $timestamps = [
+        ['2026-10-13T12:00:00.9Z', '2026-10-13T12:00:00.900000Z'],
+        ['2026-10-13T12:00:00.1Z', '2026-10-13T12:00:00.100000Z'],
+        ['2026-10-13T12:00:00.95Z', '2026-10-13T12:00:00'],
+        ['2026-10-13T11:59:59.8Z', '2026-10-13T11:59:59.800000Z'],
+        ['2026-10-13T11:59:59.9Z', '2026-10-13T11:59:59'],
+        ['2026-10-13T11:59:58Z', '2026-10-13T11:59:58.000000Z'],
+        ['2026-10-13T12:00:01Z', '2026-10-13T12:00:01'],
+    ];
+    $ids = [];
+    foreach ($timestamps as $index => [$timestamp, $storedIndex]) {
+        $id = 'run_01J000000000000000000000'.str_pad((string) ($index + 1), 2, '0', STR_PAD_LEFT);
+        $ids[] = $id;
+        $fixture['run']['id'] = $id;
+        $fixture['run']['created_at'] = $timestamp;
+        DB::table('librarium_runs')->insert([
+            'id' => $id, 'created_at' => $storedIndex, 'version' => $fixture['version'],
+            'document' => json_encode(StoredRun::fromArray($fixture), JSON_THROW_ON_ERROR),
+        ]);
+    }
+    $original = DB::table('librarium_runs')->orderBy('id')->get()->all();
+    expect(array_column($store->list(1, $ids[0]), 'id'))->toBe([$ids[1]])
+        ->and(array_column($store->list(3, $ids[0]), 'id'))->toBe([$ids[1], $ids[4], $ids[3]])
+        ->and($store->list(1, 'run_01J00000000000000000000099'))->toBeEmpty();
+    $paged = [];
+    $cursor = null;
+    for ($page = 0; $page < count($timestamps); $page++) {
+        $items = array_column($store->list(1, $cursor), 'id');
+        array_push($paged, ...$items);
+        $cursor = $items === [] ? $cursor : end($items);
+    }
+    expect($paged)->toBe([$ids[6], $ids[2], $ids[0], $ids[1], $ids[4], $ids[3], $ids[5]])
+        ->and($store->list(1, $cursor))->toBeEmpty()
+        ->and($store->find($ids[0])->run->toArray()['created_at'])->toBe('2026-10-13T12:00:00.9Z')
+        ->and(DB::table('librarium_runs')->orderBy('id')->get()->all())->toEqual($original);
+});
+
 it('stores and finds queued Runs through registered and class-name stores', function (string $registration): void {
     Bus::fake();
     config(['librarium.runs.store' => $registration === 'class' ? MemoryRunStore::class : 'custom', 'librarium.runs.marker' => 'factory-config']);
