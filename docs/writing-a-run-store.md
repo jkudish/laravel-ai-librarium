@@ -26,8 +26,10 @@ filesystem, Array/standalone Redis, database and memory; other backends belong
 in custom stores with their own executable concurrency and failure proofs.
 
 Return null for a missing Run; delete is idempotent. List newest first by
-created_at then id descending, with an exclusive `before` id cursor and the
-requested limit. Retain all files and optional Run fields. Do not place
+created_at instant then id descending, with an exclusive `before` id cursor and
+the requested limit. Compare every fractional digit without floating-point or
+microsecond truncation; offset-equivalent timestamps and trailing zeroes are
+true ties. Retain original timestamps, all files and optional Run fields. Do not place
 credentials in state or log handles/evidence. Expiry and encryption are store
 policy; document them for the consuming app.
 

@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
 use Illuminate\Support\Str;
@@ -14,6 +15,7 @@ use Jkudish\LaravelAiLibrarium\LibrariumManager;
 use Jkudish\LaravelAiLibrarium\Run;
 use Jkudish\LaravelAiLibrarium\Spec;
 use Jkudish\LaravelAiLibrarium\StoredRun;
+use Symfony\Component\Process\InputStream;
 use Symfony\Component\Process\Process;
 
 beforeEach(function (): void {
@@ -47,6 +49,54 @@ it('waits with per-source progress and prints the recovered report', function ()
         ->not->toContain('testing-openai-key', 'resp_cli_4957');
     Http::assertSentCount(2);
 });
+
+it('detaches on a real SIGINT at a locked read or ordinary sleep and resumes without resubmitting', function (string $mode): void {
+    if (! extension_loaded('pcntl') || ! is_dir('/proc/self')) {
+        $this->markTestSkipped('The real signal proof requires Linux and pcntl.');
+    }
+    $root = sys_get_temp_dir().'/librarium-signal-'.Str::uuid();
+    File::makeDirectory($root);
+    $script = dirname(__DIR__).'/Support/console-signal.php';
+    $input = new InputStream;
+    $process = new Process([PHP_BINARY, $script, $root, $mode]);
+    $process->setInput($input);
+    $process->setTimeout(20);
+    $process->start();
+    try {
+        $barrier = $mode === 'locked-read' ? 'locked-read' : 'awaiting-sleep';
+        expect($process->waitUntil(fn (string $type, string $output): bool => str_contains($output, $barrier)))->toBeTrue();
+        if ($mode === 'sleep') {
+            $deadline = microtime(true) + 10;
+            do {
+                $channel = @file_get_contents('/proc/'.$process->getPid().'/wchan');
+                clearstatcache();
+                $sleeping = is_string($channel) && str_contains($channel, 'nanosleep') && File::glob($root.'/runs/*/run.json.lock') === [];
+                if (! $sleeping) {
+                    usleep(1000);
+                }
+            } while (! $sleeping && microtime(true) < $deadline && $process->isRunning());
+            expect($sleeping)->toBeTrue();
+        }
+        $process->signal(SIGINT);
+        $input->write("continue\n");
+        $input->close();
+        expect($process->wait())->toBe(130);
+        $pending = Run::fromArray(json_decode($process->getOutput(), true, 512, JSON_THROW_ON_ERROR));
+        expect($pending->status())->toBe('running')->and($pending->result('openai')['status'])->toBe('running')
+            ->and(File::glob($root.'/runs/*/run.json.lock'))->toBeEmpty();
+        $resume = new Process([PHP_BINARY, $script, $root, 'resume', $pending->id()]);
+        $resume->setTimeout(15);
+        expect($resume->run())->toBe(0);
+        $done = Run::fromArray(json_decode($resume->getOutput(), true, 512, JSON_THROW_ON_ERROR));
+        expect($done->status())->toBe('done')->and($done->result('openai')['answer'])->toBe('Recovered after real SIGINT.');
+        $requests = explode("\n", trim(File::get($root.'/requests.log')));
+        expect($requests)->toBe(['POST', 'GET', 'GET'])
+            ->and($process->getOutput().$process->getErrorOutput().$resume->getOutput().$resume->getErrorOutput())->not->toContain('dummy-offline-key', 'resp_signal_proof');
+    } finally {
+        $process->stop();
+        File::deleteDirectory($root);
+    }
+})->with(['locked-read', 'sleep']);
 
 it('queues one job, shows the stored Run and lists sources without secrets', function (): void {
     Bus::fake();

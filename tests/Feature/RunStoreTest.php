@@ -45,8 +45,13 @@ it('passes the shared store contract', function (string $driver): void {
         $store->delete($summary->id);
     }
     $fixture = Spec::read('fixtures/run-store/stored-run.json');
-    $timestamps = ['2026-10-13T12:00:00Z', '2026-10-13T12:00:00.500Z', '2026-10-13T13:00:00.5+01:00'];
-    $ids = ['run_01J00000000000000000000001', 'run_01J00000000000000000000002', 'run_01J00000000000000000000003'];
+    $timestamps = [
+        '2026-10-13T12:00:00Z', '2026-10-13T12:00:00.500Z', '2026-10-13T13:00:00.5+01:00',
+        '2026-10-13T12:00:00.1234569Z', '2026-10-13T12:00:00.1234561Z', '2026-10-13T13:00:00.1234569000+01:00',
+        '2026-10-13T12:00:00.'.str_repeat('1', 300).'9Z', '2026-10-13T12:00:00.'.str_repeat('1', 300).'2Z',
+        '2026-10-14T01:00:00.000+13:00', '2026-10-13T11:59:59.99999999999999Z', '2026-10-13T12:00:01Z',
+    ];
+    $ids = array_map(fn (int $index): string => 'run_01J000000000000000000000'.str_pad((string) $index, 2, '0', STR_PAD_LEFT), range(1, count($timestamps)));
     foreach ($ids as $index => $id) {
         $fixture['run']['id'] = $id;
         $fixture['run']['created_at'] = $timestamps[$index];
@@ -54,11 +59,22 @@ it('passes the shared store contract', function (string $driver): void {
         $doc = StoredRun::fromArray($fixture);
         $store->save($doc, null);
         $read = $store->find($id);
-        expect(json_encode($read->toArray()['state'], JSON_THROW_ON_ERROR))->toBe(json_encode($doc->toArray()['state'], JSON_THROW_ON_ERROR));
+        expect(json_encode($read->toArray()['state'], JSON_THROW_ON_ERROR))->toBe(json_encode($doc->toArray()['state'], JSON_THROW_ON_ERROR))
+            ->and($read->run->toArray()['created_at'])->toBe($timestamps[$index]);
     }
-    expect(array_column($store->list(3), 'id'))->toBe([$ids[2], $ids[1], $ids[0]])
-        ->and(array_column($store->list(3, $ids[2]), 'id'))->toBe([$ids[1], $ids[0]])
-        ->and(array_column($store->list(3, $ids[1]), 'id'))->toBe([$ids[0]]);
+    $expected = [$ids[10], $ids[2], $ids[1], $ids[5], $ids[3], $ids[4], $ids[6], $ids[7], $ids[8], $ids[0], $ids[9]];
+    expect(array_column($store->list(20), 'id'))->toBe($expected)
+        ->and(array_column($store->list(1), 'id'))->toBe([$ids[10]])
+        ->and(array_column($store->list(3, $ids[2]), 'id'))->toBe([$ids[1], $ids[5], $ids[3]])
+        ->and(array_column($store->list(3, $ids[4]), 'id'))->toBe([$ids[6], $ids[7], $ids[8]]);
+    $paged = [];
+    $cursor = null;
+    for ($page = 0; $page < 6; $page++) {
+        $items = array_column($store->list(2, $cursor), 'id');
+        array_push($paged, ...$items);
+        $cursor = $items === [] ? $cursor : end($items);
+    }
+    expect($paged)->toBe($expected)->and($store->list(2, $cursor))->toBeEmpty();
 })->with(['memory', 'cache', 'filesystem', 'encrypted', 'database']);
 
 it('stores and finds queued Runs through registered and class-name stores', function (string $registration): void {

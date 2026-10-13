@@ -7,7 +7,7 @@ namespace Jkudish\LaravelAiLibrarium\Stores;
 use Carbon\CarbonImmutable;
 use Jkudish\LaravelAiLibrarium\RunSummary;
 
-/** @internal The same ordering and exclusive cursor for non-query stores. */
+/** @internal Exact instant ordering and exclusive cursor shared by stores. */
 final class RunListing
 {
     /**
@@ -27,6 +27,10 @@ final class RunListing
 
     public static function createdAt(string $timestamp): string
     {
-        return CarbonImmutable::parse($timestamp)->utc()->format('Y-m-d\TH:i:s.u\Z');
+        preg_match('/\.(\d+)/', $timestamp, $matches);
+        $whole = isset($matches[0]) ? str_replace($matches[0], '', $timestamp) : $timestamp;
+
+        // Parse only whole seconds; retain every fraction digit and canonicalize true ties.
+        return CarbonImmutable::parse($whole)->utc()->format('Y-m-d\TH:i:s').'.'.rtrim($matches[1] ?? '', '0');
     }
 }

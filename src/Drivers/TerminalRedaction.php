@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jkudish\LaravelAiLibrarium\Drivers;
 
+use Jkudish\LaravelAiLibrarium\Collection\ResponseRedactor;
 use Jkudish\LaravelAiLibrarium\Drivers\Valyu\ValyuSupport;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
@@ -104,7 +105,7 @@ final class TerminalRedaction
         if (is_string($value)) {
             return array_any(
                 $privateValues,
-                static fn (string $privateValue): bool => str_contains($value, $privateValue),
+                static fn (string $privateValue): bool => ResponseRedactor::containsCredential($value, $privateValue),
             );
         }
 

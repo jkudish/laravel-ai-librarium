@@ -59,6 +59,9 @@ before handle persistence cannot be made exactly-once by a local store.
   One query-builder row stores run, state, files and version. No automatic
   migration and no Eloquent model. The supplied migration creates the default
   table; customize it if changing the configured name/connection.
+  Listing indexes UTC whole-second buckets and orders complete candidate
+  buckets by exact fractional timestamps, then id. Dense buckets can read more
+  rows than the page limit; public timestamps retain their original precision.
 - **cache:** set `cache_store` and `ttl` (seconds, default 604800). Supported
   backends are undecorated ArrayStore (process-local nonexpiring token lock)
   and plain standalone RedisStore. Redis requires Redis 7+, uncompressed and
@@ -107,8 +110,10 @@ are readable by PHP and vice versa. Encryption is PHP-specific.
 Every Run retains redacted exchanges separately from public results/events.
 Credentials and encoded forms, common secret-bearing keys, auth-bearing URLs
 and unsafe headers are stripped before storage. Unparseable or unsafe bodies
-are omitted with a reason, never returned verbatim. Configure extra dotted
-`redaction.paths` and regex `redaction.patterns` for application-private data;
+are omitted with a reason, never returned verbatim. Terminal results reflecting
+known keys in URI/component forms or padded/unpadded Base64/Base64url are rejected;
+evidence redaction treats percent-escape hex case as insignificant.
+Configure extra dotted `redaction.paths` and regex `redaction.patterns` for application-private data;
 reasoning text is not automatically confidential. Evidence may still contain
 private source material. Restrict access, encrypt storage and choose retention.
 There is no raw sensitive capture API.

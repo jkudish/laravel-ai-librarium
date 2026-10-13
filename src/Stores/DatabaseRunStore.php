@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Jkudish\LaravelAiLibrarium\Stores;
 
 use Illuminate\Database\ConnectionInterface;
-use Illuminate\Database\Query\Builder;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Jkudish\LaravelAiLibrarium\Contracts\RunStore;
 use Jkudish\LaravelAiLibrarium\Exceptions\RunStoreConflict;
@@ -32,7 +31,7 @@ final readonly class DatabaseRunStore implements RunStore
         $version = ($expectedVersion ?? 0) + 1;
         $data = [
             'id' => $run->run->id(),
-            'created_at' => RunListing::createdAt($run->run->toArray()['created_at']),
+            'created_at' => explode('.', RunListing::createdAt($run->run->toArray()['created_at']), 2)[0],
             'version' => $version,
             'document' => json_encode($run->withVersion($version), JSON_THROW_ON_ERROR),
         ];
@@ -60,16 +59,20 @@ final readonly class DatabaseRunStore implements RunStore
             if ($cursor === null) {
                 return [];
             }
-            $created = RunListing::createdAt($cursor->run->toArray()['created_at']);
-            $query->where(fn (Builder $q) => $q->where('created_at', '<', $created)
-                ->orWhere(fn (Builder $q) => $q->where('created_at', $created)->where('id', '<', $before)));
+            $created = explode('.', RunListing::createdAt($cursor->run->toArray()['created_at']), 2)[0];
+            $query->where('created_at', '<=', $created);
         }
 
-        return array_values($query->orderByDesc('created_at')->orderByDesc('id')->limit($limit)->get()
+        // Index whole-second buckets without capping fraction length. Include complete
+        // buckets, then order their documents exactly; a cursor may exhaust its own bucket.
+        $seconds = (clone $query)->select('created_at')->distinct()->orderByDesc('created_at')->limit($limit + 1)->pluck('created_at');
+        $runs = $query->whereIn('created_at', $seconds)->get()
             ->map(function (object $row): RunSummary {
                 /** @var object{document: string} $row */
                 return RunSummary::fromRun(StoredRun::fromJson($row->document)->run);
-            })->all());
+            })->all();
+
+        return RunListing::page(array_values($runs), $limit, $before);
     }
 
     public function delete(string $id): void

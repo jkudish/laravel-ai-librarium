@@ -25,6 +25,8 @@ final class ResearchCommand extends LibrariumCommand
 
     protected $description = 'Research a question and store its Run';
 
+    private bool $interrupted = false;
+
     public function handle(LibrariumManager $manager): int
     {
         try {
@@ -54,17 +56,11 @@ final class ResearchCommand extends LibrariumCommand
             }
             $id = $manager->create($request)->run->id();
             $runtime = app(RunRuntime::class);
+            $this->interrupted = false;
             if (defined('SIGINT')) {
-                $this->trap(SIGINT, function () use ($id, $manager, $runtime): void {
-                    $runtime->failInterrupted($id);
-                    $run = $manager->find($id);
-                    if ($run !== null) {
-                        $this->writeRun($run);
-                    }
-                    if (! $this->option('json')) {
-                        $this->line('Detached. Return with: php artisan librarium:show '.$id.' --wait');
-                    }
-                    exit(130);
+                // A signal can arrive inside a store's critical section. Never reenter it.
+                $this->trap(SIGINT, function (): void {
+                    $this->interrupted = true;
                 });
             }
             if (! $this->option('json')) {
@@ -80,7 +76,22 @@ final class ResearchCommand extends LibrariumCommand
                     $previous = $progress;
                 }
                 Sleep::for(1)->seconds();
+                if ($this->interrupted) {
+                    break;
+                }
                 $run = $run->refresh();
+            }
+            if ($this->interrupted) {
+                $runtime->failInterrupted($id);
+                $run = $manager->find($id);
+                if ($run !== null) {
+                    $this->writeRun($run);
+                }
+                if (! $this->option('json')) {
+                    $this->line('Detached. Return with: php artisan librarium:show '.$id.' --wait');
+                }
+
+                return 130;
             }
 
             return $this->writeRun($run);

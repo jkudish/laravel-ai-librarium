@@ -20,8 +20,11 @@ Unreleased first-release candidate; this date is not a publication claim.
   custom RunStores support other backends. Disable native Redis command replay.
 - Reject failed persistence before submission, retain late accepted handles,
   validate every request option, sanitize operational logs, preserve opaque
-  JSON object/list shapes, and sort mixed-precision timestamps chronologically.
+  JSON object/list shapes, reject encoded known-key reflections and redact their
+  evidence, and order arbitrary-precision timestamps with exact exclusive cursors.
   Forward quick OpenAI effort through the native Laravel AI SDK option seam.
+- Defer Ctrl-C detachment to the next safe poll boundary; signal callbacks never
+  reenter Run storage while a synchronous read or commit holds its marker.
 - Keep the encrypted one-attempt job, drivers, redaction, pricing and deadlines.
   Save signed handles for every durable driver, including OpenAI and You.com
   research, DataForSEO standard engines and optional async collectors.

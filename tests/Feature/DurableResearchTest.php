@@ -30,6 +30,35 @@ beforeEach(function (): void {
 
 afterEach(fn () => CarbonImmutable::setTestNow());
 
+it('rejects encoded credential reflections without retaining them in the Run or evidence', function (string $reflection): void {
+    $credential = 'private:key /+value!';
+    config(['services.exa.key' => $credential]);
+    Bus::fake();
+    $response = durableExaRun('completed');
+    $response['output']['text'] = 'Safe provider context. Reflected '.$reflection;
+    Http::fake([
+        'https://api.exa.ai/agent/runs' => Http::response(durableExaRun('running')),
+        'https://api.exa.ai/agent/runs/*' => Http::response($response, 200, ['X-Request-Id' => $reflection]),
+    ]);
+    $queued = Librarium::research('Research')->deep()->only(['exa'])->queue();
+    app(RunRuntime::class)->start($queued->id());
+    $run = Librarium::find($queued->id())->refresh();
+    expect($run->status())->toBe('failed')
+        ->and($run->result('exa')['error']['code'])->toBe('exa_research.invalid_response')
+        ->and($run->result('exa')['answer'])->toBeNull();
+    foreach ([$run->toArray(), $run->evidence('exa'), app(LibrariumManager::class)->store()->find($run->id())->toArray()] as $retained) {
+        expect(json_encode($retained, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES))->not->toContain($credential, $reflection);
+    }
+    expect($run->evidence('exa')[1]['body'])->toContain('Safe provider context.', '[REDACTED]')
+        ->and($run->evidence('exa')[1]['headers']['x-request-id'])->toBe(['[REDACTED]']);
+    Http::assertSentCount(2);
+})->with([
+    'URI' => ['private%3Akey%20%2F%2Bvalue%21'],
+    'lowercase JS URI component' => ['private%3akey%20%2f%2bvalue!'],
+    'mixed percent case' => ['private%3akey%20%2F%2bvalue%21'],
+    'unpadded Base64url' => ['cHJpdmF0ZTprZXkgLyt2YWx1ZSE'],
+]);
+
 it('submits once, persists a private signed handle and observes through a reconstructed Run', function (): void {
     Http::fake(['https://api.exa.ai/agent/runs' => function (Request $request) {
         $id = app(LibrariumManager::class)->store()->list(1)[0]->id;
