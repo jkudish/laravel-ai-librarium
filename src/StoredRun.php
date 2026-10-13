@@ -21,6 +21,36 @@ final readonly class StoredRun implements JsonSerializable
         Spec::validate($this->toArray(), 'stored-run');
     }
 
+    /** Decode opaque foreign state without changing JSON objects into lists. */
+    public static function fromJson(string $json): self
+    {
+        $wire = json_decode($json, false, 512, JSON_THROW_ON_ERROR);
+        Spec::validate($wire, 'stored-run');
+        /** @var array<string, mixed> $document */
+        $document = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+        /** @var object{state: object} $wire */
+        $document['state'] = (array) self::stateValue($wire->state);
+        if (isset($document['state']['handles'])) {
+            $document['state']['handles'] = (array) $document['state']['handles'];
+        }
+
+        return self::fromArray($document);
+    }
+
+    private static function stateValue(mixed $value): mixed
+    {
+        if (is_object($value)) {
+            $properties = (array) $value;
+            $mapped = array_map(self::stateValue(...), $properties);
+
+            // Empty and integer-keyed objects cannot be represented by PHP
+            // arrays without json_encode changing their JSON shape.
+            return array_is_list($properties) ? (object) $mapped : $mapped;
+        }
+
+        return is_array($value) ? array_map(self::stateValue(...), $value) : $value;
+    }
+
     /** @param array<string, mixed> $document */
     public static function fromArray(array $document): self
     {

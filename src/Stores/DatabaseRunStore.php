@@ -22,11 +22,9 @@ final readonly class DatabaseRunStore implements RunStore
         if ($row === null) {
             return null;
         }
-        /** @var object{document: string} $row */
-        /** @var array<string, mixed> $document */
-        $document = json_decode((string) $row->document, true, 512, JSON_THROW_ON_ERROR);
 
-        return StoredRun::fromArray($document);
+        /** @var object{document: string} $row */
+        return StoredRun::fromJson($row->document);
     }
 
     public function save(StoredRun $run, ?int $expectedVersion): int
@@ -34,7 +32,7 @@ final readonly class DatabaseRunStore implements RunStore
         $version = ($expectedVersion ?? 0) + 1;
         $data = [
             'id' => $run->run->id(),
-            'created_at' => $run->run->toArray()['created_at'],
+            'created_at' => RunListing::createdAt($run->run->toArray()['created_at']),
             'version' => $version,
             'document' => json_encode($run->withVersion($version), JSON_THROW_ON_ERROR),
         ];
@@ -62,7 +60,7 @@ final readonly class DatabaseRunStore implements RunStore
             if ($cursor === null) {
                 return [];
             }
-            $created = $cursor->run->toArray()['created_at'];
+            $created = RunListing::createdAt($cursor->run->toArray()['created_at']);
             $query->where(fn (Builder $q) => $q->where('created_at', '<', $created)
                 ->orWhere(fn (Builder $q) => $q->where('created_at', $created)->where('id', '<', $before)));
         }
@@ -70,10 +68,7 @@ final readonly class DatabaseRunStore implements RunStore
         return array_values($query->orderByDesc('created_at')->orderByDesc('id')->limit($limit)->get()
             ->map(function (object $row): RunSummary {
                 /** @var object{document: string} $row */
-                /** @var array<string, mixed> $document */
-                $document = json_decode((string) $row->document, true, 512, JSON_THROW_ON_ERROR);
-
-                return RunSummary::fromRun(StoredRun::fromArray($document)->run);
+                return RunSummary::fromRun(StoredRun::fromJson($row->document)->run);
             })->all());
     }
 

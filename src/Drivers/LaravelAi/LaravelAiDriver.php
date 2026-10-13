@@ -283,7 +283,7 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
     }
 
     /**
-     * The provider-specific Claude and OpenRouter controls, checked strictly.
+     * The provider-specific Claude, OpenAI and OpenRouter controls, checked strictly.
      * Returns the reason the options are invalid, or null when they are valid.
      *
      * @param  array<string, mixed>  $options
@@ -309,6 +309,11 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
         $openRouterKeys = array_intersect(array_keys($options), [...self::OPENROUTER_ROUTING_OPTIONS, ...self::OPENROUTER_REASONING_OPTIONS]);
         if ($openRouterKeys === []) {
             return null;
+        }
+
+        if ($provider === 'openai' && array_diff($openRouterKeys, ['reasoning_effort']) === []) {
+            return in_array($options['reasoning_effort'], self::OPENROUTER_REASONING_EFFORTS, true)
+                ? null : 'The Laravel AI Driver received invalid Profile options.';
         }
 
         if ($provider !== 'openrouter') {
@@ -695,6 +700,7 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
             openRouterReasoning: array_intersect_key($request->profile->options, array_flip(self::OPENROUTER_REASONING_OPTIONS)),
             anthropicEffort: is_string($request->profile->options['effort'] ?? null) ? $request->profile->options['effort'] : null,
             anthropicThinking: is_string($request->profile->options['thinking'] ?? null) ? $request->profile->options['thinking'] : null,
+            openAiEffort: is_string($request->profile->options['reasoning_effort'] ?? null) ? $request->profile->options['reasoning_effort'] : null,
         );
 
         try {

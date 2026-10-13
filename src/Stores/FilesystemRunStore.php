@@ -11,7 +11,6 @@ use Illuminate\Contracts\Filesystem\Filesystem;
 use InvalidArgumentException;
 use Jkudish\LaravelAiLibrarium\Contracts\RunStore;
 use Jkudish\LaravelAiLibrarium\Exceptions\RunStoreConflict;
-use Jkudish\LaravelAiLibrarium\Run;
 use Jkudish\LaravelAiLibrarium\RunSummary;
 use Jkudish\LaravelAiLibrarium\StoredRun;
 use LogicException;
@@ -115,8 +114,8 @@ final readonly class FilesystemRunStore implements RunStore
         }
         /** @var array<string, mixed> $run */
         $run = json_decode($this->contents($folder.'/run.json'), true, 512, JSON_THROW_ON_ERROR);
-        /** @var array{state: array<string, mixed>, version: int} $state */
-        $state = json_decode($this->contents($folder.'/state.json'), true, 512, JSON_THROW_ON_ERROR);
+        /** @var object{state: object, version: int} $state */
+        $state = json_decode($this->contents($folder.'/state.json'), false, 512, JSON_THROW_ON_ERROR);
         $files = [];
         foreach (['answers', 'evidence'] as $directory) {
             foreach ($this->disk->files($folder.'/'.$directory) as $file) {
@@ -125,7 +124,7 @@ final readonly class FilesystemRunStore implements RunStore
             }
         }
 
-        return new StoredRun(Run::fromArray($run), $state['state'], $files, $state['version']);
+        return StoredRun::fromJson(json_encode(['run' => $run, 'state' => $state->state, 'files' => (object) $files, 'version' => $state->version], JSON_THROW_ON_ERROR));
     }
 
     private function contents(string $file): string

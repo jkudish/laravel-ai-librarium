@@ -6,6 +6,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Sleep;
 use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Execution\RunRuntime;
@@ -17,6 +18,8 @@ use Jkudish\LaravelAiLibrarium\Run;
 use Jkudish\LaravelAiLibrarium\SourceCatalog;
 use Jkudish\LaravelAiLibrarium\StoredRun;
 use Jkudish\LaravelAiLibrarium\Tests\Support\FakeRuntimeDriver;
+use Monolog\Handler\TestHandler;
+use Monolog\Logger;
 
 beforeEach(function (): void {
     CarbonImmutable::setTestNow('2026-09-11T12:00:00Z');
@@ -147,6 +150,47 @@ it('keeps submitted tasks recoverable after worker interruption', function (): v
     app(RunRuntime::class)->failInterrupted($id);
     Http::fakeSequence()->push(durableExaRun('completed'));
     expect(Librarium::find($id)->refresh()->status())->toBe('done');
+});
+
+it('retains a late accepted handle after a concurrent local interruption without resubmitting', function (string $interrupt): void {
+    config(['librarium.timeout' => 60]);
+    $id = null;
+    Http::fake(['https://api.exa.ai/agent/runs' => function () use (&$id, $interrupt) {
+        $id = app(LibrariumManager::class)->store()->list(1)[0]->id;
+        CarbonImmutable::setTestNow(CarbonImmutable::now()->addSeconds(61));
+        if ($interrupt === 'refresh') {
+            Librarium::find($id)->refresh();
+        } else {
+            app(RunRuntime::class)->failInterrupted($id);
+        }
+        expect(Librarium::find($id)->result('exa')['error']['code'])->toBe('interrupted');
+
+        return Http::response(durableExaRun('running'));
+    }]);
+    $run = app(LibrariumManager::class)->execute(['question' => 'Research', 'depth' => 'deep', 'skip' => [], 'only' => ['exa'], 'options' => []], true);
+    expect($run->status())->toBe('running')
+        ->and($run->result('exa')['error'])->toBeNull()
+        ->and(app(LibrariumManager::class)->store()->find($id)->state['handles']['exa']['reference'])->toBe('agent_run_durable_123');
+    Http::assertSentCount(1);
+    Http::fake(['https://api.exa.ai/agent/runs/*' => Http::response(durableExaRun('completed'))]);
+    expect(Librarium::find($id)->refresh()->status())->toBe('done');
+    Http::assertSentCount(1);
+    Http::assertSent(fn (Request $request) => $request->method() === 'GET');
+})->with(['refresh', 'worker-failure']);
+
+it('logs only a safe operational diagnostic when a provider throws an unsafe exception', function (): void {
+    $handler = new TestHandler;
+    Log::swap(new Illuminate\Log\Logger(new Logger('test', [$handler])));
+    Http::fake(function () {
+        throw new RuntimeException('sentinel-auth-secret provider-body', previous: new RuntimeException('sentinel-cause-secret'));
+    });
+    $run = app(LibrariumManager::class)->execute(['question' => 'Research', 'depth' => 'deep', 'skip' => [], 'only' => ['exa'], 'options' => []], true);
+    expect($run->status())->toBe('failed');
+    $records = $handler->getRecords();
+    expect($records)->not->toBeEmpty();
+    $logged = json_encode($records, JSON_THROW_ON_ERROR);
+    expect($logged)->not->toContain('sentinel-auth-secret', 'sentinel-cause-secret', 'provider-body')
+        ->and($records[0]->context)->not->toHaveKey('exception');
 });
 
 it('queues You research and finishes its report through a later Run observation', function (): void {

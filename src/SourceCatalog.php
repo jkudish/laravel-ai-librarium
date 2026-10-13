@@ -102,11 +102,35 @@ final class SourceCatalog
         return $settings;
     }
 
+    /**
+     * Validate request options without requiring a selected or configured source.
+     *
+     * @param  array<string, mixed>  $overrides
+     */
+    public function validateOptions(string $id, string $depth, array $overrides): void
+    {
+        $entry = $this->entries()[$id] ?? null;
+        if ($entry === null) {
+            throw ValidationException::withMessages(['options.'.$id => 'Unknown source options.']);
+        }
+        if ($depth === 'deep' && ! isset($entry['variants']['deep']) && ! isset($this->settings($id)['deep'])) {
+            $depth = 'quick';
+        }
+        $this->profile($id, $depth, $overrides, true);
+    }
+
     /** @param array<string, mixed> $overrides */
-    public function profile(string $id, string $depth, array $overrides = []): Profile
+    public function profile(string $id, string $depth, array $overrides = [], bool $validateOnly = false): Profile
     {
         $entry = $this->entries()[$id];
         $settings = $this->settings($id);
+        if ($validateOnly) {
+            $settings['enabled'] = true;
+            $settings['key'] = null;
+            if ($entry['kind'] === 'engine' && ! is_string($settings['collector'] ?? null)) {
+                $settings['collector'] = array_key_first($entry['collectors'] ?? []);
+            }
+        }
         if ($id === 'google' && isset($overrides['collector'])) {
             $configuredKey = $this->config->get('librarium.sources.google.key');
             $settings['key'] = $configuredKey ?? (is_string($overrides['collector']) ? $this->config->get('services.'.$overrides['collector'].'.key') : null);
@@ -146,7 +170,7 @@ final class SourceCatalog
             $collector = $settings['collector'] ?? null;
             if (is_string($collector) && isset($this->collectors[$collector])) {
                 $profile = ($this->collectors[$collector])($id, array_replace($settings, $overrides));
-                $errors = $this->profiles->reasons($profile, true);
+                $errors = $this->profiles->reasons($profile, ! $validateOnly);
                 if ($errors !== []) {
                     throw ValidationException::withMessages(['options.'.$id => $errors]);
                 }
@@ -224,7 +248,7 @@ final class SourceCatalog
         $binding['options'] = $driverOptions;
         /** @var array<string, mixed> $binding */
         $profile = $this->profiles->profile($variant, $binding);
-        $errors = $this->profiles->reasons($profile, true);
+        $errors = $this->profiles->reasons($profile, ! $validateOnly);
         if ($errors !== []) {
             throw ValidationException::withMessages(['options.'.$id => $errors]);
         }

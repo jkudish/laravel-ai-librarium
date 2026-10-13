@@ -8,6 +8,7 @@ use Brick\Math\BigDecimal;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Http\Client\Response;
+use Illuminate\Support\Facades\Log;
 use Jkudish\LaravelAiLibrarium\Collection\CaptureSession;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\FailureCategory;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
@@ -211,11 +212,11 @@ final readonly class RunRuntime
             $result['status'] = $retryable ? 'running' : 'failed';
             $result['error'] = $retryable ? null : ['code' => $exception->errorCode, 'message' => 'The source operation failed. See diagnostics for its error code.', 'retryable' => false];
             data_forget($state, 'leases.'.$source);
-        } catch (Throwable $exception) {
+        } catch (Throwable) {
             $result['status'] = $handle === null ? 'failed' : 'running';
             $result['error'] = $handle === null ? ['code' => 'interrupted', 'message' => 'The source operation was interrupted.', 'retryable' => false] : null;
             data_forget($state, 'leases.'.$source);
-            report($exception);
+            Log::warning('Librarium source operation interrupted.', ['run_id' => $id, 'source' => $source]);
         }
         /** @var array<string, mixed> $state */
         $existingEvidence = isset($files['evidence/'.$source.'.json']) ? json_decode($files['evidence/'.$source.'.json'], true, 512, JSON_THROW_ON_ERROR) : [];
@@ -232,8 +233,15 @@ final readonly class RunRuntime
                 return;
             } catch (RunStoreConflict) {
                 $doc = $this->required($id);
-                if (in_array($doc->run->result($source)['status'] ?? null, ['done', 'failed'], true)) {
+                $latest = $doc->run->result($source);
+                $lateAcceptance = $request instanceof DriverRequest && $handle !== null
+                    && ($latest['status'] ?? null) === 'failed' && ($latest['error']['code'] ?? null) === 'interrupted';
+                if (in_array($latest['status'] ?? null, ['done', 'failed'], true) && ! $lateAcceptance) {
                     return;
+                }
+                if ($lateAcceptance) {
+                    $result['status'] = 'running';
+                    $result['error'] = null;
                 }
                 $latestState = $doc->state;
                 foreach (['handles', 'leases'] as $field) {

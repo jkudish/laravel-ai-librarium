@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use Illuminate\Cache\ArrayStore;
+use Illuminate\Cache\Repository;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
@@ -9,6 +11,7 @@ use Jkudish\LaravelAiLibrarium\Execution\RunRuntime;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\Jobs\RunResearch;
 use Jkudish\LaravelAiLibrarium\LibrariumManager;
+use Jkudish\LaravelAiLibrarium\Stores\CacheRunStore;
 
 beforeEach(function (): void {
     config(['librarium.runs.store' => 'memory', 'services.firecrawl.key' => 'placeholder-firecrawl-key', 'services.you.key' => 'placeholder-you-key']);
@@ -75,3 +78,42 @@ it('runs offline quick and durable queued research through every built-in store'
         ->and($done->evidence('openai'))->toHaveCount(3);
     Http::assertSentCount(4);
 })->with(['memory', 'cache', 'filesystem', 'database']);
+
+it('fails closed when cache rejects a claim handle or index write', function (string $failure): void {
+    $backend = new class extends ArrayStore
+    {
+        public int $documentWrites = 0;
+
+        public int $rejectDocument = 0;
+
+        public bool $rejectIndex = false;
+
+        public function put($key, $value, $seconds): bool
+        {
+            if (str_ends_with($key, 'index')) {
+                if ($this->rejectIndex) {
+                    return false;
+                }
+            } elseif (++$this->documentWrites === $this->rejectDocument) {
+                return false;
+            }
+
+            return parent::put($key, $value, $seconds);
+        }
+    };
+    $backend->rejectDocument = match ($failure) {
+        'claim' => 2, 'handle' => 3, default => 0
+    };
+    $backend->rejectIndex = $failure === 'index';
+    Librarium::extendStore('rejecting', fn () => new CacheRunStore(new Repository($backend)));
+    config(['librarium.runs.store' => 'rejecting', 'librarium.timeout' => 2]);
+    Http::fake(['https://api.openai.com/v1/responses' => Http::response(['id' => 'resp_accepted_123', 'status' => 'queued'])]);
+    expect(fn () => Librarium::research('Rejected persistence')->deep()->only(['openai'])->run())->toThrow(LogicException::class, 'persist');
+    if ($failure === 'handle') {
+        Http::assertSentCount(1);
+        $id = app(LibrariumManager::class)->store()->list(1)[0]->id;
+        expect(app(LibrariumManager::class)->store()->find($id)->state)->not->toHaveKey('handles');
+    } else {
+        Http::assertNothingSent();
+    }
+})->with(['claim', 'handle', 'index']);

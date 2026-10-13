@@ -149,6 +149,9 @@ final class LibrariumManager implements Librarium
         Spec::validate($wire, 'request');
         /** @var array{question: string, depth: string, only?: list<string>, skip: list<string>, max_cost?: string, options: array<string, array<string, mixed>>} $request */
         $maximum = $request['max_cost'] ?? $this->config->get('librarium.max_cost');
+        foreach ($request['options'] as $source => $sourceOptions) {
+            $this->catalog->validateOptions($source, $request['depth'], $sourceOptions);
+        }
         if ($maximum !== null && (! is_string($maximum) || preg_match('/^(0|[1-9][0-9]*)(\.[0-9]+)?$/D', $maximum) !== 1)) {
             throw new LogicException('max_cost must be a non-negative USD decimal string.');
         }

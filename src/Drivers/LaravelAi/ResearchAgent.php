@@ -72,6 +72,7 @@ final class ResearchAgent implements Agent, HasProviderOptions, HasTools
         private array $openRouterReasoning = [],
         private ?string $anthropicEffort = null,
         private ?string $anthropicThinking = null,
+        private ?string $openAiEffort = null,
     ) {}
 
     public function maxTokens(): ?int
@@ -124,6 +125,10 @@ final class ResearchAgent implements Agent, HasProviderOptions, HasTools
         if ($this->maxToolCalls !== null
             && in_array($driver, [Lab::OpenAI->value, Lab::OpenRouter->value], true)) {
             $options['max_tool_calls'] = $this->maxToolCalls;
+        }
+
+        if ($driver === Lab::OpenAI->value && $this->openAiEffort !== null) {
+            $options['reasoning'] = ['effort' => $this->openAiEffort];
         }
 
         if ($this->exactOpenRouterRouting && $driver === Lab::OpenRouter->value) {

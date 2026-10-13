@@ -2,10 +2,12 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Exceptions\SelectionException;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
+use Jkudish\LaravelAiLibrarium\LibrariumManager;
 use Jkudish\LaravelAiLibrarium\PendingResearch;
 
 it('plans the new surface without calls or storage and preserves input', function (): void {
@@ -66,3 +68,18 @@ it('has no removed fluent methods', function (): void {
         expect(method_exists(PendingResearch::class, $name))->toBeFalse();
     }
 });
+
+it('rejects invalid options even for unselected unavailable or unknown sources before storing', function (array $options): void {
+    Bus::fake();
+    config(['librarium.runs.store' => 'memory', 'librarium.sources.openai.enabled' => false, 'ai.providers.openai.key' => null]);
+    expect(fn () => Librarium::research('q')->only(['exa'])->options($options)->queue())->toThrow(ValidationException::class);
+    Bus::assertNothingDispatched();
+    Http::assertNothingSent();
+    expect(app(LibrariumManager::class)->store()->list())->toBeEmpty();
+})->with([
+    [['openai' => ['api_key' => 'sentinel-auth-secret']]],
+    [['unknown' => ['api_key' => 'sentinel-auth-secret']]],
+    [['openai' => ['model' => []]]],
+    [['grok' => ['search' => 'invalid']]],
+    [['chatgpt' => ['key' => 'sentinel-auth-secret']]],
+]);

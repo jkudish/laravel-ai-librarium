@@ -90,6 +90,28 @@ it('runs each configured Laravel AI Profile through one exact SDK provider and m
     'Gemini chat' => ['gemini-chat', 'gemini', 'gemini-3.8-flash'],
 ]);
 
+it('forwards public quick OpenAI effort through the real SDK request', function (?string $effort): void {
+    app()->forgetInstance(AiManager::class);
+    Ai::clearResolvedInstance(AiManager::class);
+    config(['librarium.runs.store' => 'memory']);
+    Http::fake(['https://api.openai.com/v1/responses' => Http::response([
+        'id' => 'resp_effort', 'status' => 'completed', 'model' => 'gpt-6-luna',
+        'output' => [['type' => 'message', 'status' => 'completed', 'content' => [[
+            'type' => 'output_text', 'text' => 'Effort controlled answer.', 'annotations' => [],
+        ]]]], 'usage' => ['input_tokens' => 10, 'output_tokens' => 4],
+    ])]);
+    $pending = Librarium::research('Research')->only(['openai']);
+    if ($effort !== null) {
+        $pending->options(['openai' => ['effort' => $effort]]);
+    }
+    $run = $pending->run();
+    expect($run->status())->toBe('done')->and($run->result('openai')['answer'])->toBe('Effort controlled answer.');
+    Http::assertSentCount(1);
+    Http::assertSent(fn (Request $request): bool => $effort === null
+        ? ! array_key_exists('reasoning', $request->data())
+        : data_get($request->data(), 'reasoning.effort') === $effort);
+})->with(['low', 'high', null]);
+
 it('rejects an unexpected SDK provider identity for an exact built-in Profile', function (): void {
     ResearchAgent::fake([
         new TextResponse(

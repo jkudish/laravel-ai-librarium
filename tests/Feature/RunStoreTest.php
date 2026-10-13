@@ -31,6 +31,24 @@ it('passes the shared store contract', function (string $driver): void {
         })(),
     };
     (new StoreContract($store))->assertRunStoreContract();
+    foreach ($store->list() as $summary) {
+        $store->delete($summary->id);
+    }
+    $fixture = Spec::read('fixtures/run-store/stored-run.json');
+    $timestamps = ['2026-10-13T12:00:00Z', '2026-10-13T12:00:00.500Z', '2026-10-13T13:00:00.5+01:00'];
+    $ids = ['run_01J00000000000000000000001', 'run_01J00000000000000000000002', 'run_01J00000000000000000000003'];
+    foreach ($ids as $index => $id) {
+        $fixture['run']['id'] = $id;
+        $fixture['run']['created_at'] = $timestamps[$index];
+        $fixture['state'] = ['foreign' => ['outputs' => (object) [], 'items' => [(object) [], [], (object) ['0' => (object) []]]]];
+        $doc = StoredRun::fromArray($fixture);
+        $store->save($doc, null);
+        $read = $store->find($id);
+        expect(json_encode($read->toArray()['state'], JSON_THROW_ON_ERROR))->toBe(json_encode($doc->toArray()['state'], JSON_THROW_ON_ERROR));
+    }
+    expect(array_column($store->list(3), 'id'))->toBe([$ids[2], $ids[1], $ids[0]])
+        ->and(array_column($store->list(3, $ids[2]), 'id'))->toBe([$ids[1], $ids[0]])
+        ->and(array_column($store->list(3, $ids[1]), 'id'))->toBe([$ids[0]]);
 })->with(['memory', 'cache', 'filesystem', 'encrypted', 'database']);
 
 it('stores and finds queued Runs through registered and class-name stores', function (string $registration): void {

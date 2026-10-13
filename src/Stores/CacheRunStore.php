@@ -34,10 +34,8 @@ final readonly class CacheRunStore implements RunStore
         if (! is_string($value)) {
             throw new LogicException('Invalid cached Run.');
         }
-        /** @var array<string, mixed> $document */
-        $document = json_decode($value, true, 512, JSON_THROW_ON_ERROR);
 
-        return StoredRun::fromArray($document);
+        return StoredRun::fromJson($value);
     }
 
     public function save(StoredRun $run, ?int $expectedVersion): int
@@ -48,10 +46,14 @@ final readonly class CacheRunStore implements RunStore
                 throw new RunStoreConflict('The Run was changed by another writer.');
             }
             $version = ($expectedVersion ?? 0) + 1;
-            $this->cache->put($this->prefix.$run->run->id(), json_encode($run->withVersion($version), JSON_THROW_ON_ERROR), $this->ttl);
+            if (! $this->cache->put($this->prefix.$run->run->id(), json_encode($run->withVersion($version), JSON_THROW_ON_ERROR), $this->ttl)) {
+                throw new LogicException('Could not persist the Run.');
+            }
             $ids = $this->ids();
             $ids[$run->run->id()] = true;
-            $this->cache->forever($this->prefix.'index', $ids);
+            if (! $this->cache->forever($this->prefix.'index', $ids)) {
+                throw new LogicException('Could not persist the Run index.');
+            }
 
             return $version;
         });
@@ -78,7 +80,9 @@ final readonly class CacheRunStore implements RunStore
             $this->cache->forget($this->prefix.$id);
             $ids = $this->ids();
             unset($ids[$id]);
-            $this->cache->forever($this->prefix.'index', $ids);
+            if (! $this->cache->forever($this->prefix.'index', $ids)) {
+                throw new LogicException('Could not persist the Run index.');
+            }
         });
     }
 
