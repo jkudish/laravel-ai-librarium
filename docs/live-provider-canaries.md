@@ -18,8 +18,12 @@ Afterward retain sanitized outcomes, submissions, citations count, latency and
 reported charge or explicit unknown. An ambiguous submit is terminal for the
 attempt; only known-handle retrieval may continue. No automatic retry/fallback.
 
-Existing `tests/Live` harnesses predate the simplified facade and must be
-reviewed and migrated to the selected Run surface before an authorized canary.
-Do not run bulk scripts or treat historical approval as current authority.
+The `tests/Live` harnesses use `research()` and the public Run surface, with an
+in-memory Run store. Legacy profile ids remain frozen dataset names and canary
+selectors; they map to explicit sources, depth and options, not public APIs.
+Existing opt-in, credential, USD-cap and unpriced-account-cap acknowledgements
+remain required. Migration and offline checks do not authorize live execution.
+Review the selected harness and controls before an authorized canary; do not
+run bulk scripts or treat historical approval as current authority.
 Historical receipts remain in [history](history/README.md); they document only
 their named heads and do not complete new-candidate live acceptance.
