@@ -20,7 +20,7 @@ function releaseReadinessComposerFixture(): array
             'illuminate/routing' => '^13.0',
             'illuminate/support' => '^13.0',
             'illuminate/validation' => '^13.0',
-            'jkudish/laravel-ai-pricing' => '^0.1.1 || ^0.2.0',
+            'jkudish/laravel-ai-pricing' => '^0.1.1 || ^0.2.0 || ^0.3.0 || ^0.4.1',
             'laravel/ai' => '^1.0.1',
         ],
         'require-dev' => [
@@ -126,8 +126,8 @@ it('requires the exact supported PHP, Laravel, and Laravel AI compatibility poli
 })->with([
     'PHP floor' => ['require', 'php', '^8.3', 'Runtime dependency php must use the release compatibility constraint [^8.4].'],
     'Laravel major' => ['require', 'illuminate/support', '^12.0', 'Runtime dependency illuminate/support must use the release compatibility constraint [^13.0].'],
-    'pricing release' => ['require', 'jkudish/laravel-ai-pricing', '^0.2', 'Runtime dependency jkudish/laravel-ai-pricing must use the release compatibility constraint [^0.1.1 || ^0.2.0].'],
-    'pricing unsupported major' => ['require', 'jkudish/laravel-ai-pricing', '^0.1.1 || ^0.3.0', 'Runtime dependency jkudish/laravel-ai-pricing must use the release compatibility constraint [^0.1.1 || ^0.2.0].'],
+    'pricing release' => ['require', 'jkudish/laravel-ai-pricing', '^0.2', 'Runtime dependency jkudish/laravel-ai-pricing must use the release compatibility constraint [^0.1.1 || ^0.2.0 || ^0.3.0 || ^0.4.1].'],
+    'pricing unsupported major' => ['require', 'jkudish/laravel-ai-pricing', '^0.1.1 || ^0.3.0', 'Runtime dependency jkudish/laravel-ai-pricing must use the release compatibility constraint [^0.1.1 || ^0.2.0 || ^0.3.0 || ^0.4.1].'],
     'Laravel AI range' => ['require', 'laravel/ai', '^0.11.0 || ^0.10.3', 'Runtime dependency laravel/ai must use the release compatibility constraint [^1.0.1].'],
     'Laravel AI vulnerable floor' => ['require', 'laravel/ai', '^1.0', 'Runtime dependency laravel/ai must use the release compatibility constraint [^1.0.1].'],
     'Testbench major' => ['require-dev', 'orchestra/testbench', '^10.0', 'Development dependency orchestra/testbench must use the release compatibility constraint [^11.0].'],
