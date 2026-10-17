@@ -177,10 +177,39 @@ it('sends bounded no-search Claude controls through the real SDK and never conti
             && $body['max_tokens'] === 64_000
             && ! array_key_exists('inference_geo', $body)
             && ! array_key_exists('tools', $body)
+            && ! array_key_exists('cache_control', $body)
+            && data_get($body, 'system.0.cache_control') === ['type' => 'ephemeral']
             && data_get($body, 'messages.0.content.0.text') === 'Answer directly once.';
     });
     Http::assertSentCount(1);
 });
+
+it('caches Claude static prefixes and only caches the conversation with a multi-step budget', function (bool $search, ?int $steps): void {
+    app()->forgetInstance(AiManager::class);
+    Ai::clearResolvedInstance(AiManager::class);
+    config()->set('librarium.profiles.claude-chat.options', array_filter([
+        'web_search' => $search, 'max_steps' => $steps, 'max_output_tokens' => 100,
+    ], static fn (mixed $value): bool => $value !== null));
+    Http::fake(['https://api.anthropic.com/v1/messages' => Http::response([
+        'id' => 'msg_cache', 'type' => 'message', 'role' => 'assistant', 'model' => 'claude-sonnet-5',
+        'content' => [['type' => 'text', 'text' => 'Answer.']], 'stop_reason' => 'end_turn',
+        'usage' => ['input_tokens' => 13, 'output_tokens' => 7, 'cache_creation_input_tokens' => 31, 'cache_read_input_tokens' => 19],
+    ])]);
+
+    $response = Librarium::query('Unique question.')->using('claude-chat')->run();
+    expect($response->status)->toBe(ResponseStatus::Succeeded)
+        ->and($response->results->sole()->usage?->promptTokens)->toBe(13)
+        ->and($response->results->sole()->usage?->cacheReadInputTokens)->toBe(19)
+        ->and($response->results->sole()->usage?->cacheWriteInputTokens)->toBe(31);
+    Http::assertSent(function (Request $request) use ($search, $steps): bool {
+        $body = $request->data();
+
+        return data_get($body, 'system.0.cache_control') === ['type' => 'ephemeral']
+            && (isset($body['cache_control']) === ($steps === null || $steps > 1))
+            && (! $search || data_get($body, 'tools.0.cache_control') === ['type' => 'ephemeral'])
+            && ! isset($body['messages'][0]['content'][0]['cache_control']);
+    });
+})->with([[false, 1], [true, 1], [true, 2], [true, null], [false, 2]]);
 
 it('accepts the exact rendered prompt byte limit and rejects one byte beyond it', function (): void {
     $prompt = 'é';

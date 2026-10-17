@@ -140,9 +140,15 @@ it('bounds exact no-search Claude input and configured output quantities offline
     expect($bound->kind)->toBe(SpendingBoundKind::BillableQuantities)
         ->and($bound->pricingIdentity?->key())->toBe('anthropic:claude-sonnet-5-global')
         ->and($bound->quantities?->toArray())->toBe([
-            'input_tokens' => '1000000',
+            'cache_write_input_tokens_5m' => '1000000',
             'output_tokens' => '64000',
         ]);
+    $quote = app(CostResolver::class)->resolve(new PricingObservation(
+        $bound->pricingIdentity ?? throw new RuntimeException('Missing Claude identity.'),
+        $bound->quantities ?? throw new RuntimeException('Missing Claude quantities.'),
+    ));
+    // 1M x $2.50/M writes + 64k x $10/M output, not $2.64 plain input.
+    expect($quote->cost?->toArray())->toBe(['amount' => '3.14', 'currency' => 'USD']);
     Http::assertNothingSent();
 });
 
@@ -160,7 +166,7 @@ it('accepts both documented Claude output-token boundaries', function (int $maxO
 
     expect($bound->kind)->toBe(SpendingBoundKind::BillableQuantities)
         ->and($bound->quantities?->toArray())->toBe([
-            'input_tokens' => '1000000',
+            'cache_write_input_tokens_5m' => '1000000',
             'output_tokens' => (string) $maxOutputTokens,
         ]);
     Http::assertNothingSent();

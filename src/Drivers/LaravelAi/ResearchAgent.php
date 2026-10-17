@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Jkudish\LaravelAiLibrarium\Drivers\LaravelAi;
 
+use Laravel\Ai\Attributes\CacheInstructions;
+use Laravel\Ai\Attributes\CacheToolDefinitions;
 use Laravel\Ai\Contracts\Agent;
 use Laravel\Ai\Contracts\HasProviderOptions;
 use Laravel\Ai\Contracts\HasTools;
@@ -12,6 +14,8 @@ use Laravel\Ai\Promptable;
 use Laravel\Ai\Providers\Tools\WebSearch;
 
 /** @internal */
+#[CacheInstructions]
+#[CacheToolDefinitions]
 final class ResearchAgent implements Agent, HasProviderOptions, HasTools
 {
     use Promptable;
@@ -100,6 +104,12 @@ final class ResearchAgent implements Agent, HasProviderOptions, HasTools
         $driver = $provider instanceof Lab ? $provider->value : $provider;
 
         $options = [];
+
+        // An omitted step limit uses the SDK's multi-step default (five
+        // steps for these tools). Never cache unique one-shot message content.
+        if ($driver === Lab::Anthropic->value && ($this->maxSteps === null || $this->maxSteps > 1)) {
+            $options['cache_control'] = ['type' => 'ephemeral'];
+        }
 
         if ($this->maxToolCalls !== null
             && in_array($driver, [Lab::OpenAI->value, Lab::OpenRouter->value], true)) {
