@@ -71,6 +71,13 @@ pre-dispatch quantity maximum.
 The shipped `claude-chat` configuration remains search-enabled and therefore
 returns `unknown`. A consumer may configure the documented no-search controls
 to obtain a model-only bound; this is not a bound for web-search-backed Claude.
+Its entire 1M-token input ceiling is reserved as `cache_write_input_tokens_5m`
+at the published five-minute write rate (USD 2.50/M for the global Sonnet 5
+SKU), because the static prefix now requests caching. With 64,000 output
+tokens at USD 10/M, the bound prices to USD 3.14, not the former USD 2.64.
+Response usage still reports exclusive uncached, cache-read and cache-write
+partitions; consumers map the generic write count to the five-minute pricing
+unit and settle each at its real rate, never at the reservation rate.
 `brave-answers` also remains `unknown`: `max_completion_tokens` bounds output,
 but Brave documents only qualitative `search_context_size` values and no hard
 ceiling for every billed input token, including retrieved context
