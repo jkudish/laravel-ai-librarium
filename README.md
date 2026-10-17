@@ -68,6 +68,14 @@ rate; settle exclusive uncached, read and write partitions at their real rates.
 The no-search Claude bound uses `cache_write_input_tokens_5m`; see
 [spending bounds](docs/spending-bounds.md).
 
+Anthropic token counts come from each step's raw provider usage, not SDK
+totals that default missing input to zero or coerce numeric strings. Each
+metric requires a nonnegative JSON integer on every step; a missing or invalid
+count stays unknown while the answer is retained. Raw `input_tokens` already
+excludes cache tokens and is never reduced by the read/write counts again.
+Consumers computing a bill must also validate their retained raw usage for
+unsupported billable quantities and pricing qualifiers.
+
 Shipped OpenRouter Profiles use OpenAI models and remain unchanged, as do
 direct OpenAI and Google requests. Standalone custom OpenRouter `anthropic/*`
 Profiles do **not** inherit these defaults: Laravel AI SDK 1.0.1 ignores the

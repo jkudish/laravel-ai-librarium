@@ -15,10 +15,13 @@ final readonly class Usage
      * count their own partitions. completion_tokens is the inclusive output
      * total and includes reasoning tokens, so reasoning_tokens carries the
      * reasoning subset as a detail, never an extra partition. laravel/ai 1.0
-     * reports inputTokens as an inclusive total, so the mapper derives the
-     * exclusive prompt partition by subtracting the reported cache partitions
-     * before building this contract, and every input token is represented
-     * exactly once. When that subtraction would go negative, the provider's
+     * reports inputTokens as an inclusive total. For Anthropic, the mapper
+     * reads every step's raw exclusive counts instead: SDK-normalized totals
+     * default missing input to zero and coerce numeric strings. A missing or
+     * invalid raw count stays unknown. For other providers, the mapper derives
+     * the exclusive prompt partition by subtracting reported cache partitions,
+     * representing every input token exactly once. When that subtraction would
+     * go negative, the provider's
      * input-side partitions are inconsistent with its own inclusive input
      * total, so the mapper drops every input-side partition (prompt, cache
      * write, cache read) to unknown instead of fabricating partitions; no
