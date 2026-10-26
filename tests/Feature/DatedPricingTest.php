@@ -80,7 +80,7 @@ it('binds an exact driver bound to a pricing interval without changing its seria
 
     expect($bound->kind)->toBe(SpendingBoundKind::BillableQuantities)
         ->and($observation?->identity->key())->toBe('anthropic:claude-sonnet-5-5-global-standard')
-        ->and($observation?->usage->toArray())->toBe(['input_tokens' => '1000000', 'output_tokens' => '64000'])
+        ->and($observation?->usage->toArray())->toBe(['cache_write_input_tokens_5m' => '1000000', 'output_tokens' => '64000'])
         ->and($observation?->pricedAt)->toEqual($bound->pricedAt)
         ->and($observation?->pricedUntil)->toEqual($bound->pricedUntil)
         ->and(array_keys($bound->toArray()))->toBe(['kind', 'pricing_identity', 'quantities']);

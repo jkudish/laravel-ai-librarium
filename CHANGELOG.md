@@ -37,6 +37,25 @@ Unreleased first-release candidate; this date is not a publication claim.
   Run evidence tool. Artisan research supports progress and Ctrl-C detachment.
 - Pin `jkudish/librarium-spec` schemas and selection/Run/store fixtures rather
   than the retired TypeScript repin and `contracts/v1` machinery.
+- Cache static instructions and tool definitions on direct Anthropic requests
+  for five minutes, plus automatic conversation caching only for multi-step
+  budgets. The no-search Claude driver bound reserves its context as
+  `cache_write_input_tokens_5m`. Read Anthropic token partitions from every
+  step's raw usage; missing, non-integer or unsafe counts stay unknown.
+  OpenRouter `anthropic/*` models do not inherit caching under SDK 1.0.1.
+- Add opt-in frozen Perplexity research templates
+  (`PerplexityResearchConfiguration`, `research-{medium,high,deep}-2026-10-09`
+  for GPT-6 Luna, GPT-6.1 Sol and Gemini 3.8 Flash; no Claude through
+  Perplexity) and Exa research levels (`ExaResearchConfiguration`: `auto` with
+  a native USD 1 cap, `ultra` with USD 5 and 3,000 seconds). Register one as a
+  custom source binding; its frozen options identify it and any drift fails
+  before HTTP. Perplexity templates prove no spending bound.
+- Use Exa's current `ultra` metered effort instead of the retired `max` beta
+  and its header, add `max_duration_seconds` (300–10,800, `ultra` only) and
+  accept the `time_limit_reached` stop reason; `effort: max` is rejected.
+- Prove the Parallel Research driver bound: one `processor_requests` unit
+  under `parallel:research-{processor}`, with no pay-per-use add-ons.
 - Require PHP 8.4+, Laravel 13.30+, Laravel AI SDK ^1.0.1 (excludes the 1.0.0
-  SSRF advisory), and laravel-ai-pricing ^0.3.1 with dated rate windows.
+  SSRF advisory), and laravel-ai-pricing ^0.3.1 || ^0.4.1 with dated rate
+  windows.
   Verify lowest PHP 8.4 and highest PHP 8.5 lanes and exact-head offline gating.

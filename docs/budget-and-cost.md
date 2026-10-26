@@ -1,8 +1,8 @@
 # Budget and cost
 
 `dryRun()` plans without storage or provider traffic. Price estimates come
-from `laravel-ai-pricing ^0.3.1`; Librarium does not own a second rate table.
-Money is an exact nonnegative USD decimal string. Estimates must be complete,
+from `laravel-ai-pricing ^0.3.1 || ^0.4.1`; Librarium does not own a second
+rate table. Money is an exact nonnegative USD decimal string. Estimates must be complete,
 conservative, current and USD; otherwise they are unknown. Dated rates use the
 highest price in the planned wait interval. Non-configured catalog observations
 older than 30 days are not used for budget admission.

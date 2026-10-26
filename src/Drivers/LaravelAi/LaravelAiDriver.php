@@ -500,7 +500,9 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
         return SpendingBound::billableQuantities(
             new ModelIdentity('anthropic', 'claude-sonnet-5-5-global-standard'),
             new Usage([
-                'input_tokens' => self::CLAUDE_SONNET_5_5_CONTEXT_TOKENS,
+                // Static prefixes can be cache writes even on one-shot calls.
+                // Reserve every input token in the dearest exclusive partition.
+                'cache_write_input_tokens_5m' => self::CLAUDE_SONNET_5_5_CONTEXT_TOKENS,
                 'output_tokens' => $maxOutputTokens,
             ]),
         );

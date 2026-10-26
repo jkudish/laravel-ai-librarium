@@ -104,6 +104,34 @@ Results from engines carry `observation: surface`; API answers carry `api`.
 Agreement is not independent confirmation. Treat all provider text and URLs as
 untrusted, escape rendered content, and verify consequential claims.
 
+## Anthropic prompt caching
+
+The direct Anthropic `claude` source caches instructions and tool definitions
+with the default five-minute TTL. The conversation also uses automatic
+`cache_control` when `max_steps` is greater than one (or omitted, using the
+SDK's multi-step default). A one-step request never caches its unique message
+content. Anthropic's minimum prefix length still applies: a short prefix may
+not be cached. Reserve input at the 1.25× write rate, not the ordinary input
+rate; settle exclusive uncached, read and write partitions at their real rates.
+The no-search Claude driver bound uses `cache_write_input_tokens_5m`.
+
+Anthropic token counts come from each step's raw provider usage, not SDK
+totals that default missing input to zero or coerce numeric strings. Each
+metric requires a nonnegative JSON integer on every step; a missing or invalid
+count stays unknown while the answer is retained. Raw `input_tokens` already
+excludes cache tokens and is never reduced by the read/write counts again.
+Consumers computing a bill must also validate their retained raw usage for
+unsupported billable quantities and pricing qualifiers.
+
+The shipped OpenRouter variants use OpenAI models and remain unchanged, as do
+direct OpenAI and Google requests. Custom OpenRouter `anthropic/*` models do
+**not** inherit these defaults: Laravel AI SDK 1.0.1 ignores the caching
+attributes on its OpenRouter gateway. Consumers can register their own gateway
+with `AiManager::extend`, as agentsy-platform does, to apply static breakpoints
+and multi-step automatic caching to those models only. This is an SDK
+integration limitation, not an OpenRouter API limitation; OpenRouter
+[supports explicit and automatic Anthropic caching](https://openrouter.ai/docs/guides/best-practices/prompt-caching#anthropic-claude).
+
 ## Artisan
 
 ```bash

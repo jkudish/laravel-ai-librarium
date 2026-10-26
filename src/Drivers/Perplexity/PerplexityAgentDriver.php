@@ -13,6 +13,7 @@ use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
+use Jkudish\LaravelAiLibrarium\Profile;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Recovery\DurableSubmission;
@@ -57,7 +58,12 @@ readonly class PerplexityAgentDriver implements Driver
     public static function profileOptionRules(): array
     {
         return [
-            'configuration' => ['sometimes', 'string', 'in:frozen-low-'.self::FROZEN_LOW_REVISION],
+            'configuration' => ['sometimes', 'string', 'in:frozen-low-'.self::FROZEN_LOW_REVISION.',research-medium-2026-10-09,research-high-2026-10-09,research-deep-2026-10-09'],
+            'configuration_sha256' => ['sometimes', 'string', 'regex:/^[0-9a-f]{64}$/'],
+            'max_steps' => ['sometimes', 'integer:strict', 'in:15,30'],
+            'max_output_tokens' => ['sometimes', 'integer:strict', 'in:16000,32000'],
+            'max_tokens' => ['sometimes', 'integer:strict', 'in:2000'],
+            'max_prompt_bytes' => ['sometimes', 'integer:strict', 'in:500'],
             'request_timeout_seconds' => ['sometimes', 'integer:strict', 'min:1', 'max:'.self::MAX_REQUEST_TIMEOUT_SECONDS],
         ];
     }
@@ -198,6 +204,16 @@ readonly class PerplexityAgentDriver implements Driver
             && $options === ['configuration' => 'frozen-low-'.self::FROZEN_LOW_REVISION]
             && $profile->resultKind === ResultKind::GroundedAnswer
             && $profile->retrievalMethods->values()->all() === [RetrievalMethod::ModelSearchTool];
+        // Templates register as custom source bindings, so the frozen
+        // options, not the binding id, identify a reviewed configuration.
+        $researchId = $this->researchTemplate($profile);
+        $research = $researchId === null ? null : PerplexityResearchConfiguration::profiles()[$researchId];
+        $isResearchInline = $research !== null
+            && $profile->model === $research['model']
+            && $options === $research['options']
+            && $profile->prompt === '{{ query }}'
+            && $profile->resultKind === ResultKind::GroundedAnswer
+            && $profile->retrievalMethods->values()->all() === [RetrievalMethod::ModelSearchTool];
         $isBackground = in_array($profile->id, ['perplexity-deep-research', 'perplexity-sonar-deep'], true)
             && $profile->model === null
             && $options === []
@@ -206,7 +222,7 @@ readonly class PerplexityAgentDriver implements Driver
 
         if (
             $profile->provider !== 'perplexity'
-            || (! $isManagedInline && ! $isFrozenInline && ! $isBackground)
+            || (! $isManagedInline && ! $isFrozenInline && ! $isResearchInline && ! $isBackground)
             || $profile->grounding !== GroundingPolicy::Required
             || $profile->observation !== ObservationMode::ApiOutput
             || $profile->corpora->values()->all() !== [Corpus::Web]
@@ -218,6 +234,10 @@ readonly class PerplexityAgentDriver implements Driver
             );
         }
 
+        if ($isResearchInline && $request instanceof DriverRequest && strlen($request->prompt) > 500) {
+            throw new DriverException('perplexity.prompt_too_large', 'The frozen research prompt exceeds 500 bytes.', false);
+        }
+
         if (blank($profile->credential)) {
             throw new DriverException(
                 'perplexity.authentication',
@@ -226,6 +246,10 @@ readonly class PerplexityAgentDriver implements Driver
         }
 
         $this->remainingSeconds($request, 'The Perplexity request could not start before the research deadline.');
+
+        if ($isResearchInline) {
+            return 'frozen-research';
+        }
 
         return match ($profile->id) {
             'perplexity-sonar-pro' => 'low',
@@ -243,9 +267,14 @@ readonly class PerplexityAgentDriver implements Driver
         bool $background,
         bool $enforcePostResponseDeadline = true,
     ): array {
-        $payload = $preset === 'frozen-low'
-            ? $this->frozenLowPayload($request)
-            : ['input' => $request->prompt, 'preset' => $preset];
+        $payload = match ($preset) {
+            'frozen-low' => $this->frozenLowPayload($request),
+            'frozen-research' => PerplexityResearchConfiguration::payload(
+                $this->researchTemplate($request->profile) ?? throw $this->unknownState(),
+                $request->prompt,
+            ),
+            default => ['input' => $request->prompt, 'preset' => $preset],
+        };
 
         if ($background) {
             $payload['background'] = true;
@@ -357,7 +386,13 @@ PROMPT,
 
     private function isInline(DriverRequest|RecoveryRequest $request): bool
     {
-        return in_array($request->profile->id, ['perplexity-sonar-pro', self::FROZEN_LOW_PROFILE], true);
+        return in_array($request->profile->id, ['perplexity-sonar-pro', self::FROZEN_LOW_PROFILE], true)
+            || $this->researchTemplate($request->profile) !== null;
+    }
+
+    private function researchTemplate(Profile $profile): ?string
+    {
+        return PerplexityResearchConfiguration::matching(array_diff_key($profile->options, ['request_timeout_seconds' => true]));
     }
 
     /** @return array<array-key, mixed>|null */

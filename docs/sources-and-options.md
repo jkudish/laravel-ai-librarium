@@ -100,5 +100,10 @@ Add a source under `sources.<name>` with a `key`, and `quick` and/or `deep`
 driver binding. Deep drivers must implement `DurableDriver`. See
 [driver authoring](writing-a-driver.md). Custom engines by URL belong in
 `engines.custom` and need a collector that supports them.
+Opt-in frozen research templates register the same way: a
+`PerplexityResearchConfiguration::profiles()` entry as a `quick` binding, an
+`ExaResearchConfiguration::profiles()` level as a `deep` binding, each with
+its own `key`. Their frozen options identify the reviewed configuration; any
+change fails before HTTP.
 Groups are lists of source names, not execution modes. There are no built-in
 groups or reserved `custom:` prefix; collisions with any source/engine fail.

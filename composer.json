@@ -29,7 +29,7 @@
         "illuminate/routing": "^13.30",
         "illuminate/support": "^13.30",
         "illuminate/validation": "^13.30",
-        "jkudish/laravel-ai-pricing": "^0.3.1",
+        "jkudish/laravel-ai-pricing": "^0.3.1 || ^0.4.1",
         "jkudish/librarium-spec": "dev-spec-15c8a306",
         "laravel/ai": "^1.0.1",
         "laravel/prompts": "^0.3.15",

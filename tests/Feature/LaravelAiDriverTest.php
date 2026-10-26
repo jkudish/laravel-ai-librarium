@@ -190,10 +190,82 @@ it('sends bounded no-search Claude controls through the real SDK and never conti
             && $body['max_tokens'] === 64_000
             && ! array_key_exists('inference_geo', $body)
             && ! array_key_exists('tools', $body)
+            && ! array_key_exists('cache_control', $body)
+            && data_get($body, 'system.0.cache_control') === ['type' => 'ephemeral']
             && data_get($body, 'messages.0.content.0.text') === 'Answer directly once.';
     });
     Http::assertSentCount(1);
 });
+
+it('caches Claude static prefixes and only caches the conversation with a multi-step budget', function (bool $search, ?int $steps): void {
+    app()->forgetInstance(AiManager::class);
+    Ai::clearResolvedInstance(AiManager::class);
+    config()->set('librarium.profiles.claude-chat.options', array_filter([
+        'web_search' => $search, 'max_steps' => $steps, 'max_output_tokens' => 100,
+    ], static fn (mixed $value): bool => $value !== null));
+    Http::fake(['https://api.anthropic.com/v1/messages' => Http::response([
+        'id' => 'msg_cache', 'type' => 'message', 'role' => 'assistant', 'model' => 'claude-sonnet-5-5',
+        'content' => [['type' => 'text', 'text' => 'Answer.']], 'stop_reason' => 'end_turn',
+        'usage' => ['input_tokens' => 13, 'output_tokens' => 7, 'cache_creation_input_tokens' => 31, 'cache_read_input_tokens' => 19],
+    ])]);
+
+    $result = variantRun('claude-chat', 'Unique question.');
+    expect($result->usage?->promptTokens)->toBe(13)
+        ->and($result->usage?->cacheReadInputTokens)->toBe(19)
+        ->and($result->usage?->cacheWriteInputTokens)->toBe(31);
+    Http::assertSent(function (Request $request) use ($search, $steps): bool {
+        $body = $request->data();
+
+        return data_get($body, 'system.0.cache_control') === ['type' => 'ephemeral']
+            && (isset($body['cache_control']) === ($steps === null || $steps > 1))
+            && (! $search || data_get($body, 'tools.0.cache_control') === ['type' => 'ephemeral'])
+            && ! isset($body['messages'][0]['content'][0]['cache_control']);
+    });
+})->with([[false, 1], [true, 1], [true, 2], [true, null], [false, 2]]);
+
+it('does not invent Claude token counts from missing or coerced raw usage', function (string $field, mixed $value, string $metric): void {
+    app()->forgetInstance(AiManager::class);
+    Ai::clearResolvedInstance(AiManager::class);
+    $usage = ['input_tokens' => 13, 'output_tokens' => 7, 'cache_creation_input_tokens' => 500, 'cache_read_input_tokens' => 19];
+    if ($value === null) {
+        unset($usage[$field]);
+    } else {
+        $usage[$field] = $value;
+    }
+    Http::fake(['https://api.anthropic.com/v1/messages' => Http::response([
+        'id' => 'msg_incomplete', 'type' => 'message', 'role' => 'assistant', 'model' => 'claude-sonnet-5-5',
+        'content' => [['type' => 'text', 'text' => 'Keep this answer.']], 'stop_reason' => 'end_turn',
+        'usage' => $usage,
+    ])]);
+
+    $result = variantRun('claude-chat', 'Unique question.');
+    expect($result->content)->toBe('Keep this answer.')
+        ->and($result->usage?->{$metric})->toBeNull();
+    Http::assertSentCount(1);
+})->with([
+    'missing uncached input with a cache write' => ['input_tokens', null, 'promptTokens'],
+    'string uncached input' => ['input_tokens', '13', 'promptTokens'],
+    'string output' => ['output_tokens', '7', 'completionTokens'],
+    'string cache write' => ['cache_creation_input_tokens', '500', 'cacheWriteInputTokens'],
+    'string cache read' => ['cache_read_input_tokens', '19', 'cacheReadInputTokens'],
+]);
+
+it('requires every Claude step to report a raw integer before summing uncached input', function (mixed $firstInput, ?int $expected): void {
+    app()->forgetInstance(AiManager::class);
+    Ai::clearResolvedInstance(AiManager::class);
+    $body = ['id' => 'msg_steps', 'type' => 'message', 'role' => 'assistant', 'model' => 'claude-sonnet-5-5', 'content' => [['type' => 'text', 'text' => 'Answer.']]];
+    $first = array_filter(['input_tokens' => $firstInput, 'output_tokens' => 7, 'cache_creation_input_tokens' => 31, 'cache_read_input_tokens' => 19], static fn (mixed $value): bool => $value !== null);
+    Http::fake(['https://api.anthropic.com/v1/messages' => Http::sequence()
+        ->push([...$body, 'stop_reason' => 'pause_turn', 'usage' => $first])
+        ->push([...$body, 'stop_reason' => 'end_turn', 'usage' => ['input_tokens' => 17, 'output_tokens' => 11, 'cache_creation_input_tokens' => 5, 'cache_read_input_tokens' => 3]])]);
+
+    $result = variantRun('claude-chat', 'Unique question.');
+    expect($result->usage?->promptTokens)->toBe($expected)
+        ->and($result->usage?->completionTokens)->toBe(18)
+        ->and($result->usage?->cacheWriteInputTokens)->toBe(36)
+        ->and($result->usage?->cacheReadInputTokens)->toBe(22);
+    Http::assertSentCount(2);
+})->with([[13, 30], [null, null], ['13', null]]);
 
 it('accepts the exact rendered prompt byte limit and rejects one byte beyond it', function (): void {
     $prompt = 'é';

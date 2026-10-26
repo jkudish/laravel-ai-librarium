@@ -134,6 +134,8 @@ it('sends the grounded OpenRouter budget, endpoint pin, max_price, Exa mode, and
                 'allow_fallbacks' => false,
             ]
             && ! array_key_exists('reasoning', $body)
+            && ! str_contains($request->body(), 'cache_control')
+            && is_string(data_get($body, 'messages.0.content'))
             && str_contains((string) json_encode($body), 'Bound this grounded OpenRouter answer.');
     });
     Http::assertSentCount(2);
@@ -656,6 +658,7 @@ it('still enforces grounded Claude run controls when the provider continues past
                 'type' => 'web_search_20250305',
                 'name' => 'web_search',
                 'max_uses' => 5,
+                'cache_control' => ['type' => 'ephemeral'],
             ]];
     });
     Http::assertSentCount(1);
@@ -1482,7 +1485,7 @@ it('preserves the bounded no-search Claude path beside the withdrawn grounded au
     expect($bound->kind)->toBe(SpendingBoundKind::BillableQuantities)
         ->and($bound->pricingIdentity?->key())->toBe('anthropic:claude-sonnet-5-5-global-standard')
         ->and($bound->quantities?->toArray())->toBe([
-            'input_tokens' => '1000000',
+            'cache_write_input_tokens_5m' => '1000000',
             'output_tokens' => '64000',
         ]);
     Http::assertNothingSent();

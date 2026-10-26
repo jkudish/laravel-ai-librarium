@@ -22,6 +22,7 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\ContentFormat;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
+use Jkudish\LaravelAiLibrarium\SpendingBoundKind;
 
 beforeEach(function (): void {
     CarbonImmutable::setTestNow('2026-09-10T12:00:00Z');
@@ -265,6 +266,46 @@ it('rejects invalid profile targets, options, input, credentials, and deadlines 
     'blank input' => fn () => [parallelResearchRequest(prompt: '   '), 'parallel.invalid_request'],
     'missing credential' => fn () => [parallelResearchRequest(credential: null), 'parallel.authentication'],
     'expired deadline' => fn () => [parallelResearchRequest(deadline: CarbonImmutable::now()), 'parallel.deadline_exceeded'],
+]);
+
+it('proves one pro processor request as the exact Research spending bound without HTTP', function (): void {
+    Http::fake();
+
+    $bound = app(ParallelResearchDriver::class)->spendingBound(parallelResearchRequest(
+        options: ['include_domains' => ['example.com'], 'location' => 'ca'],
+        credential: null,
+    ));
+
+    expect($bound->kind)->toBe(SpendingBoundKind::BillableQuantities)
+        ->and($bound->pricingIdentity?->toArray())->toBe(['provider' => 'parallel', 'model' => 'research-pro'])
+        ->and($bound->quantities?->toArray())->toBe(['processor_requests' => '1'])
+        ->and($bound->maximumCost)->toBeNull();
+    Http::assertNothingSent();
+});
+
+it('bounds every listed processor under its own Research pricing identity', function (string $processor): void {
+    Http::fake();
+
+    $bound = app(ParallelResearchDriver::class)->spendingBound(parallelResearchRequest(model: $processor));
+
+    expect($bound->kind)->toBe(SpendingBoundKind::BillableQuantities)
+        ->and($bound->pricingIdentity?->key())->toBe('parallel:research-'.$processor)
+        ->and($bound->quantities?->toArray())->toBe(['processor_requests' => '1']);
+    Http::assertNothingSent();
+})->with(['lite', 'ultra', 'ultra8x']);
+
+it('returns an unknown bound for any Research request the driver would refuse', function (DriverRequest $request): void {
+    Http::fake();
+
+    expect(app(ParallelResearchDriver::class)->spendingBound($request)->kind)->toBe(SpendingBoundKind::Unknown);
+    Http::assertNothingSent();
+})->with([
+    'wrong profile' => fn () => parallelResearchRequest(profileId: 'parallel-chat'),
+    'unlisted processor' => fn () => parallelResearchRequest(model: 'ultra16x'),
+    'fast processor' => fn () => parallelResearchRequest(model: 'pro-fast'),
+    'unknown option' => fn () => parallelResearchRequest(options: ['data_sources' => ['pay_per_use' => ['fiber']]]),
+    'blank input' => fn () => parallelResearchRequest(prompt: '   '),
+    'oversized input' => fn () => parallelResearchRequest(prompt: str_repeat('a', 15_001)),
 ]);
 
 it('fails closed on mismatched lifecycle identities and malformed results', function (array $status, ?array $result): void {

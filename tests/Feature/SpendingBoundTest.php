@@ -7,6 +7,8 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\SpendingBoundKind;
+use Jkudish\LaravelAiPricing\Contracts\CostResolver;
+use Jkudish\LaravelAiPricing\ValueObjects\PricingObservation;
 
 beforeEach(function (): void {
     foreach (array_keys(config('librarium.profiles')) as $profile) {
@@ -48,6 +50,7 @@ it('retains the drivers exact fixed billable quantities without provider calls',
     ['searchapi-google-ai-mode', 'searchapi:search', ['successful_search_request' => '1']],
     ['searchapi-bing-copilot', 'searchapi:search', ['successful_search_request' => '1']],
     ['searchapi-google-ai-overview', 'searchapi:search', ['successful_search_request' => '2']],
+    ['parallel-research', 'parallel:research-pro', ['processor_requests' => '1']],
 ]);
 
 it('retains Exas explicit native monetary ceiling as a snapshot', function (string $effort, int|float $maximum, string $expected): void {
@@ -62,7 +65,7 @@ it('retains Exas explicit native monetary ceiling as a snapshot', function (stri
         ->and($bound->quantities)->toBeNull()
         ->and((string) variantBound('exa-research', 'Bound this run')->maximumCost?->amount)->toBe('8');
     Http::assertNothingSent();
-})->with([['auto', 1, '1'], ['max', 17.25, '17.25'], ['auto', 100, '100']]);
+})->with([['auto', 1, '1'], ['ultra', 17.25, '17.25'], ['auto', 100, '100']]);
 
 it('does not claim every billed dimension is bounded without driver proof', function (string $profile): void {
     $bound = variantBound($profile, 'Do not estimate');
@@ -72,9 +75,9 @@ it('does not claim every billed dimension is bounded without driver proof', func
         ->and($bound->pricingIdentity)->toBeNull()
         ->and($bound->quantities)->toBeNull();
     Http::assertNothingSent();
-})->with(['exa-research', 'claude-chat', 'brave-answers', 'gemini-grounded', 'parallel-research', 'valyu-search', 'jina-search']);
+})->with(['exa-research', 'claude-chat', 'brave-answers', 'gemini-grounded', 'valyu-search', 'jina-search']);
 
-it('bounds no-search Claude input and both documented output boundaries', function (int $output): void {
+it('bounds no-search Claude input and both documented output boundaries', function (int $output, string $cost): void {
     config()->set('librarium.profiles.claude-chat.options', [
         'web_search' => false, 'max_output_tokens' => $output, 'max_steps' => 1, 'max_prompt_bytes' => 4096,
     ]);
@@ -82,9 +85,15 @@ it('bounds no-search Claude input and both documented output boundaries', functi
 
     expect($bound->kind)->toBe(SpendingBoundKind::BillableQuantities)
         ->and($bound->pricingIdentity?->key())->toBe('anthropic:claude-sonnet-5-5-global-standard')
-        ->and($bound->quantities?->toArray())->toBe(['input_tokens' => '1000000', 'output_tokens' => (string) $output]);
+        ->and($bound->quantities?->toArray())->toBe(['cache_write_input_tokens_5m' => '1000000', 'output_tokens' => (string) $output]);
+    $quote = app(CostResolver::class)->resolve(new PricingObservation(
+        $bound->pricingIdentity ?? throw new RuntimeException('Missing Claude identity.'),
+        $bound->quantities ?? throw new RuntimeException('Missing Claude quantities.'),
+    ));
+    // 1M x $2.50/M writes + output x $10/M, not $2/M plain input.
+    expect($quote->cost?->toArray())->toBe(['amount' => $cost, 'currency' => 'USD']);
     Http::assertNothingSent();
-})->with([1, 64_000, 128_000]);
+})->with([[1, '2.50001'], [64_000, '3.14'], [128_000, '3.78']]);
 
 it('rejects Claude output controls outside documented boundaries', function (int $output): void {
     config()->set('librarium.profiles.claude-chat.options', [

@@ -59,7 +59,8 @@ it('keeps the supported compatibility policy and stable minimum stability', func
     expect(ReleaseReadiness::evaluate($composer, "## 1.0.0 - 2026-10-13\n", releaseReadinessManifestFixture()))->not->toBeEmpty();
 })->with([
     ['require', 'php', '^8.3'], ['require', 'illuminate/support', '^12.0'], ['require', 'illuminate/support', '^13.0'],
-    ['require', 'jkudish/laravel-ai-pricing', '^0.2.2'], ['require', 'laravel/ai', '^1.0'],
+    ['require', 'jkudish/laravel-ai-pricing', '^0.2.2'], ['require', 'jkudish/laravel-ai-pricing', '^0.3.1'],
+    ['require', 'jkudish/laravel-ai-pricing', '^0.3.0 || ^0.4.1'], ['require', 'laravel/ai', '^1.0'],
     ['require', 'laravel/prompts', '^0.3.11'], ['require-dev', 'orchestra/testbench', '^10.0'],
     ['require', 'jkudish/librarium-spec', 'dev-main'],
 ]);

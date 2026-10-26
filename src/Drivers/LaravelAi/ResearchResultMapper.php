@@ -164,19 +164,44 @@ final readonly class ResearchResultMapper
             }
         }
 
-        [$prompt, $cacheWrite, $cacheRead] = $this->inputPartitions($response);
+        // Anthropic's raw input count is already exclusive. The SDK adds
+        // cache partitions, defaults missing input to zero and coerces JSON
+        // numeric strings, so its normalized totals cannot prove metering.
+        [$prompt, $cacheWrite, $cacheRead] = $provider === 'anthropic'
+            ? [$this->anthropicCount($response, 'input_tokens'), $this->anthropicCount($response, 'cache_creation_input_tokens'), $this->anthropicCount($response, 'cache_read_input_tokens')]
+            : $this->inputPartitions($response);
 
         return new Usage(
             promptTokens: $prompt,
-            completionTokens: $this->completionTokens($response),
+            completionTokens: $provider === 'anthropic' ? $this->anthropicCount($response, 'output_tokens') : $this->completionTokens($response),
             cacheWriteInputTokens: $cacheWrite,
             cacheReadInputTokens: $cacheRead,
-            reasoningTokens: $this->integer($response, 'reasoningTokens'),
+            reasoningTokens: $provider === 'anthropic' ? $this->anthropicCount($response, 'output_tokens_details.thinking_tokens') : $this->integer($response, 'reasoningTokens'),
             serverToolSearchRequests: $this->serverToolSearchRequests($response),
             toolUseTokens: $this->toolUseTokens($response),
             actualCost: $actualCost,
             currency: $actualCost !== null ? $cost->currency : null,
         );
+    }
+
+    /** Every step must explicitly report a nonnegative JSON integer. */
+    private function anthropicCount(AgentResponse $response, string $path): ?int
+    {
+        $rawResponses = $this->rawResponses($response);
+        if ($rawResponses === []) {
+            return null;
+        }
+        $total = 0;
+        foreach ($rawResponses as $raw) {
+            $count = data_get($raw->json(), 'usage.'.$path);
+            // The interchange contract requires a JSON-safe integer sum.
+            if (! is_int($count) || $count < 0 || $count > 9_007_199_254_740_991 - $total) {
+                return null;
+            }
+            $total += $count;
+        }
+
+        return $total;
     }
 
     /**

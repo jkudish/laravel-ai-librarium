@@ -58,7 +58,7 @@ Gate evidence is a durable HTTPS URI without userinfo/query/fragment plus its
 lowercase SHA-256. The checker validates shape, not remote evidence content.
 Reconcile gates from accepted PlanMode outcomes; historical receipts are not
 proof that the new candidate ran those scenarios. Pricing remains owned by
-`laravel-ai-pricing ^0.3.1`, not the spec package.
+`laravel-ai-pricing ^0.3.1 || ^0.4.1`, not the spec package.
 
 ## Exact candidate
 

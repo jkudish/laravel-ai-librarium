@@ -252,3 +252,54 @@ resolver fallback owns the `unknown` result, and
 among the Profiles that "return `unknown` without driver boilerplate", which
 remains accurate. No shared config, contract, pricing, or test changes are
 required.
+
+## Frozen research diagnostics (2026-10-09)
+
+`PerplexityResearchConfiguration::profiles()` returns nine opt-in disabled
+Profile templates; consumers register them explicitly, and no shipped catalog
+or group changes:
+`perplexity-research-{medium,high,deep}-{luna,sol,gemini}`.
+The model roster is `openai/gpt-6-luna`, `openai/gpt-6.1-sol` and
+`google/gemini-3.8-flash`. Anthropic models are never routed through
+Perplexity (owner rule ARV2-TC-D19, 2026-10-10); consumers call Claude
+directly.
+Each Profile pins `configuration: research-{depth}-2026-10-09`, model,
+steps, output, search context, and the 500-byte local prompt limit.
+`configuration_sha256` hashes the JSON request with empty `input` (including
+instructions, model, tools and tier); consumers freeze the prompt separately.
+The driver
+rejects any drift before HTTP, including a different allowed model under the
+same Profile. It emits a single `model`, never `models`, `preset` or `profile`.
+The response mapper keeps the served model and `usage.cost.total_cost`.
+
+Sources accessed **2026-10-09**:
+[presets](https://docs.perplexity.ai/docs/agent-api/presets),
+[models](https://docs.perplexity.ai/docs/agent-api/models), and
+[pricing](https://docs.perplexity.ai/docs/getting-started/pricing).
+The current managed medium/high presets use 15 steps, medium effort and
+128,000 output tokens; medium uses Luna, high uses GPT-6 Sol. The current
+xhigh uses Opus 5.5, 100 steps, high effort, web/finance search and sandbox.
+Presets are unversioned and Perplexity documents copying request fields
+inline to freeze them. Preset-only fetch processing is not request-settable.
+
+These are **adaptations**, not exact preset reproductions: medium uses 15
+steps/medium effort/16,000 output; high uses 15/high/32,000; deep uses
+30/high/32,000. All use the same package-owned diagnostic instructions
+(no dynamic date), default service tier, Fast Search (`max_results: 15`,
+`max_tokens: 2000`, `max_tokens_per_page: 2000`) and fetch (`max_urls: 1`).
+No sandbox, finance search, priority tier, or provider-managed defaults are
+requested. The high default recommendation is GPT-6.1 Sol, not GPT-6 Sol.
+
+Fast Search is USD 0.001/invocation, standard search 0.0025, fetch 0.0005,
+sandbox 0.03/session. Model tokens use the published Agent API rates;
+supported flex/priority tiers multiply token prices by 0.5/2 respectively.
+The configured `research-{alias}-2026-10-09` pricing identities are
+consumer-owned **reservation SKUs**, not token settlement authority.
+
+All research Profiles still resolve to `unknown` spending bounds. Step and
+output limits do not bound parallel tool invocations, aggregate rebilled
+context, fetched text, or reasoning consumption. Even the capped deep route
+is not a monetary cap. Consumers must reserve an explicitly reviewed estimate,
+settle only the provider charge, and keep ambiguous timeouts reserved without
+resending. These Profiles run inline; the caller's remaining deadline caps
+the request timeout. No new live calls or calibration results are claimed.
