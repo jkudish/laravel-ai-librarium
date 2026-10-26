@@ -171,14 +171,18 @@ it('rejects serializer compression and native retry configuration before mutatio
     $client = $repository->getStore()->connection()->client();
     [$key, $value] = match ($option) {
         'serializer' => [Redis::OPT_SERIALIZER, Redis::SERIALIZER_PHP],
-        'compression' => [Redis::OPT_COMPRESSION, Redis::COMPRESSION_LZF],
         'retries' => [Redis::OPT_MAX_RETRIES, 1],
+        default => [Redis::OPT_COMPRESSION, constant(Redis::class.'::'.$option)],
     };
-    $client->setOption($key, $value);
+    expect($client->setOption($key, $value))->toBeTrue();
     expect(fn () => new CacheRunStore($repository))->toThrow(LogicException::class);
     $client->setOption($key, 0);
     expect($client->keys($this->redisPrefix.'*'))->toBeEmpty();
-})->with(['serializer', 'compression', 'retries']);
+})->with(fn (): array => [
+    'serializer',
+    ...array_filter(['COMPRESSION_LZF', 'COMPRESSION_LZ4', 'COMPRESSION_ZSTD'], fn (string $codec): bool => defined(Redis::class.'::'.$codec)),
+    'retries',
+]);
 
 it('rejects native Predis retries and aggregate connections before mutation', function (string $option): void {
     $parameters = ['host' => '127.0.0.1', 'port' => (int) getenv('LIBRARIUM_REDIS_TEST_PORT')];
