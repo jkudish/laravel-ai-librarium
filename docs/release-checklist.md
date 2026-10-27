@@ -1,6 +1,6 @@
 # PHP 1.0 release checklist
 
-The candidate is `release/1.0-prep`, not `main`. This checklist authorizes no
+Run this checklist against the exact candidate head. It authorizes no
 provider call, signoff, merge, tag, release, migration or publication.
 
 ## Offline compatibility
@@ -50,7 +50,9 @@ takeover, Array lock lifetime, and fail-closed unsupported configurations.
 
 `composer release:check` checks stable runtime constraints, compatibility
 floors, the dated first-release changelog and canonical evidence gates in
-`tools/release-readiness.json`. The development spec pin deliberately blocks
+`tools/release-readiness.json`. The changelog must contain exactly one version
+section, headed `## 1.0.0 - YYYY-MM-DD` with a valid calendar date, and no
+`## Unreleased` heading. The development spec pin deliberately blocks
 publication until replaced by a compatible stable release. Do not restore the
 removed TypeScript repin or vendored contract machinery.
 

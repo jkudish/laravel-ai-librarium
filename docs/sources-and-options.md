@@ -1,29 +1,34 @@
 # Sources and options
 
 The exact installed `jkudish/librarium-spec/sources.json` is the name, order and
-option authority. `Librarium::sources()` and `librarium:sources --json` expose
+option authority ([librarium-spec](https://github.com/jkudish/librarium-spec)). `Librarium::sources()` and `librarium:sources --json` expose
 it with configured state and offline pricing hints. PHP binding ids are internal
 driver identities, not selectors. Credentials live in Laravel config, never
 request options. A source with a key and `enabled !== false` is configured.
+
+Omit `only()` to use every configured research source. Quick is the default
+depth; `deep()` selects durable research variants and skips sources without
+one. Engines run only when named. Every name must be configured: an unknown
+name or a group/source collision is an error.
 
 ## Research sources
 
 | Source | Quick | Deep | Public options |
 | --- | --- | --- | --- |
-| brave | Answers | — | results: answer/search |
-| claude | Web-search chat | — | model |
-| exa | Search | Research | — |
-| firecrawl | Search | — | sources: web/news, limit |
+| brave | Answers | None | results: answer/search |
+| claude | Web-search chat | None | model |
+| exa | Search | Research | None |
+| firecrawl | Search | None | sources: web/news, limit |
 | gemini | Grounded | Deep Research | quick: grounded/chat |
-| google | SERP search | — | collector: searchapi/serpapi/serpbase, vertical: web/news (news requires serpbase) |
-| grok | Web search | — | search: web/x/both |
-| jina | Search | — | — |
-| kagi | FastGPT | — | — |
+| google | SERP search | None | collector: searchapi/serpapi/serpbase, vertical: web/news (news requires serpbase) |
+| grok | Web search | None | search: web/x/both |
+| jina | Search | None | None |
+| kagi | FastGPT | None | None |
 | openai | Web-search chat | Research | model, effort |
-| openrouter | Grounded | — | quick: grounded/chat, model |
+| openrouter | Grounded | None | quick: grounded/chat, model |
 | parallel | Turbo | Research | quick: turbo/search, processor (pro default) |
 | perplexity | Sonar Pro | Research | quick: sonar-pro/search/agent, deep_effort: medium/high |
-| tavily | Search | — | — |
+| tavily | Search | None | None |
 | valyu | Search | Research | mode (standard default), output |
 | you | Answer | Research | quick: answer/research |
 
@@ -41,6 +46,33 @@ arbitrary transport, credentials or provider routing controls.
 Firecrawl makes one POST to `https://api.firecrawl.dev/v2/search` and normalizes
 web/news citations; credits are not invented USD charges. Search-only answers
 are `null`; their citations and stored evidence carry findings.
+
+## Anthropic prompt caching
+
+The direct Anthropic `claude` source caches instructions and tool definitions
+with the default five-minute TTL. The conversation also uses automatic
+`cache_control` when `max_steps` is greater than one, or omitted so the SDK's
+multi-step default applies. A one-step request never caches its unique message
+content. Anthropic's minimum prefix length still applies, so a short prefix
+may not be cached. Reserve input at the 1.25× write rate, not the ordinary
+input rate; settle exclusive uncached, read and write partitions at their real
+rates. The no-search Claude driver bound uses `cache_write_input_tokens_5m`.
+
+Anthropic token counts come from each step's raw provider usage, not SDK
+totals that default missing input to zero or coerce numeric strings. Each
+metric requires a nonnegative JSON integer on every step; a missing or invalid
+count stays unknown while the answer is retained. Raw `input_tokens` already
+excludes cache tokens and is never reduced by the read/write counts again.
+Consumers computing a bill must also validate their retained raw usage for
+unsupported billable quantities and pricing qualifiers.
+
+The shipped OpenRouter variants use OpenAI models and are unchanged, as are
+direct OpenAI and Google requests. Custom OpenRouter `anthropic/*` models do
+not inherit these defaults: Laravel AI SDK 1.0.1 ignores the caching
+attributes on its OpenRouter gateway. Register your own gateway with
+`AiManager::extend` to apply static breakpoints and multi-step automatic
+caching to those models. This is an SDK integration limitation; OpenRouter
+[supports explicit and automatic Anthropic caching](https://openrouter.ai/docs/guides/best-practices/prompt-caching#anthropic-claude).
 
 ## Engines are named-only sources
 

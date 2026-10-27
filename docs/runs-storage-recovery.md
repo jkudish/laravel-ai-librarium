@@ -1,9 +1,26 @@
 # Runs, storage and recovery
 
 Every non-dry-run request saves a Run before its first provider call. Public
-Run JSON follows `schema/run.schema.json` in the pinned shared spec package.
+Run JSON follows `schema/run.schema.json` in the shared
+[librarium-spec](https://github.com/jkudish/librarium-spec) package.
 `Run::fromArray()` validates it and round-trips optional `summary_of` from
-JavaScript summary Runs. PHP does not synthesize summary Runs.
+[JavaScript Librarium](https://github.com/jkudish/librarium) summary Runs. PHP does not synthesize summary Runs.
+
+## Queue research
+
+```php
+use Jkudish\LaravelAiLibrarium\Run;
+
+$queued = Librarium::research('Prepare a cited report')->deep()->only(['openai'])
+    ->queue()->onQueue('research')->then(fn (Run $run) => /* consume snapshot */ null);
+$id = $queued->id();
+```
+
+`queue()` stores the Run first, then dispatches one encrypted, one-attempt job.
+`run()` waits up to `librarium.timeout`; a still-running Run remains
+recoverable. Durability is a driver property, not a depth: quick DataForSEO
+standard tasks and the optional Firecrawl Agent collector also save signed
+handles.
 
 ## Read a stored Run
 

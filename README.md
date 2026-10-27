@@ -1,174 +1,82 @@
 # Laravel AI Librarium
 
-Research across configured sources, built on the official [Laravel AI SDK](https://github.com/laravel/ai).
-Every execution produces a stored **Run**: answers, citations, provider-reported costs and redacted evidence.
+Laravel AI Librarium sends one research question to the search APIs, research APIs, and AI answer engines you configure, then stores the answers, citations, and costs as a Run.
+
+It is built on the official [Laravel AI SDK](https://github.com/laravel/ai). Full documentation lives at [librarium.si/docs/php](https://librarium.si/docs/php).
+
+## Requirements
+
+- PHP 8.4 or newer
+- Laravel 13.30 or newer
+- Laravel AI SDK `^1.0.1`, installed by Composer
+- A key for at least one source. The example below uses the Laravel AI SDK's `OPENAI_API_KEY`.
 
 ## Install
-
-PHP 8.4+, Laravel 13.30+ and Laravel AI SDK `^1.0.1` are required.
 
 ```bash
 composer require jkudish/laravel-ai-librarium
 php artisan vendor:publish --tag=librarium-config
 ```
 
-The PHP 1.0 candidate is unreleased. It currently requires the shared
-`jkudish/librarium-spec` data at the exact source/dist commit in `composer.json`.
-The package repository gives that pin a development version without Composer's
-commit-ref warning, so strict validation still passes. Consumers of the candidate
-must copy that repository declaration; Composer does not inherit repositories.
-A stable spec constraint is a release gate.
+Credentials come from `config/ai.php` and `config/services.php`. A per-source `key` override belongs in `config/librarium.php`, never in request options.
 
-Credentials come from `config/ai.php` and `config/services.php`. Per-source
-`key` overrides belong in `config/librarium.php`, never in request options.
+## First research Run
 
-## Ask, select, and run
+Add `OPENAI_API_KEY` to `.env`, then preview and run one source:
 
 ```php
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 
-$run = Librarium::research('Compare Plausible, Fathom and Matomo for an EU SaaS.')
-    ->deep()
-    ->only(['exa', 'openai'])
-    ->skip(['exa'])
-    ->maxCost('1.00')
-    ->options(['openai' => ['effort' => 'high']])
-    ->run();
+$question = 'Which PHP version does Laravel 13 require?';
 
-$run->id();
-$run->result('openai');
-$run->citations();
-$run->evidence('openai'); // Redacted provider exchanges, separate from public JSON.
-$run->diagnostics();
-$run->toArray();         // librarium.run/1, shared with JavaScript.
+$plan = Librarium::research($question)->only(['openai'])->dryRun();
+$plan->status(); // "planned"
+
+$run = Librarium::research($question)->only(['openai'])->run();
+$run->status();                   // "done"
+$run->result('openai')['answer']; // The answer text
+$run->citations();                // [['url' => 'https://...', 'title' => '...'], ...]
+$run->id();                       // "run_01..."
 ```
 
-Omit `only()` to use every configured research source. Engines are named-only.
-Quick is the default depth. Deep selects durable research variants; sources
-without one are skipped. Groups are user-saved lists, with no built-in groups.
-Names must be configured; an unknown name or a group/source collision is an error.
+`dryRun()` makes no provider call and stores nothing. `run()` saves the Run, makes one paid OpenAI web-search request, and waits up to `librarium.timeout` (6900 seconds by default). Runs are saved encrypted under `librarium/` on your default filesystem disk, which must be a local disk. Read one later with `Librarium::find($id)`.
 
-`maxCost()` admits sources greedily in catalog order, skipping unpriced or
-over-budget work. It is **not a provider-enforced ceiling**: accepted calls can
-finish and bill above the cap. Unknown reported cost stays `null`, not zero.
-`dryRun()` returns a planned Run without provider calls or storage:
+A Run's status is `done` when every source succeeded, `partial` when some failed, `failed` when none succeeded, or `running` when a durable task outlives the wait.
 
-```php
-$plan = Librarium::research('Compare EU analytics tools')->deep()->dryRun();
-Librarium::sources(); // Catalog, configured state, options and offline price hints.
-```
+## What it does
 
-## Queue and recover
+- Selects sources with `only()`, `skip()`, and saved groups. The shared catalog has 16 research sources and 5 AI answer engines, such as `chatgpt` and `google-ai-overview`.
+- Uses `deep()` to choose research-report variants for Exa, Gemini, OpenAI, Parallel, Perplexity, Valyu, and You.com.
+- Previews selection and price hints offline with `dryRun()` and `Librarium::sources()`.
+- Admits sources under a USD cap with `maxCost()`.
+- Queues research with `queue()` and resumes durable provider tasks with `Librarium::find($id)?->refresh()`.
+- Stores Runs on a local disk, in a database table, in a cache, in memory, or in your own `RunStore`.
+- Uses the same `librarium.run/1` Run JSON as the [Librarium JavaScript CLI and library](https://github.com/jkudish/librarium).
+- Adds `librarium:research`, `librarium:show`, `librarium:sources`, and `librarium:prune` Artisan commands, plus a `Tools\RunEvidence` tool for Laravel AI SDK agents.
+- Fakes research in tests with `Librarium::fake()`.
 
-```php
-use Jkudish\LaravelAiLibrarium\Run;
+## Limits
 
-$queued = Librarium::research('Prepare a cited report')->deep()->only(['openai'])
-    ->queue()->onQueue('research')->then(fn (Run $run) => /* consume snapshot */ null);
-$id = $queued->id();
+- `maxCost()` is an admission cap, not a provider-enforced ceiling. Accepted calls can finish and bill above it. Sources without a bounded estimate are skipped as `unpriced` under a cap. A cost the provider did not report stays `null`, never zero.
+- Librarium never resubmits paid work or falls back to another source automatically. Inline work cannot resume after the process dies. Durable tasks with a saved handle can.
+- Built-in file storage supports local Laravel disks only. Built-in cache storage supports process-local ArrayStore or standalone Redis 7+. Other backends need a custom `RunStore`.
+- The database store's migration is optional and never runs automatically.
+- AI answer engines need a collector: SearchAPI, DataForSEO, or the separate [Firecrawl adapter](https://github.com/jkudish/laravel-ai-librarium-firecrawl). Engine results are observations of a consumer AI product (`observation: surface`), not API answers.
+- Provider text and URLs are untrusted. Escape rendered content and verify consequential claims. Agreement between sources is not independent confirmation.
+- Your application owns queue workers, authorization, retention, and evidence policy.
 
-$run = Librarium::find($id)?->refresh(); // One observation of every pending durable task.
-```
+## Learn more
 
-`queue()` stores the Run first, then dispatches one encrypted, one-attempt job.
-`run()` waits up to `librarium.timeout`; a still-running Run remains recoverable.
-Durability is a driver property, not a depth: quick DataForSEO standard tasks
-and the optional Firecrawl agent collector also save signed handles.
-There is no automatic paid resubmission or fallback. Inline work cannot be resumed
-after process loss; submitted tasks with saved handles can.
+- [Laravel guide](https://librarium.si/docs/php): [library API](https://librarium.si/docs/php/library), [configuration and storage](https://librarium.si/docs/php/configuration), [Artisan commands](https://librarium.si/docs/php/commands), [costs and limits](https://librarium.si/docs/php/costs-and-limits), and [testing](https://librarium.si/docs/php/testing)
+- [Sources and options](docs/sources-and-options.md), including Anthropic prompt caching
+- [Budget and cost](docs/budget-and-cost.md)
+- [Runs, storage, and recovery](docs/runs-storage-recovery.md)
+- [Writing a source driver](docs/writing-a-driver.md) and [writing a RunStore](docs/writing-a-run-store.md)
+- [Librarium spec](https://github.com/jkudish/librarium-spec): the shared source catalog, Run schemas, and fixtures
+- [Changelog](CHANGELOG.md)
 
-Run stores are local Laravel `filesystem` disks (default; encrypted with the
-app key), `database`, `cache` with a TTL, and `memory`. Built-in cache support is
-process-local ArrayStore or plain standalone Redis 7+ with native atomic CAS;
-unsupported disks/caches require a custom RunStore. The database store uses the
-query builder and one optional migration, never Eloquent or an automatic migration.
-See [Runs, storage and recovery](docs/runs-storage-recovery.md) and
-[writing a RunStore](docs/writing-a-run-store.md).
-
-## Sources and engines
-
-The shared [source catalog](https://github.com/jkudish/librarium-spec/blob/main/sources.json)
-defines names and options. See [sources and options](docs/sources-and-options.md).
-
-```php
-// config/librarium.php
-'sources' => ['parallel' => ['processor' => 'pro']],
-'engines' => ['collector' => 'searchapi'],
-'groups' => ['visibility' => ['chatgpt', 'gemini-app', 'copilot']],
-```
-
-Firecrawl search is built into core using Laravel HTTP. Browser engines need the
-optional `jkudish/laravel-ai-librarium-firecrawl` adapter (SDK Interact or Agent);
-it registers the `firecrawl` collector and supports custom engines by URL.
-Results from engines carry `observation: surface`; API answers carry `api`.
-Agreement is not independent confirmation. Treat all provider text and URLs as
-untrusted, escape rendered content, and verify consequential claims.
-
-## Anthropic prompt caching
-
-The direct Anthropic `claude` source caches instructions and tool definitions
-with the default five-minute TTL. The conversation also uses automatic
-`cache_control` when `max_steps` is greater than one (or omitted, using the
-SDK's multi-step default). A one-step request never caches its unique message
-content. Anthropic's minimum prefix length still applies: a short prefix may
-not be cached. Reserve input at the 1.25× write rate, not the ordinary input
-rate; settle exclusive uncached, read and write partitions at their real rates.
-The no-search Claude driver bound uses `cache_write_input_tokens_5m`.
-
-Anthropic token counts come from each step's raw provider usage, not SDK
-totals that default missing input to zero or coerce numeric strings. Each
-metric requires a nonnegative JSON integer on every step; a missing or invalid
-count stays unknown while the answer is retained. Raw `input_tokens` already
-excludes cache tokens and is never reduced by the read/write counts again.
-Consumers computing a bill must also validate their retained raw usage for
-unsupported billable quantities and pricing qualifiers.
-
-The shipped OpenRouter variants use OpenAI models and remain unchanged, as do
-direct OpenAI and Google requests. Custom OpenRouter `anthropic/*` models do
-**not** inherit these defaults: Laravel AI SDK 1.0.1 ignores the caching
-attributes on its OpenRouter gateway. Consumers can register their own gateway
-with `AiManager::extend`, as agentsy-platform does, to apply static breakpoints
-and multi-step automatic caching to those models only. This is an SDK
-integration limitation, not an OpenRouter API limitation; OpenRouter
-[supports explicit and automatic Anthropic caching](https://openrouter.ai/docs/guides/best-practices/prompt-caching#anthropic-claude).
-
-## Artisan
-
-```bash
-php artisan librarium:research "Compare EU analytics tools" --deep --only=openai --dry-run --json
-php artisan librarium:research "Prepare a cited report" --deep --only=openai --no-wait
-php artisan librarium:show [run-id] --wait --json
-php artisan librarium:sources
-php artisan librarium:prune
-```
-
-Research waits with progress by default; Ctrl-C detaches and prints the recovery
-command. `show` defaults to the latest Run and accepts `--source`.
-`--json` emits unformatted public data. Exit codes: 0 success/running/planned,
-2 invalid request, 3 not found, 4 partial, 5 failed, 130 detached.
-The Laravel AI evidence tool `Tools\RunEvidence` reads stored Runs.
-
-## Development
-
-```bash
-composer update
-composer test
-composer test:conformance
-composer analyse
-composer format:check
-composer validate --strict
-```
-
-Tests use Testbench, SDK fakes and HTTP fakes; no provider calls. Run PHP 8.4
-with `--prefer-lowest` and PHP 8.5 with the highest allowed dependencies.
-Commit all intended changes, require a clean worktree, and run `composer pr:check`
-at the exact candidate SHA. Do not commit `composer.lock`.
-See the [release checklist](docs/release-checklist.md) for separate review,
-signoff, paid canary and publication gates.
-
-The former pre-release query/profile, collection and recovery APIs are removed;
-there is no PHP config migration. Old directories are not Run folders.
+Report bugs and ask questions in [GitHub issues](https://github.com/jkudish/laravel-ai-librarium/issues). See [CONTRIBUTING.md](CONTRIBUTING.md) to work on the package.
 
 ## License
 
-[MIT](LICENSE.md).
+[MIT](LICENSE.md)
