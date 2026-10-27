@@ -30,34 +30,13 @@
         "illuminate/support": "^13.30",
         "illuminate/validation": "^13.30",
         "jkudish/laravel-ai-pricing": "^0.3.1 || ^0.4.1",
-        "jkudish/librarium-spec": "dev-spec-15c8a306",
+        "jkudish/librarium-spec": "^1.0",
         "laravel/ai": "^1.0.1",
         "laravel/prompts": "^0.3.15",
         "league/commonmark": "^2.10.2",
         "opis/json-schema": "^2.6",
         "standard-webhooks/standard-webhooks": "^1.0"
     },
-    "repositories": [
-        {
-            "type": "package",
-            "package": {
-                "name": "jkudish/librarium-spec",
-                "version": "dev-spec-15c8a306",
-                "type": "library",
-                "license": "MIT",
-                "source": {
-                    "type": "git",
-                    "url": "https://github.com/jkudish/librarium-spec.git",
-                    "reference": "15c8a30673b43b006944623be2ddf99f216b846c"
-                },
-                "dist": {
-                    "type": "zip",
-                    "url": "https://api.github.com/repos/jkudish/librarium-spec/zipball/15c8a30673b43b006944623be2ddf99f216b846c",
-                    "reference": "15c8a30673b43b006944623be2ddf99f216b846c"
-                }
-            }
-        }
-    ],
     "require-dev": {
         "laravel/pint": "^1.32.1",
         "larastan/larastan": "^3.13",

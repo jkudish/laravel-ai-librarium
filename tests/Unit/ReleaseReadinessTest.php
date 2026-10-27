@@ -27,11 +27,8 @@ function releaseReadinessManifestFixture(): array
     return $manifest;
 }
 
-it('blocks release while the shared data dependency is a development pin', function (): void {
-    expect((new ReleaseReadiness)->blockers())->toContain(
-        'Runtime dependency jkudish/librarium-spec uses non-stable constraint [dev-spec-15c8a306].',
-        'Gate [stable-pricing-release] is pending: Stable laravel-ai-pricing release and constraint.',
-    );
+it('has no release blockers on the shipped metadata', function (): void {
+    expect((new ReleaseReadiness)->blockers())->toBe([]);
 });
 
 it('passes stable metadata only after all canonical release gates have evidence', function (): void {

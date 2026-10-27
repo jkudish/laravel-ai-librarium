@@ -59,8 +59,11 @@
         {
             "id": "stable-pricing-release",
             "title": "Stable laravel-ai-pricing release and constraint",
-            "status": "pending",
-            "evidence": null
+            "status": "complete",
+            "evidence": {
+                "uri": "https://raw.githubusercontent.com/jkudish/laravel-ai-pricing/v0.4.2/CHANGELOG.md",
+                "sha256": "0c598ce56893aaae66b1833b0fdcc8d018fd26d29fb2fd58035e63c331c02112"
+            }
         }
     ]
 }
