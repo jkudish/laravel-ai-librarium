@@ -18,7 +18,7 @@ fi
 php_ready=false
 if command -v php >/dev/null 2>&1 \
     && php -r 'exit(PHP_VERSION_ID >= 80500 && PHP_VERSION_ID < 80600 ? 0 : 1);' \
-    && php -r 'foreach (["curl", "dom", "fileinfo", "mbstring", "xml", "xmlwriter", "zip"] as $extension) { if (! extension_loaded($extension)) { exit(1); } }'; then
+    && php -r 'foreach (["curl", "dom", "fileinfo", "mbstring", "pdo_sqlite", "redis", "sqlite3", "xml", "xmlwriter", "zip"] as $extension) { if (! extension_loaded($extension)) { exit(1); } }'; then
     php_ready=true
 fi
 
@@ -50,10 +50,18 @@ if [[ ${php_ready} != true ]]; then
         php8.5-cli \
         php8.5-curl \
         php8.5-mbstring \
+        php8.5-redis \
+        php8.5-sqlite3 \
         php8.5-xml \
         php8.5-zip \
         unzip
     "${SUDO[@]}" update-alternatives --set php /usr/bin/php8.5
+fi
+
+if ! command -v redis-server >/dev/null 2>&1; then
+    step 'Installing Redis for disposable offline storage proofs'
+    "${SUDO[@]}" apt-get update
+    "${SUDO[@]}" apt-get install -y --no-install-recommends redis-server
 fi
 
 composer_ready=false

@@ -2,165 +2,28 @@
 
 declare(strict_types=1);
 
-use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
-use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
-use Jkudish\LaravelAiLibrarium\Contracts\Librarium as LibrariumContract;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
-use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
-use Jkudish\LaravelAiLibrarium\QueuedResearchResponse;
-use Jkudish\LaravelAiLibrarium\ResearchPlan;
-use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
-use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
-use Jkudish\LaravelAiLibrarium\Responses\ResearchResponse;
-use Jkudish\LaravelAiLibrarium\Testing\LibrariumFake;
+use Jkudish\LaravelAiLibrarium\Run;
+use Jkudish\LaravelAiLibrarium\Spec;
 
-it('returns supplied responses in order without provider access', function (): void {
-    $first = fakeResearchResponse('response-1');
-    $second = fakeResearchResponse('response-2');
-    $fake = Librarium::fake([$first, $second]);
-
-    expect(Librarium::query('First query')->run())->toBe($first)
-        ->and(Librarium::query('Second query')->run())->toBe($second)
-        ->and($fake->queries())->toHaveCount(2);
-});
-
-it('returns a generated response when no response was supplied', function (): void {
-    $fake = Librarium::fake();
-    $query = Librarium::query('Explain fake research responses.');
-    $response = $query->run();
-
-    expect($response->requestId)->toBe($query->requestId)
-        ->and($response->results->sole()->content)->toBe('Fake response for query: Explain fake research responses.')
-        ->and($fake->queries()->sole())->toBeInstanceOf(ResearchPlan::class);
-});
-
-it('uses explicitly synthetic provenance for generated surface responses', function (): void {
-    config()->set('librarium.profiles.searchapi-chatgpt.credential', 'testing-searchapi-key');
-    Librarium::fake();
-
-    $provenance = Librarium::query('Observe this surface.')
-        ->using('searchapi-chatgpt')
-        ->run()
-        ->results
-        ->sole()
-        ->provenance;
-
-    expect($provenance->resultKind)->toBe(ResultKind::SurfaceObservation)
-        ->and($provenance->retrievalMethods->all())->toBe([RetrievalMethod::SurfaceCollector])
-        ->and($provenance->observationMode)->toBe(ObservationMode::SurfaceSnapshot)
-        ->and($provenance->collector)->toBe('librarium-fake')
-        ->and($provenance->surface)->toBe('synthetic-surface');
-});
-
-it('prevents stray synchronous queries after supplied responses are exhausted', function (): void {
-    $fake = Librarium::fake([fakeResearchResponse('response-1')])->preventStrayQueries();
-
-    Librarium::query('Expected query')->run();
-
-    expect(fn (): ResearchResponse => Librarium::query('Unexpected query')->run())
-        ->toThrow(RuntimeException::class, 'Attempted research query [Unexpected query] without a fake response.');
-
-    $fake->assertQueried('Unexpected query');
-});
-
-it('records compiled run and queue plans separately with Laravel-style assertions', function (): void {
-    $response = fakeResearchResponse('response-1');
-    $fake = Librarium::fake([$response]);
-
-    $queuedQuery = Librarium::query('Queued query')->timeout(321);
-    $queued = $queuedQuery->queue()->onQueue('research')->onConnection('redis')->delay(5)->afterCommit();
-    $run = Librarium::query('Run query')->timeout(123)->run();
-
-    expect($queued)->toBeInstanceOf(QueuedResearchResponse::class)
-        ->and($queued->requestId)->toBe($queuedQuery->requestId)
-        ->and($run)->toBe($response)
-        ->and($fake->queries()->sole()->timeout)->toBe(123)
-        ->and($fake->queuedQueries()->sole()->timeout)->toBe(321);
-
-    $fake->assertQueried('Run query')
-        ->assertQueried(fn (ResearchPlan $plan): bool => $plan->timeout === 123)
-        ->assertNotQueried('Missing query')
-        ->assertQueued('Queued query')
-        ->assertQueued(fn (ResearchPlan $plan): bool => $plan->timeout === 321)
-        ->assertNotQueued('Missing query');
-});
-
-it('keeps fake queued dispatch fluent without dispatching queueable jobs or invoking callbacks', function (): void {
+it('returns supplied Runs and records run and queue requests without providers', function (): void {
     Queue::fake();
-    $thenCalled = false;
-    $catchCalled = false;
-    $fake = Librarium::fake();
-
-    $response = Librarium::query('Queued query')->queue();
-
-    expect($response->onQueue('research'))->toBe($response)
-        ->and($response->onConnection('redis'))->toBe($response)
-        ->and($response->delay(5))->toBe($response)
-        ->and($response->afterCommit())->toBe($response)
-        ->and($response->then(function () use (&$thenCalled): void {
-            $thenCalled = true;
-        }))->toBe($response)
-        ->and($response->catch(function () use (&$catchCalled): void {
-            $catchCalled = true;
-        }))->toBe($response);
-
-    unset($response);
-    gc_collect_cycles();
-
-    expect($thenCalled)->toBeFalse()
-        ->and($catchCalled)->toBeFalse()
-        ->and($fake->queuedQueries()->sole()->preview->input)->toBe('Queued query');
+    $fixture = Run::fromArray(Spec::read('fixtures/runs/valid/summary-run.json'));
+    $fake = Librarium::fake([$fixture])->preventStrayQueries();
+    expect(Librarium::research('First')->only(['brave'])->run())->toBe($fixture)
+        ->and(Librarium::find($fixture->id()))->toBe($fixture);
+    $queued = Librarium::research('Later')->deep()->only(['openai'])->queue()->onQueue('research')->delay(5);
+    expect(Librarium::find($queued->id())->status())->toBe('running');
+    $fake->assertQueried('First')->assertQueued(fn (array $request): bool => $request['depth'] === 'deep');
+    expect(fn () => Librarium::research('Unexpected')->only(['brave'])->run())->toThrow(RuntimeException::class, 'without a fake Run');
     Queue::assertNothingPushed();
+    Http::assertNothingSent();
 });
 
-it('can assert that no synchronous or queued queries were executed', function (): void {
-    Librarium::fake()
-        ->assertNeverQueried()
-        ->assertNeverQueued();
+it('plans without consuming a fake Run', function (): void {
+    $fake = Librarium::fake()->preventStrayQueries();
+    expect(Librarium::research('q')->only(['brave'])->dryRun()->status())->toBe('planned');
+    $fake->assertNeverQueried()->assertNeverQueued();
 });
-
-it('replaces already resolved container and facade state', function (): void {
-    $resolvedManager = Librarium::getFacadeRoot();
-    $resolvedContract = app(LibrariumContract::class);
-    $pendingBeforeFake = Librarium::query('Created before fake');
-
-    $firstFake = Librarium::fake([fakeResearchResponse('first-fake')]);
-
-    expect($firstFake)->toBeInstanceOf(LibrariumFake::class)
-        ->and(app(ExecutesResearch::class))->toBe($firstFake)
-        ->and(Librarium::getFacadeRoot())->toBe(app(LibrariumContract::class))
-        ->and(Librarium::getFacadeRoot())->not->toBe($resolvedManager)
-        ->and(app(LibrariumContract::class))->not->toBe($resolvedContract)
-        ->and($pendingBeforeFake->queue())->toBeInstanceOf(QueuedResearchResponse::class)
-        ->and($pendingBeforeFake->run()->requestId)->toBe('first-fake');
-
-    $firstFake->assertQueued('Created before fake')
-        ->assertQueried('Created before fake');
-
-    $secondFake = Librarium::fake([fakeResearchResponse('second-fake')]);
-
-    expect(app(ExecutesResearch::class))->toBe($secondFake)
-        ->and(Librarium::getFacadeRoot())->toBe(app(LibrariumContract::class))
-        ->and(Librarium::query('Second fake query')->run()->requestId)->toBe('second-fake')
-        ->and($firstFake->queries())->toHaveCount(1)
-        ->and($secondFake->queries())->toHaveCount(1);
-});
-
-function fakeResearchResponse(string $requestId): ResearchResponse
-{
-    $value = json_decode(
-        File::get(__DIR__.'/../Support/Contracts/v1/fixtures/valid/markdown-success.json'),
-        true,
-        512,
-        JSON_THROW_ON_ERROR,
-    );
-
-    if (! is_array($value)) {
-        throw new RuntimeException('The fake response fixture must decode to an array.');
-    }
-
-    $value['request_id'] = $requestId;
-
-    return ResearchResponse::fromArray($value);
-}

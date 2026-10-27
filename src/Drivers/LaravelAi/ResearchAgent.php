@@ -56,6 +56,27 @@ final class ResearchAgent implements Agent, HasProviderOptions, HasTools
          * @var array{effort: string, exclude: bool}|null
          */
         private ?array $pinnedOpenRouterReasoning = null,
+
+        /**
+         * Configured OpenRouter routing and privacy controls. Unset
+         * require_parameters and allow_fallbacks keep the exact-routing
+         * defaults (true and false); data_collection and zdr are sent only
+         * when configured.
+         *
+         * @var array<string, mixed>
+         */
+        private array $openRouterRouting = [],
+
+        /**
+         * Configured OpenRouter reasoning controls. Empty sends no reasoning
+         * key, so the model default applies.
+         *
+         * @var array<string, mixed>
+         */
+        private array $openRouterReasoning = [],
+        private ?string $anthropicEffort = null,
+        private ?string $anthropicThinking = null,
+        private ?string $openAiEffort = null,
     ) {}
 
     public function maxTokens(): ?int
@@ -116,6 +137,10 @@ final class ResearchAgent implements Agent, HasProviderOptions, HasTools
             $options['max_tool_calls'] = $this->maxToolCalls;
         }
 
+        if ($driver === Lab::OpenAI->value && $this->openAiEffort !== null) {
+            $options['reasoning'] = ['effort' => $this->openAiEffort];
+        }
+
         if ($this->exactOpenRouterRouting && $driver === Lab::OpenRouter->value) {
             $routing = [];
 
@@ -123,18 +148,45 @@ final class ResearchAgent implements Agent, HasProviderOptions, HasTools
                 $routing['order'] = $this->pinnedOpenRouterRouting['order'];
                 $routing['ignore'] = $this->pinnedOpenRouterRouting['ignore'];
                 $routing['max_price'] = $this->pinnedOpenRouterRouting['max_price'];
+            } elseif (array_key_exists('provider_order', $this->openRouterRouting)) {
+                $routing['order'] = $this->openRouterRouting['provider_order'];
             }
 
-            $routing['require_parameters'] = true;
-            $routing['allow_fallbacks'] = false;
+            $routing['require_parameters'] = $this->openRouterRouting['require_parameters'] ?? true;
+            $routing['allow_fallbacks'] = $this->openRouterRouting['allow_fallbacks'] ?? false;
+
+            foreach (['data_collection', 'zdr'] as $key) {
+                if (array_key_exists($key, $this->openRouterRouting)) {
+                    $routing[$key] = $this->openRouterRouting[$key];
+                }
+            }
 
             $options['provider'] = $routing;
         }
 
-        if ($this->pinsOpenRouterProvider
-            && $this->pinnedOpenRouterReasoning !== null
-            && $driver === Lab::OpenRouter->value) {
-            $options['reasoning'] = $this->pinnedOpenRouterReasoning;
+        if ($driver === Lab::OpenRouter->value) {
+            if ($this->pinsOpenRouterProvider && $this->pinnedOpenRouterReasoning !== null) {
+                $options['reasoning'] = $this->pinnedOpenRouterReasoning;
+            } elseif ($this->openRouterReasoning !== []) {
+                $reasoning = [];
+                foreach (['reasoning_effort' => 'effort', 'reasoning_max_tokens' => 'max_tokens', 'reasoning_exclude' => 'exclude'] as $option => $key) {
+                    if (array_key_exists($option, $this->openRouterReasoning)) {
+                        $reasoning[$key] = $this->openRouterReasoning[$option];
+                    }
+                }
+
+                $options['reasoning'] = $reasoning;
+            }
+        }
+
+        if ($driver === Lab::Anthropic->value) {
+            if ($this->anthropicThinking !== null) {
+                $options['thinking'] = ['type' => $this->anthropicThinking];
+            }
+
+            if ($this->anthropicEffort !== null) {
+                $options['output_config'] = ['effort' => $this->anthropicEffort];
+            }
         }
 
         return $options;

@@ -10,7 +10,6 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
 use Jkudish\LaravelAiLibrarium\Profile;
-use Jkudish\LaravelAiLibrarium\ResearchPlan;
 use Throwable;
 
 final readonly class ResponseRedactor
@@ -30,11 +29,6 @@ final readonly class ResponseRedactor
         private ConfigRepository $config,
         private ValidationFactory $validator,
     ) {}
-
-    public function prepare(ResearchPlan $plan): RedactionPolicy
-    {
-        return $this->prepareProfiles($plan->preview->profiles->concat($plan->preview->fallbacks));
-    }
 
     /** @param Collection<int, Profile> $profiles */
     public function prepareProfiles(Collection $profiles): RedactionPolicy
@@ -189,6 +183,18 @@ final readonly class ResponseRedactor
     private function redactString(string $value, RedactionPolicy $policy): string
     {
         $redacted = str_replace($policy->secrets, $policy->replacement, $value);
+        foreach ($policy->secrets as $secret) {
+            if (! str_contains($secret, '%')) {
+                continue;
+            }
+            // Percent-escape hex case is insignificant; literal credential bytes remain case-sensitive.
+            $pattern = preg_replace_callback('/%[0-9a-f]{2}/i', static fn (array $match): string => '(?i:'.$match[0].')', preg_quote($secret, '~'));
+            $candidate = preg_replace_callback('~'.$pattern.'~', static fn (): string => $policy->replacement, $redacted);
+            if (! is_string($candidate)) {
+                throw new \RuntimeException('Credential redaction failed.');
+            }
+            $redacted = $candidate;
+        }
         foreach ($policy->patterns as $pattern) {
             $candidate = preg_replace($pattern, $policy->replacement, $redacted);
             if (! is_string($candidate)) {
@@ -241,15 +247,10 @@ final readonly class ResponseRedactor
             return false;
         }
 
-        $forms = [$credential, rawurlencode($credential), urlencode($credential), base64_encode($credential)];
-        $decoded = base64_decode($credential, true);
-        if (is_string($decoded) && $decoded !== '' && base64_encode($decoded) === $credential) {
-            $forms[] = $decoded;
-            array_push($forms, ...explode(':', $decoded));
-        }
-
-        foreach ($forms as $secret) {
-            if ($secret !== '' && str_contains($candidate, $secret)) {
+        $uri = rawurldecode($candidate);
+        $form = urldecode($candidate);
+        foreach (self::credentialForms($credential) as $secret) {
+            if (str_contains($candidate, $secret) || str_contains($uri, $secret) || str_contains($form, $secret)) {
                 return true;
             }
         }
@@ -271,17 +272,8 @@ final readonly class ResponseRedactor
 
         $secrets = [];
         foreach ($values as $value) {
-            $forms = [$value, rawurlencode($value), urlencode($value), base64_encode($value)];
-            $decoded = base64_decode($value, true);
-            if (is_string($decoded) && $decoded !== '' && base64_encode($decoded) === $value) {
-                $forms[] = $decoded;
-                array_push($forms, ...explode(':', $decoded));
-            }
-
-            foreach ($forms as $form) {
-                if ($form !== '') {
-                    $secrets[$form] = true;
-                }
+            foreach (self::credentialForms($value) as $form) {
+                $secrets[$form] = true;
             }
         }
 
@@ -289,6 +281,26 @@ final readonly class ResponseRedactor
         usort($result, static fn (string $left, string $right): int => strlen($right) <=> strlen($left));
 
         return $result;
+    }
+
+    /** @return list<string> */
+    private static function credentialForms(string $credential): array
+    {
+        $values = [$credential];
+        $decoded = base64_decode($credential, true);
+        if (is_string($decoded) && $decoded !== '' && base64_encode($decoded) === $credential) {
+            array_push($values, $decoded, ...explode(':', $decoded));
+        }
+        $forms = [];
+        foreach (array_filter($values, static fn (string $value): bool => $value !== '') as $value) {
+            $base64 = base64_encode($value);
+            $base64url = strtr($base64, '+/', '-_');
+            $uri = rawurlencode($value);
+            $component = strtr($uri, ['%21' => '!', '%27' => "'", '%28' => '(', '%29' => ')', '%2A' => '*']);
+            array_push($forms, $value, $uri, $component, urlencode($value), $base64, rtrim($base64, '='), $base64url, rtrim($base64url, '='));
+        }
+
+        return array_values(array_unique($forms));
     }
 
     private function sensitiveKey(string $key): bool

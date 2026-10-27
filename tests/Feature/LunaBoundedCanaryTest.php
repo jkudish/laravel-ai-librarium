@@ -7,7 +7,6 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Support\Facades\Http;
-use Jkudish\LaravelAiLibrarium\Collection\Enums\CaptureCoverage;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\SubmissionState;
 use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\LaravelAiDriver;
@@ -15,7 +14,6 @@ use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\ResearchAgent;
 use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\ResearchResultMapper;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
-use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\Profile;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
@@ -42,9 +40,7 @@ beforeEach(function (): void {
 it('bounds Luna inference turns and searches with independent controls', function (int $budget, int $searchCap, string $inputTokens, string $outputTokens, string $searchRequests): void {
     config()->set('librarium.profiles.openrouter-chat.options', lunaBoundedOptions(maxToolCalls: $budget, maxSearches: $searchCap));
 
-    $bound = Librarium::query('Bound this grounded Luna answer.')
-        ->using('openrouter-chat')
-        ->spendingBound();
+    $bound = variantBound('openrouter-chat', 'Bound this grounded Luna answer.');
 
     expect($bound->kind)->toBe(SpendingBoundKind::BillableQuantities)
         ->and($bound->pricingIdentity?->key())->toBe('openrouter:openai/gpt-6-luna-272k')
@@ -64,9 +60,7 @@ it('bounds Luna inference turns and searches with independent controls', functio
 it('returns an unknown Luna bound unless every reviewed bounded option is exact', function (array $options): void {
     config()->set('librarium.profiles.openrouter-chat.options', $options);
 
-    $bound = Librarium::query('Bound this grounded Luna answer.')
-        ->using('openrouter-chat')
-        ->spendingBound();
+    $bound = variantBound('openrouter-chat', 'Bound this grounded Luna answer.');
 
     expect($bound->kind)->toBe(SpendingBoundKind::Unknown);
     Http::assertNothingSent();
@@ -84,14 +78,11 @@ it('sends the grounded Luna budget, endpoint pin, max_price, reasoning, Exa mode
         'https://openrouter.ai/api/v1/chat/completions' => Http::response(lunaCompletionBody(model: $reportedModel)),
     ]);
 
-    $response = Librarium::query('Bound this grounded Luna answer.')
-        ->using('openrouter-chat')
-        ->run();
+    $response = variantRun('openrouter-chat', 'Bound this grounded Luna answer.');
 
-    expect($response->status->value)->toBe('succeeded')
-        ->and($response->results->sole()->citations)->toHaveCount(1)
-        ->and($response->results->sole()->model)->toBe($reportedModel)
-        ->and($response->results->sole()->usage?->serverToolSearchRequests)->toBe(4);
+    expect($response->citations)->toHaveCount(1)
+        ->and($response->model)->toBe($reportedModel)
+        ->and($response->usage?->serverToolSearchRequests)->toBe(4);
     Http::assertSent(function (Request $request): bool {
         $body = $request->data();
 
@@ -137,11 +128,9 @@ it('preserves answer citations and reported usage rather than clipping them to s
         'https://openrouter.ai/api/v1/chat/completions' => Http::response($body),
     ]);
 
-    $response = Librarium::query('Bound this grounded Luna answer.')->using('openrouter-chat')->run();
-    $result = $response->results->sole();
+    $result = variantRun('openrouter-chat', 'Bound this grounded Luna answer.');
 
-    expect($response->status->value)->toBe('succeeded')
-        ->and($result->content)->toBe('A grounded Luna answer.')
+    expect($result->content)->toBe('A grounded Luna answer.')
         ->and($result->citations)->toHaveCount(7)
         ->and($result->citations->last()?->source->url)->toBe('https://example.com/source-7')
         ->and($result->usage?->serverToolSearchRequests)->toBe(12)
@@ -155,11 +144,9 @@ it('checks the pinned Luna revision against the public catalog before dispatchin
         'https://openrouter.ai/api/v1/chat/completions' => Http::response(lunaCompletionBody()),
     ]);
 
-    $response = Librarium::query('Bound this grounded Luna answer.')
-        ->using('openrouter-chat')
-        ->run();
+    $response = variantRun('openrouter-chat', 'Bound this grounded Luna answer.');
 
-    expect($response->status->value)->toBe('succeeded');
+    expect($response->content)->toBe('A grounded Luna answer.');
     Http::assertSent(function (Request $request): bool {
         return $request->method() === 'GET'
             && $request->url() === 'https://openrouter.ai/api/v1/model/openai/gpt-6-luna'
@@ -283,18 +270,15 @@ it('settles Luna preflight rejections as not sent with no inference evidence', f
         'https://openrouter.ai/api/v1/chat/completions' => Http::response(lunaCompletionBody(model: 'openai/gpt-6-luna-20261101')),
     ]);
 
-    $collected = Librarium::query('Bound this grounded Luna answer.')
-        ->using('openrouter-chat')
-        ->collect();
-    $diagnostic = $collected->diagnostics->sole();
+    $collected = variantResearch('openrouter-chat', 'Bound this grounded Luna answer.')->run();
+    $diagnostic = $collected->diagnostics()[0];
 
-    expect($collected->response->status->value)->toBe('failed')
-        ->and($collected->response->errors->sole()->code)->toBe($expectedCode)
-        ->and($diagnostic->code)->toBe($expectedCode)
-        ->and($diagnostic->submissionState)->toBe(SubmissionState::NotSent)
-        ->and($diagnostic->operation)->toBe(Operation::Inline)
-        ->and($collected->coverage)->toBe(CaptureCoverage::Unavailable)
-        ->and($collected->evidence)->toBeEmpty();
+    expect($collected->status())->toBe('failed')
+        ->and($collected->result('probe')['error']['code'])->toBe($expectedCode)
+        ->and($diagnostic['code'])->toBe($expectedCode)
+        ->and($diagnostic['submission_state'])->toBe(SubmissionState::NotSent->value)
+        ->and($diagnostic['operation'])->toBe(Operation::Inline->value)
+        ->and($collected->evidence('probe'))->toBeEmpty();
     Http::assertNotSent(fn (Request $request): bool => $request->url() === 'https://openrouter.ai/api/v1/chat/completions');
 })->with([
     'catalog resolves a different revision' => [
@@ -314,16 +298,13 @@ it('settles an unreachable Luna catalog as not sent', function (): void {
         throw new ConnectionException('The model catalog could not be reached.');
     });
 
-    $collected = Librarium::query('Bound this grounded Luna answer.')
-        ->using('openrouter-chat')
-        ->collect();
-    $diagnostic = $collected->diagnostics->sole();
+    $collected = variantResearch('openrouter-chat', 'Bound this grounded Luna answer.')->run();
+    $diagnostic = $collected->diagnostics()[0];
 
-    expect($collected->response->errors->sole()->code)->toBe('laravel_ai.model_revision_unverified')
-        ->and($diagnostic->code)->toBe('laravel_ai.model_revision_unverified')
-        ->and($diagnostic->submissionState)->toBe(SubmissionState::NotSent)
-        ->and($collected->coverage)->toBe(CaptureCoverage::Unavailable)
-        ->and($collected->evidence)->toBeEmpty();
+    expect($collected->result('probe')['error']['code'])->toBe('laravel_ai.model_revision_unverified')
+        ->and($diagnostic['code'])->toBe('laravel_ai.model_revision_unverified')
+        ->and($diagnostic['submission_state'])->toBe(SubmissionState::NotSent->value)
+        ->and($collected->evidence('probe'))->toBeEmpty();
     Http::assertNothingSent();
 });
 
@@ -338,21 +319,18 @@ it('settles Luna response-side drift without raw capture as possibly accepted, n
         ),
     ])->preventStrayPrompts();
 
-    $collected = Librarium::query('Bound this grounded Luna answer.')
-        ->using('openrouter-chat')
-        ->collect();
-    $diagnostic = $collected->diagnostics->sole();
+    $collected = variantResearch('openrouter-chat', 'Bound this grounded Luna answer.')->run();
+    $diagnostic = $collected->diagnostics()[0];
 
     // The preflight passed, so the inference prompt definitely ran before the
     // drift was rejected. With no raw SDK exchange to capture, the dispatch
     // is still recorded, so settlement stays PossiblyAccepted — a spent
     // reservation is never falsely released as NotSent.
-    expect($collected->response->errors->sole()->code)->toBe('laravel_ai.model_revision_drift')
-        ->and($diagnostic->code)->toBe('laravel_ai.model_revision_drift')
-        ->and($diagnostic->submissionState)->toBe(SubmissionState::PossiblyAccepted)
-        ->and($diagnostic->operation)->toBe(Operation::Inline)
-        ->and($collected->coverage)->toBe(CaptureCoverage::NoResponse)
-        ->and($collected->evidence)->toBeEmpty();
+    expect($collected->result('probe')['error']['code'])->toBe('laravel_ai.model_revision_drift')
+        ->and($diagnostic['code'])->toBe('laravel_ai.model_revision_drift')
+        ->and($diagnostic['submission_state'])->toBe(SubmissionState::PossiblyAccepted->value)
+        ->and($diagnostic['operation'])->toBe(Operation::Inline->value)
+        ->and($collected->evidence('probe'))->toBeEmpty();
     Http::assertSent(fn (Request $request): bool => $request->url() === 'https://openrouter.ai/api/v1/model/openai/gpt-6-luna');
     Http::assertNotSent(fn (Request $request): bool => $request->url() === 'https://openrouter.ai/api/v1/chat/completions');
     // Exactly one catalog GET and no inference POST retry after rejection.
@@ -378,23 +356,19 @@ it('settles a runtime timeout after a conforming no-raw Luna response as possibl
     })->preventStrayPrompts();
 
     try {
-        $collected = Librarium::query('Bound this grounded Luna answer.')
-            ->using('openrouter-chat')
-            ->timeout(2)
-            ->collect();
-        $diagnostic = $collected->diagnostics->sole();
+        $collected = variantResearch('openrouter-chat', 'Bound this grounded Luna answer.', 2)->run();
+        $diagnostic = $collected->diagnostics()[0];
 
         // The inference dispatch definitely happened before the runtime's
         // post-response deadline check rejected the result. With no raw SDK
         // exchange, the dispatch is still recorded as an unanswered attempt,
         // so the timeout settles PossiblyAccepted — a spent reservation is
         // never released as NotSent.
-        expect($collected->response->errors->sole()->code)->toBe('librarium.timeout')
-            ->and($diagnostic->code)->toBe('librarium.timeout')
-            ->and($diagnostic->submissionState)->toBe(SubmissionState::PossiblyAccepted)
-            ->and($diagnostic->operation)->toBe(Operation::Inline)
-            ->and($collected->coverage)->toBe(CaptureCoverage::NoResponse)
-            ->and($collected->evidence)->toBeEmpty();
+        expect($collected->result('probe')['error']['code'])->toBe('librarium.timeout')
+            ->and($diagnostic['code'])->toBe('librarium.timeout')
+            ->and($diagnostic['submission_state'])->toBe(SubmissionState::PossiblyAccepted->value)
+            ->and($diagnostic['operation'])->toBe(Operation::Inline->value)
+            ->and($collected->evidence('probe'))->toBeEmpty();
         Http::assertSent(fn (Request $request): bool => $request->url() === 'https://openrouter.ai/api/v1/model/openai/gpt-6-luna');
         Http::assertNotSent(fn (Request $request): bool => $request->url() === 'https://openrouter.ai/api/v1/chat/completions');
         Http::assertSentCount(1);
@@ -418,21 +392,18 @@ it('settles an ungrounded required-grounding Luna response without raw capture a
         ),
     ])->preventStrayPrompts();
 
-    $collected = Librarium::query($prompt)
-        ->using('openrouter-chat')
-        ->collect();
-    $diagnostic = $collected->diagnostics->sole();
+    $collected = variantResearch('openrouter-chat', $prompt)->run();
+    $diagnostic = $collected->diagnostics()[0];
 
     // The inference dispatch ran before the grounding check rejected the
     // mapped result, and the SDK exposed no raw exchange: the recorded
     // unanswered attempt keeps the settlement PossiblyAccepted instead of
     // falsely releasing a spent reservation as NotSent.
-    expect($collected->response->errors->sole()->code)->toBe('laravel_ai.ungrounded_response')
-        ->and($diagnostic->code)->toBe('laravel_ai.ungrounded_response')
-        ->and($diagnostic->submissionState)->toBe(SubmissionState::PossiblyAccepted)
-        ->and($diagnostic->operation)->toBe(Operation::Inline)
-        ->and($collected->coverage)->toBe(CaptureCoverage::NoResponse)
-        ->and($collected->evidence)->toBeEmpty();
+    expect($collected->result('probe')['error']['code'])->toBe('laravel_ai.ungrounded_response')
+        ->and($diagnostic['code'])->toBe('laravel_ai.ungrounded_response')
+        ->and($diagnostic['submission_state'])->toBe(SubmissionState::PossiblyAccepted->value)
+        ->and($diagnostic['operation'])->toBe(Operation::Inline->value)
+        ->and($collected->evidence('probe'))->toBeEmpty();
     Http::assertSent(fn (Request $request): bool => $request->url() === 'https://openrouter.ai/api/v1/model/openai/gpt-6-luna');
     Http::assertNotSent(fn (Request $request): bool => $request->url() === 'https://openrouter.ai/api/v1/chat/completions');
     Http::assertSentCount(1);
@@ -471,20 +442,15 @@ it('keeps unpinned Luna requests on default routing with no reasoning controls a
         'https://openrouter.ai/api/v1/chat/completions' => Http::response(lunaCompletionBody(model: 'openai/gpt-6-luna-20261101')),
     ]);
 
-    $bound = Librarium::query('Answer without the bounded pin.')
-        ->using('openrouter-chat')
-        ->spendingBound();
+    $bound = variantBound('openrouter-chat', 'Answer without the bounded pin.');
     expect($bound->kind)->toBe(SpendingBoundKind::Unknown);
 
-    $response = Librarium::query('Answer without the bounded pin.')
-        ->using('openrouter-chat')
-        ->run();
+    $response = variantRun('openrouter-chat', 'Answer without the bounded pin.');
 
     // Without the server-tool budget the request is not the bounded route:
     // default routing only, no max_price, no reasoning controls, and no
     // revision check — even a different served revision is not rejected.
-    expect($response->status->value)->toBe('succeeded')
-        ->and($response->results->sole()->model)->toBe('openai/gpt-6-luna-20261101');
+    expect($response->model)->toBe('openai/gpt-6-luna-20261101');
     Http::assertSent(function (Request $request): bool {
         $body = $request->data();
         $provider = $body['provider'];

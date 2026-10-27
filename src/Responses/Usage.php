@@ -6,8 +6,10 @@ namespace Jkudish\LaravelAiLibrarium\Responses;
 
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
+use JsonSerializable;
+use stdClass;
 
-final readonly class Usage
+final readonly class Usage implements JsonSerializable
 {
     /**
      * Token quantities are exclusive partitions: prompt_tokens counts only
@@ -29,8 +31,9 @@ final readonly class Usage
      * reconciled. The output side is reported as measured.
      * server_tool_search_requests carries the engine's server-tool search
      * count (current usage.server_tool_use_details.web_search_requests, with
-     * legacy usage.server_tool_use.web_search_requests compatibility) and
-     * stays null when unreported.
+     * legacy usage.server_tool_use.web_search_requests compatibility, or the
+     * google_search entries of Gemini Interactions usage.grounding_tool_count,
+     * which Google bills per query) and stays null when unreported.
      * tool_use_tokens carries Gemini Interactions usage.total_tool_use_tokens
      * ("tokens present in tool-use prompt(s)") as a reported, unpriced audit
      * count, and stays null when the provider does not report it. Google's
@@ -45,15 +48,8 @@ final readonly class Usage
      * field, so it is never added to the priced partitions, which derive
      * only from the provider's inclusive input and cache totals.
      *
-     * server_tool_search_requests and tool_use_tokens are wire fields of
-     * this PHP value object beyond the checksum-pinned v1 interchange
-     * schema (tests/Support/Contracts/v1), which does not list them; they
-     * must not be added to that frozen schema without new interchange-
-     * snapshot authority. Consequence for rollback: a payload carrying
-     * these fields is rejected by older package versions, whose usage
-     * reader treats unknown fields as invalid, so persisted payloads with
-     * the audit counts cannot be re-read after rolling back; the priced
-     * partitions and costs are unaffected either way.
+     * These are internal driver usage fields, not the shared public Run
+     * shape. Runs expose only estimated and provider-reported USD cost.
      */
     public function __construct(
         public ?int $promptTokens = null,
@@ -106,6 +102,14 @@ final readonly class Usage
         self::validate($value);
 
         return $value;
+    }
+
+    /** @return array<string, mixed>|stdClass */
+    public function jsonSerialize(): array|stdClass
+    {
+        $value = $this->toArray();
+
+        return $value === [] ? new stdClass : $value;
     }
 
     /** @param array<array-key, mixed> $value */

@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
+use Jkudish\LaravelAiLibrarium\Recovery\RecoveryRequest;
 use Jkudish\LaravelAiLibrarium\Responses\Citation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ContentFormat;
@@ -20,7 +21,7 @@ use Jkudish\LaravelAiLibrarium\Responses\Source;
 final readonly class YouResearchResultMapper
 {
     /** @param array<array-key, mixed> $json */
-    public function map(DriverRequest $request, array $json, bool $background): ResearchResult
+    public function map(DriverRequest|RecoveryRequest $request, array $json, bool $background): ResearchResult
     {
         $result = $background ? data_get($json, 'result') : $json;
         $output = data_get($result, 'output');

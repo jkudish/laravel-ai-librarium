@@ -23,5 +23,8 @@ abstract class LiveTestCase extends TestCase
     }
 
     /** @param Application $app */
-    protected function defineEnvironment($app): void {}
+    protected function defineEnvironment($app): void
+    {
+        $app['config']->set('librarium.runs.store', 'memory');
+    }
 }

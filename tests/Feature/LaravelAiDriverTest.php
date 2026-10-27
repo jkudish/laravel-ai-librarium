@@ -9,7 +9,6 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Validation\ValidationException;
-use Jkudish\LaravelAiLibrarium\Collection\Enums\CaptureCoverage;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\FailureCategory;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\SubmissionState;
 use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\LaravelAiDriver;
@@ -22,7 +21,6 @@ use Jkudish\LaravelAiLibrarium\Profile;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
-use Jkudish\LaravelAiLibrarium\Responses\Enums\ResponseStatus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 use Laravel\Ai\Ai;
@@ -60,10 +58,7 @@ it('runs each configured Laravel AI Profile through one exact SDK provider and m
         ),
     ])->preventStrayPrompts();
 
-    $response = Librarium::query('Research this question.')
-        ->using($profile)
-        ->timeout(120)
-        ->run();
+    $response = variantRun($profile, 'Research this question.');
 
     ResearchAgent::assertPrompted(function (AgentPrompt $prompt) use ($provider, $model): bool {
         if (! $prompt->agent instanceof ResearchAgent) {
@@ -82,20 +77,58 @@ it('runs each configured Laravel AI Profile through one exact SDK provider and m
             ] : []);
     });
 
-    expect($response->status)->toBe(ResponseStatus::Succeeded)
-        ->and($response->results)->toHaveCount(1)
-        ->and($response->results->sole()->provider)->toBe($provider)
-        ->and($response->results->sole()->profile)->toBe($profile)
-        ->and($response->results->sole()->model)->toBe($model)
-        ->and($response->results->sole()->citations)->toHaveCount(1);
+    expect($response->provider)->toBe($provider)
+        ->and($response->profile)->toBe($profile)
+        ->and($response->model)->toBe($model)
+        ->and($response->citations)->toHaveCount(1);
 })->with([
-    'Gemini grounded' => ['gemini-grounded', 'gemini', 'gemini-3.6-flash'],
+    'Gemini grounded' => ['gemini-grounded', 'gemini', 'gemini-3.8-flash'],
     'OpenRouter grounded' => ['openrouter-grounded', 'openrouter', 'openai/gpt-6-luna'],
-    'OpenRouter chat' => ['openrouter-chat', 'openrouter', 'openai/gpt-5.6-terra'],
-    'Claude chat' => ['claude-chat', 'anthropic', 'claude-sonnet-5'],
+    'OpenRouter chat' => ['openrouter-chat', 'openrouter', 'openai/gpt-6-luna'],
+    'Claude chat' => ['claude-chat', 'anthropic', 'claude-sonnet-5-5'],
     'OpenAI chat' => ['openai-chat', 'openai', 'gpt-6-luna'],
-    'Gemini chat' => ['gemini-chat', 'gemini', 'gemini-3.7-flash'],
+    'Gemini chat' => ['gemini-chat', 'gemini', 'gemini-3.8-flash'],
 ]);
+
+it('forwards public quick OpenAI effort through the real SDK request', function (?string $effort): void {
+    app()->forgetInstance(AiManager::class);
+    Ai::clearResolvedInstance(AiManager::class);
+    config(['librarium.runs.store' => 'memory']);
+    Http::fake(['https://api.openai.com/v1/responses' => Http::response([
+        'id' => 'resp_effort', 'status' => 'completed', 'model' => 'gpt-6-luna',
+        'output' => [['type' => 'message', 'status' => 'completed', 'content' => [[
+            'type' => 'output_text', 'text' => 'Effort controlled answer.', 'annotations' => [],
+        ]]]], 'usage' => ['input_tokens' => 10, 'output_tokens' => 4],
+    ])]);
+    $pending = Librarium::research('Research')->only(['openai']);
+    if ($effort !== null) {
+        $pending->options(['openai' => ['effort' => $effort]]);
+    }
+    $run = $pending->run();
+    expect($run->status())->toBe('done')->and($run->result('openai')['answer'])->toBe('Effort controlled answer.');
+    Http::assertSentCount(1);
+    Http::assertSent(fn (Request $request): bool => $effort === null
+        ? ! array_key_exists('reasoning', $request->data())
+        : data_get($request->data(), 'reasoning.effort') === $effort);
+})->with(['low', 'high', null]);
+
+it('rejects an unexpected SDK provider identity for an exact built-in Profile', function (): void {
+    ResearchAgent::fake([
+        new TextResponse(
+            'A misdirected grounded answer.',
+            new AiUsage(inputTokens: 10, outputTokens: 6),
+            new Meta('anthropic', 'claude-sonnet-5', collect([
+                new UrlCitation('https://example.com/source', 'Example source'),
+            ])),
+        ),
+    ])->preventStrayPrompts();
+
+    config(['librarium.runs.store' => 'memory']);
+    $run = Librarium::research('Research this question.')->only(['gemini'])->run();
+    expect($run->status())->toBe('failed')
+        ->and($run->result('gemini')['answer'])->toBeNull()
+        ->and($run->result('gemini')['error']['code'])->toBe('librarium.invalid_result');
+});
 
 it('returns an honest model answer when optional web search is disabled', function (): void {
     config()->set('librarium.profiles.gemini-chat.options.web_search', false);
@@ -103,37 +136,20 @@ it('returns an honest model answer when optional web search is disabled', functi
         new TextResponse(
             'A direct model answer.',
             new AiUsage(inputTokens: 5, outputTokens: 4),
-            new Meta('gemini', 'gemini-3.7-flash'),
+            new Meta('gemini', 'gemini-3.8-flash'),
         ),
     ])->preventStrayPrompts();
 
-    $preview = Librarium::query('Answer without web search.')
-        ->using('gemini-chat')
-        ->preview();
-    $profile = $preview->profiles->sole();
-    $matching = Librarium::query('Answer without web search.')
-        ->matching(
-            resultKind: ResultKind::ModelAnswer,
-            grounding: GroundingPolicy::None,
-            observation: ObservationMode::ApiOutput,
-            retrievalMethods: [RetrievalMethod::ModelOnly],
-        )
-        ->preview();
-    $response = Librarium::query('Answer without web search.')
-        ->using('gemini-chat')
-        ->run();
+    $profile = variantRequest('gemini-chat', 'Answer without web search.')->profile;
+    $result = variantRun('gemini-chat', 'Answer without web search.');
 
     ResearchAgent::assertPrompted(fn (AgentPrompt $prompt): bool => $prompt->agent instanceof ResearchAgent
         && collect($prompt->agent->tools())->isEmpty());
-
-    $result = $response->results->sole();
 
     expect($profile->resultKind)->toBe(ResultKind::ModelAnswer)
         ->and($profile->grounding)->toBe(GroundingPolicy::None)
         ->and($profile->corpora)->toBeEmpty()
         ->and($profile->retrievalMethods->all())->toBe([RetrievalMethod::ModelOnly])
-        ->and($matching->profiles->pluck('id')->all())->toContain('gemini-chat')
-        ->and($response->status)->toBe(ResponseStatus::Succeeded)
         ->and($result->provenance->resultKind)->toBe(ResultKind::ModelAnswer)
         ->and($result->provenance->corpora)->toBeEmpty()
         ->and($result->provenance->retrievalMethods->all())->toBe([RetrievalMethod::ModelOnly])
@@ -154,7 +170,7 @@ it('sends bounded no-search Claude controls through the real SDK and never conti
             'id' => 'msg_test',
             'type' => 'message',
             'role' => 'assistant',
-            'model' => 'claude-sonnet-5',
+            'model' => 'claude-sonnet-5-5',
             'content' => [['type' => 'text', 'text' => 'A paused direct answer.']],
             'stop_reason' => 'pause_turn',
             'stop_sequence' => null,
@@ -162,18 +178,15 @@ it('sends bounded no-search Claude controls through the real SDK and never conti
         ]),
     ]);
 
-    $response = Librarium::query('Answer directly once.')
-        ->using('claude-chat')
-        ->run();
+    $response = variantRun('claude-chat', 'Answer directly once.');
 
-    expect($response->status)->toBe(ResponseStatus::Succeeded)
-        ->and($response->results->sole()->content)->toBe('A paused direct answer.')
-        ->and($response->results->sole()->model)->toBe('claude-sonnet-5');
+    expect($response->content)->toBe('A paused direct answer.')
+        ->and($response->model)->toBe('claude-sonnet-5-5');
     Http::assertSent(function (Request $request): bool {
         $body = $request->data();
 
         return $request->url() === 'https://api.anthropic.com/v1/messages'
-            && $body['model'] === 'claude-sonnet-5'
+            && $body['model'] === 'claude-sonnet-5-5'
             && $body['max_tokens'] === 64_000
             && ! array_key_exists('inference_geo', $body)
             && ! array_key_exists('tools', $body)
@@ -191,16 +204,15 @@ it('caches Claude static prefixes and only caches the conversation with a multi-
         'web_search' => $search, 'max_steps' => $steps, 'max_output_tokens' => 100,
     ], static fn (mixed $value): bool => $value !== null));
     Http::fake(['https://api.anthropic.com/v1/messages' => Http::response([
-        'id' => 'msg_cache', 'type' => 'message', 'role' => 'assistant', 'model' => 'claude-sonnet-5',
+        'id' => 'msg_cache', 'type' => 'message', 'role' => 'assistant', 'model' => 'claude-sonnet-5-5',
         'content' => [['type' => 'text', 'text' => 'Answer.']], 'stop_reason' => 'end_turn',
         'usage' => ['input_tokens' => 13, 'output_tokens' => 7, 'cache_creation_input_tokens' => 31, 'cache_read_input_tokens' => 19],
     ])]);
 
-    $response = Librarium::query('Unique question.')->using('claude-chat')->run();
-    expect($response->status)->toBe(ResponseStatus::Succeeded)
-        ->and($response->results->sole()->usage?->promptTokens)->toBe(13)
-        ->and($response->results->sole()->usage?->cacheReadInputTokens)->toBe(19)
-        ->and($response->results->sole()->usage?->cacheWriteInputTokens)->toBe(31);
+    $result = variantRun('claude-chat', 'Unique question.');
+    expect($result->usage?->promptTokens)->toBe(13)
+        ->and($result->usage?->cacheReadInputTokens)->toBe(19)
+        ->and($result->usage?->cacheWriteInputTokens)->toBe(31);
     Http::assertSent(function (Request $request) use ($search, $steps): bool {
         $body = $request->data();
 
@@ -221,15 +233,14 @@ it('does not invent Claude token counts from missing or coerced raw usage', func
         $usage[$field] = $value;
     }
     Http::fake(['https://api.anthropic.com/v1/messages' => Http::response([
-        'id' => 'msg_incomplete', 'type' => 'message', 'role' => 'assistant', 'model' => 'claude-sonnet-5',
+        'id' => 'msg_incomplete', 'type' => 'message', 'role' => 'assistant', 'model' => 'claude-sonnet-5-5',
         'content' => [['type' => 'text', 'text' => 'Keep this answer.']], 'stop_reason' => 'end_turn',
         'usage' => $usage,
     ])]);
 
-    $response = Librarium::query('Unique question.')->using('claude-chat')->run();
-    expect($response->status)->toBe(ResponseStatus::Succeeded)
-        ->and($response->results->sole()->content)->toBe('Keep this answer.')
-        ->and($response->results->sole()->usage?->{$metric})->toBeNull();
+    $result = variantRun('claude-chat', 'Unique question.');
+    expect($result->content)->toBe('Keep this answer.')
+        ->and($result->usage?->{$metric})->toBeNull();
     Http::assertSentCount(1);
 })->with([
     'missing uncached input with a cache write' => ['input_tokens', null, 'promptTokens'],
@@ -242,18 +253,17 @@ it('does not invent Claude token counts from missing or coerced raw usage', func
 it('requires every Claude step to report a raw integer before summing uncached input', function (mixed $firstInput, ?int $expected): void {
     app()->forgetInstance(AiManager::class);
     Ai::clearResolvedInstance(AiManager::class);
-    $body = ['id' => 'msg_steps', 'type' => 'message', 'role' => 'assistant', 'model' => 'claude-sonnet-5', 'content' => [['type' => 'text', 'text' => 'Answer.']]];
+    $body = ['id' => 'msg_steps', 'type' => 'message', 'role' => 'assistant', 'model' => 'claude-sonnet-5-5', 'content' => [['type' => 'text', 'text' => 'Answer.']]];
     $first = array_filter(['input_tokens' => $firstInput, 'output_tokens' => 7, 'cache_creation_input_tokens' => 31, 'cache_read_input_tokens' => 19], static fn (mixed $value): bool => $value !== null);
     Http::fake(['https://api.anthropic.com/v1/messages' => Http::sequence()
         ->push([...$body, 'stop_reason' => 'pause_turn', 'usage' => $first])
         ->push([...$body, 'stop_reason' => 'end_turn', 'usage' => ['input_tokens' => 17, 'output_tokens' => 11, 'cache_creation_input_tokens' => 5, 'cache_read_input_tokens' => 3]])]);
 
-    $response = Librarium::query('Unique question.')->using('claude-chat')->run();
-    expect($response->status)->toBe(ResponseStatus::Succeeded)
-        ->and($response->results->sole()->usage?->promptTokens)->toBe($expected)
-        ->and($response->results->sole()->usage?->completionTokens)->toBe(18)
-        ->and($response->results->sole()->usage?->cacheWriteInputTokens)->toBe(36)
-        ->and($response->results->sole()->usage?->cacheReadInputTokens)->toBe(22);
+    $result = variantRun('claude-chat', 'Unique question.');
+    expect($result->usage?->promptTokens)->toBe($expected)
+        ->and($result->usage?->completionTokens)->toBe(18)
+        ->and($result->usage?->cacheWriteInputTokens)->toBe(36)
+        ->and($result->usage?->cacheReadInputTokens)->toBe(22);
     Http::assertSentCount(2);
 })->with([[13, 30], [null, null], ['13', null]]);
 
@@ -294,9 +304,7 @@ it('rejects required grounding with web search disabled before execution', funct
     config()->set('librarium.profiles.gemini-grounded.options.web_search', false);
     ResearchAgent::fake()->preventStrayPrompts();
 
-    expect(fn () => Librarium::query('Research this question.')
-        ->using('gemini-grounded')
-        ->preview())
+    expect(fn () => variantRequest('gemini-grounded', 'Research this question.'))
         ->toThrow(ValidationException::class, 'Required-grounding Profiles must enable web search.');
 
     ResearchAgent::assertNeverPrompted();
@@ -686,15 +694,14 @@ it('treats an SDK failure without an exposed HTTP cause as a possibly accepted r
         fn (): never => throw RateLimitedException::forProvider('gemini'),
     ])->preventStrayPrompts();
 
-    $collected = Librarium::query('Research this question.')
-        ->using('gemini-grounded')
-        ->collect();
-    $diagnostic = $collected->diagnostics->sole();
+    config(['librarium.runs.store' => 'memory']);
+    $run = Librarium::research('Research this question.')->only(['gemini'])->run();
+    $diagnostic = $run->diagnostics()[0];
 
-    expect($collected->coverage)->toBe(CaptureCoverage::NoResponse)
-        ->and($diagnostic->category)->toBe(FailureCategory::RateLimit)
-        ->and($diagnostic->submissionState)->toBe(SubmissionState::PossiblyAccepted)
-        ->and($diagnostic->httpStatus)->toBeNull();
+    expect($run->evidence('gemini'))->toBeEmpty()
+        ->and($diagnostic['category'])->toBe(FailureCategory::RateLimit->value)
+        ->and($diagnostic['submission_state'])->toBe(SubmissionState::PossiblyAccepted->value)
+        ->and($diagnostic['http_status'] ?? null)->toBeNull();
 });
 
 it('does not hide unexpected programming failures', function (): void {

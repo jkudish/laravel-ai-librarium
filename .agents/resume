@@ -16,7 +16,7 @@ if ! php -r 'exit(PHP_VERSION_ID >= 80500 && PHP_VERSION_ID < 80600 ? 0 : 1);'; 
     exit 1
 fi
 
-missing_extensions="$(php -r '$missing = array_values(array_filter(["curl", "dom", "fileinfo", "mbstring", "xml", "xmlwriter", "zip"], static fn (string $extension): bool => ! extension_loaded($extension))); echo implode(", ", $missing);')"
+missing_extensions="$(php -r '$missing = array_values(array_filter(["curl", "dom", "fileinfo", "mbstring", "pdo_sqlite", "redis", "sqlite3", "xml", "xmlwriter", "zip"], static fn (string $extension): bool => ! extension_loaded($extension))); echo implode(", ", $missing);')"
 if [[ -n ${missing_extensions} ]]; then
     printf 'Orb resume is missing required PHP extensions: %s. Run .agents/setup.\n' "${missing_extensions}" >&2
     exit 1

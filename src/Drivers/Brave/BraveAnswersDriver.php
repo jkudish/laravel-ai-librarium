@@ -61,6 +61,7 @@ final readonly class BraveAnswersDriver implements Driver
             $response = Http::withHeaders([
                 'X-Subscription-Token' => (string) $request->profile->credential,
             ])
+                ->withoutRedirecting()
                 ->accept('text/event-stream')
                 ->asJson()
                 ->connectTimeout(min(self::CONNECT_TIMEOUT_SECONDS, $remaining))

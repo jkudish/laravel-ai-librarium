@@ -12,6 +12,7 @@ use Jkudish\LaravelAiLibrarium\Drivers\OpenAi\OpenAiResearchResultMapper;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profile;
+use Jkudish\LaravelAiLibrarium\ProfileCatalog;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\ResearchState;
@@ -71,10 +72,10 @@ it('submits, polls, and normalizes one grounded background research response', f
                 'model' => 'gpt-5.6-sol',
                 'input' => 'Research current PHP agent frameworks.',
                 'background' => true,
-                'reasoning' => ['effort' => 'xhigh'],
+                'reasoning' => ['effort' => 'high'],
                 'tools' => [[
                     'type' => 'web_search',
-                    'return_token_budget' => 'unlimited',
+                    'return_token_budget' => 'default',
                 ]],
                 'tool_choice' => 'required',
                 'include' => ['web_search_call.action.sources'],
@@ -346,9 +347,9 @@ it('rejects a retrieval response for a different background request', function (
     }
 });
 
-it('rejects a malformed completion timestamp', function (): void {
+it('rejects invalid completion timestamps as provider response errors', function (mixed $timestamp): void {
     $response = openAiCompletedResponse();
-    $response['completed_at'] = 'not-a-timestamp';
+    $response['completed_at'] = $timestamp;
     Http::fakeSequence()
         ->push(['id' => 'resp_research_1', 'status' => 'queued'])
         ->push($response);
@@ -359,9 +360,24 @@ it('rejects a malformed completion timestamp', function (): void {
     } catch (DriverException $exception) {
         expect($exception->errorCode)->toBe('openai.invalid_response');
     }
+})->with([
+    'malformed' => ['not-a-timestamp'],
+    'above supported maximum' => [253_402_300_800],
+]);
+
+it('accepts the maximum supported completion timestamp', function (): void {
+    $response = openAiCompletedResponse();
+    $response['completed_at'] = 253_402_300_799;
+    Http::fakeSequence()
+        ->push(['id' => 'resp_research_1', 'status' => 'queued'])
+        ->push($response);
+
+    $result = openAiResearchDriver()->run(openAiResearchRequest());
+
+    expect($result->completedAt->getTimestamp())->toBe(253_402_300_799);
 });
 
-it('maps submit HTTP failures to safe errors and does not retry an ambiguous submit', function (int $status, string $code): void {
+it('classifies submit HTTP failures without permitting fallback after an ambiguous server error', function (int $status, string $code, bool $fallbackAllowed): void {
     Http::fakeSequence()->push(['error' => ['message' => 'provider-secret']], $status);
 
     try {
@@ -369,16 +385,117 @@ it('maps submit HTTP failures to safe errors and does not retry an ambiguous sub
         $this->fail('The failed submission should be mapped.');
     } catch (DriverException $exception) {
         expect($exception->errorCode)->toBe($code)
+            ->and($exception->fallbackAllowed)->toBe($fallbackAllowed)
             ->and($exception->getMessage())->not->toContain('provider-secret');
     }
 
     Http::assertSentCount(1);
 })->with([
-    'authentication' => [401, 'openai.authentication'],
-    'authorization' => [403, 'openai.authorization'],
-    'rate limit' => [429, 'openai.rate_limited'],
-    'unavailable' => [503, 'openai.unavailable'],
-    'invalid request' => [422, 'openai.invalid_request'],
+    'authentication' => [401, 'openai.authentication', true],
+    'authorization' => [403, 'openai.authorization', true],
+    'rate limit' => [429, 'openai.rate_limited', true],
+    'ambiguous unavailable submission' => [503, 'openai.unavailable', false],
+    'invalid request' => [422, 'openai.invalid_request', false],
+]);
+
+it('retains absent usage as unknown and preserves only provider-reported usage fields', function (array $usage, ?array $expected): void {
+    $response = openAiCompletedResponse();
+
+    if ($usage === []) {
+        unset($response['usage']);
+    } else {
+        $response['usage'] = $usage;
+    }
+
+    Http::fakeSequence()
+        ->push(['id' => 'resp_research_1', 'status' => 'queued'])
+        ->push($response);
+
+    $result = openAiResearchDriver()->run(openAiResearchRequest());
+
+    expect($result->usage?->toArray())->toBe($expected)
+        ->and(array_key_exists('usage', $result->toArray()))->toBe($expected !== null);
+})->with([
+    'absent usage remains unknown' => [[], null],
+    'partial reported usage remains partial' => [[
+        'input_tokens' => 120,
+        'input_tokens_details' => ['cached_tokens' => 20],
+    ], [
+        'prompt_tokens' => 100,
+        'cache_read_input_tokens' => 20,
+    ]],
+]);
+
+it('rejects malformed present OpenAI usage fields', function (string $path, mixed $value): void {
+    $response = openAiCompletedResponse();
+    data_set($response, $path, $value);
+    Http::fakeSequence()
+        ->push(['id' => 'resp_research_1', 'status' => 'queued'])
+        ->push($response);
+
+    expect(fn () => openAiResearchDriver()->run(openAiResearchRequest()))
+        ->toThrow(fn (DriverException $exception): bool => $exception->errorCode === 'openai.invalid_response');
+})->with([
+    'null usage record' => ['usage', null],
+    'list usage record' => ['usage', []],
+    'negative input tokens' => ['usage.input_tokens', -1],
+    'fractional output tokens' => ['usage.output_tokens', 1.5],
+    'malformed input details' => ['usage.input_tokens_details', 'not-an-object'],
+    'malformed cache read tokens' => ['usage.input_tokens_details.cached_tokens', '20'],
+    'negative reasoning tokens' => ['usage.output_tokens_details.reasoning_tokens', -1],
+]);
+
+it('sends the configured reasoning effort, return-token budget and tool-call cap', function (): void {
+    Http::fake(['https://api.openai.com/*' => Http::sequence()
+        ->push(['id' => 'resp_research_1', 'status' => 'queued'])
+        ->push(openAiCompletedResponse())]);
+
+    openAiResearchDriver()->run(openAiResearchRequest(options: [
+        'reasoning_effort' => 'xhigh',
+        'return_token_budget' => 'unlimited',
+        'max_tool_calls' => 40,
+    ]));
+
+    Http::assertSent(fn (Request $request): bool => $request->method() === 'POST'
+        && $request['reasoning'] === ['effort' => 'xhigh']
+        && $request['tools'] === [['type' => 'web_search', 'return_token_budget' => 'unlimited']]
+        && $request['max_tool_calls'] === 40);
+});
+
+it('ships OpenAI Research on GPT-6.1 Sol with the shared defaults left to the driver', function (): void {
+    $profile = variantRequest('openai-research', 'Research this.')->profile;
+
+    expect($profile->model)->toBe('gpt-6.1-sol')
+        ->and($profile->options)->toBe([])
+        ->and($profile->pricingIdentity?->key())->toBe('openai:gpt-6.1-sol-standard-short');
+});
+
+it('makes OpenAI Research unavailable for options outside the strict contract', function (array $options): void {
+    config()->set('librarium.profiles.openai-research.options', $options);
+
+    expect(app(ProfileCatalog::class)->find('openai-research')?->reasons)->not->toBeEmpty();
+})->with([
+    'unknown effort' => [['reasoning_effort' => 'ultra']],
+    'minimal is not an OpenAI Research effort' => [['reasoning_effort' => 'minimal']],
+    'unknown budget' => [['return_token_budget' => 'large']],
+    'numeric-string tool calls' => [['max_tool_calls' => '40']],
+    'zero tool calls' => [['max_tool_calls' => 0]],
+    'unknown option' => [['background' => false]],
+]);
+
+it('rejects invalid OpenAI Research options before any request', function (array $options): void {
+    Http::fake();
+
+    expect(fn () => openAiResearchDriver()->run(openAiResearchRequest(options: $options)))
+        ->toThrow(fn (DriverException $exception) => expect($exception->errorCode)->toBe('openai.invalid_profile'));
+    Http::assertNothingSent();
+})->with([
+    'unknown effort' => [['reasoning_effort' => 'ultra']],
+    'float tool calls' => [['max_tool_calls' => 1.5]],
+    'unknown option' => [['tool_choice' => 'auto']],
+    'null effort' => [['reasoning_effort' => null]],
+    'null budget' => [['return_token_budget' => null]],
+    'null tool calls' => [['max_tool_calls' => null]],
 ]);
 
 function openAiResearchDriver(): OpenAiResearchDriver
@@ -398,6 +515,7 @@ function openAiResearchRequest(
     ObservationMode $observation = ObservationMode::ApiOutput,
     array $corpora = [Corpus::Web],
     array $retrievalMethods = [RetrievalMethod::ResearchAgent],
+    array $options = [],
 ): DriverRequest {
     $profile = new Profile(
         id: 'openai-research',
@@ -411,7 +529,7 @@ function openAiResearchRequest(
         retrievalMethods: collect($retrievalMethods),
         prompt: '{{ query }}',
         enabled: true,
-        options: [],
+        options: $options,
         credential: $credential,
     );
 

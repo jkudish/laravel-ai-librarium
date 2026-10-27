@@ -253,6 +253,10 @@ it('constructs an allowlist candidate environment without ambient credentials or
         'CI' => '1',
         'COMPOSER_NO_INTERACTION' => '1',
     ]);
+    expect(PrWorkflow::candidateEnvironment(['LIBRARIUM_REDIS_TEST_PORT' => '16379'], '/tmp/disposable-home'))
+        ->toHaveKey('LIBRARIUM_REDIS_TEST_PORT', '16379');
+    expect(PrWorkflow::candidateEnvironment(['LIBRARIUM_REDIS_TEST_PORT' => 'redis://user:secret@remote'], '/tmp/disposable-home'))
+        ->not->toHaveKey('LIBRARIUM_REDIS_TEST_PORT');
 });
 
 it('writes an atomic exact-SHA mode-0600 repository-bound receipt after every check passes', function (): void {

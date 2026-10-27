@@ -27,8 +27,12 @@ afterEach(function (): void {
     CarbonImmutable::setTestNow();
 });
 
-it('sends one exact Answer request and maps citations, relations, considered results, and provenance losslessly', function (): void {
-    Http::fake(['https://api.you.com/v1/answer' => Http::response(youAnswerSuccess())]);
+it('sends one exact Answer request without allowing API key redirects and maps it losslessly', function (): void {
+    Http::fake(function (Request $request, array $options) {
+        expect($options['allow_redirects'] ?? null)->toBeFalse();
+
+        return Http::response(youAnswerSuccess());
+    });
 
     $result = app(YouAnswerDriver::class)->run(youAnswerRequest(options: [
         'freshness' => '2026-08-01to2026-08-23',

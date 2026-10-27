@@ -1,12 +1,6 @@
 {
     "schema_version": 1,
     "target_version": "1.0.0",
-    "typescript": {
-        "version": "2.0.0",
-        "tag": null,
-        "commit": "889b0366b5baafff117198632e04b24e521ac93d",
-        "profile_snapshot_sha256": "83739ba138c2db2c4673aada5834a5586f085a6c971253b155339eb570dbb9f9"
-    },
     "gates": [
         {
             "id": "php-8.4-lowest-compatibility",
@@ -34,12 +28,6 @@
                 "uri": "https://raw.githubusercontent.com/jkudish/laravel-ai-librarium/70ec1a2dbe7a25e47000c8ff007b99064ea6ba01/docs/release-evidence-2026-09-15.md",
                 "sha256": "29345e86ea7f6fb45cee6354847b1da1362d381a9b64b8bbd4abd4852bd8e7dd"
             }
-        },
-        {
-            "id": "2594",
-            "title": "PlanMode and Agentsy dogfood",
-            "status": "pending",
-            "evidence": null
         },
         {
             "id": "2986",
@@ -73,8 +61,8 @@
             "title": "Stable laravel-ai-pricing release and constraint",
             "status": "complete",
             "evidence": {
-                "uri": "https://raw.githubusercontent.com/jkudish/laravel-ai-librarium/a1db4a781687d89122972ecfbe7d250ca9cdc9a1/docs/release-evidence-2026-09-15.md",
-                "sha256": "a729741263d5006ae9542677d8e1bb23af0c7cf3757c4484d32915e39fe57b30"
+                "uri": "https://raw.githubusercontent.com/jkudish/laravel-ai-pricing/v0.4.2/CHANGELOG.md",
+                "sha256": "0c598ce56893aaae66b1833b0fdcc8d018fd26d29fb2fd58035e63c331c02112"
             }
         }
     ]

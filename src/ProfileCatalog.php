@@ -10,6 +10,8 @@ use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Drivers\LaravelAi\LaravelAiDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Parallel\ParallelResearchDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Valyu\ValyuResearchDriver;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
@@ -20,27 +22,16 @@ use Jkudish\LaravelAiPricing\ValueObjects\Usage;
 
 final class ProfileCatalog
 {
-    /** @var list<string> */
-    private const array QUICK = [
-        'gemini-grounded',
-        'openrouter-grounded',
-        'brave-answers',
-        'exa',
-        'kagi-fastgpt',
-        'parallel-turbo',
-    ];
-
-    /** @var list<string> */
-    private const array VISIBILITY = [
-        'searchapi-chatgpt',
-        'searchapi-gemini',
-        'searchapi-perplexity',
-        'searchapi-google-ai-mode',
-        'searchapi-bing-copilot',
-        'searchapi-google-ai-overview',
-        'perplexity-sonar-pro',
-        'gemini-grounded',
-        'grok',
+    /**
+     * Profile IDs the package once shipped and has since retired. A retired ID
+     * stays reserved: callers that still select it, and applications whose
+     * published configuration still defines it, receive this reason instead of
+     * an unknown-Profile error or a request to a withdrawn provider endpoint.
+     *
+     * @var array<string, string>
+     */
+    private const array RETIRED = [
+        'searchapi-perplexity' => 'Profile is retired: SearchAPI deprecated its perplexity engine (observed 2026-10-09) and offers no replacement.',
     ];
 
     public function __construct(
@@ -52,7 +43,9 @@ final class ProfileCatalog
     /** @return Collection<string, ProfileAvailability> */
     public function all(): Collection
     {
-        $configured = $this->config->get('librarium.profiles', []);
+        /** @var array{profiles: array<string, array<string, mixed>>} $bindings */
+        $bindings = require __DIR__.'/Profiles/bindings.php';
+        $configured = $this->config->get('librarium.profiles', $bindings['profiles']);
         if (! is_array($configured)) {
             throw ValidationException::withMessages(['profiles' => 'The profiles configuration must be an array.']);
         }
@@ -87,80 +80,11 @@ final class ProfileCatalog
         return $this->all()->get($id);
     }
 
-    /**
-     * @return array{profiles: Collection<int, Profile>, unavailable: array<string, list<string>>}
-     */
-    public function group(string $group): array
-    {
-        $members = match ($group) {
-            'quick' => self::QUICK,
-            'visibility' => self::VISIBILITY,
-            'deep' => $this->all()
-                ->filter(fn (ProfileAvailability $item): bool => $item->profile->resultKind === ResultKind::ResearchReport)
-                ->map(fn (ProfileAvailability $item): string => $item->profile->id)
-                ->values()
-                ->all(),
-            'all' => $this->all()->map(fn (ProfileAvailability $item): string => $item->profile->id)->values()->all(),
-            default => $this->customGroup($group),
-        };
-
-        return $this->resolve(array_values($members));
-    }
-
-    /**
-     * @param  list<Corpus>  $corpora
-     * @param  list<RetrievalMethod>  $retrievalMethods
-     * @return array{profiles: Collection<int, Profile>, unavailable: array<string, list<string>>}
-     */
-    public function matching(
-        ?ResultKind $resultKind,
-        ?GroundingPolicy $grounding,
-        ?ObservationMode $observation,
-        array $corpora,
-        array $retrievalMethods,
-    ): array {
-        $matches = $this->all()->filter(function (ProfileAvailability $item) use ($resultKind, $grounding, $observation, $corpora, $retrievalMethods): bool {
-            $profile = $item->profile;
-
-            return ($resultKind === null || $profile->resultKind === $resultKind)
-                && ($grounding === null || $profile->grounding === $grounding)
-                && ($observation === null || $profile->observation === $observation)
-                && collect($corpora)->every(fn (Corpus $corpus): bool => $profile->corpora->containsStrict($corpus))
-                && collect($retrievalMethods)->every(fn (RetrievalMethod $method): bool => $profile->retrievalMethods->containsStrict($method));
-        });
-
-        return $this->resolve(array_values($matches->map(fn (ProfileAvailability $item): string => $item->profile->id)->all()));
-    }
-
-    /**
-     * @param  list<string>  $ids
-     * @return array{profiles: Collection<int, Profile>, unavailable: array<string, list<string>>}
-     */
-    public function resolve(array $ids): array
-    {
-        $catalog = $this->all();
-        $profiles = [];
-        $unavailable = [];
-
-        foreach (array_values(array_unique($ids)) as $id) {
-            $item = $catalog->get($id);
-            if ($item === null) {
-                $unavailable[$id] = ['Profile is not configured.'];
-            } elseif (! $item->isEligible()) {
-                $unavailable[$id] = $item->reasons;
-            } else {
-                $profiles[] = $item->profile;
-            }
-        }
-
-        return ['profiles' => collect($profiles), 'unavailable' => $unavailable];
-    }
-
     /** @param array<string, mixed> $value */
-    private function profile(string $id, array $value): Profile
+    public function profile(string $id, array $value): Profile
     {
         $this->validator->make(['profile' => $value], [
-            'profile' => ['array:driver,provider,model,result_kind,grounding,observation,corpora,retrieval_methods,prompt,enabled,options,credential,pricing'],
+            'profile' => ['array:driver,provider,model,result_kind,grounding,observation,corpora,retrieval_methods,prompt,enabled,options,allow_provider_routing,credential,pricing'],
             'profile.driver' => ['required', 'string', 'min:1'],
             'profile.provider' => ['required', 'string', 'min:1'],
             'profile.model' => ['nullable', 'string', 'min:1'],
@@ -174,6 +98,7 @@ final class ProfileCatalog
             'profile.prompt' => ['required', 'string', 'regex:/\{\{ query \}\}/'],
             'profile.enabled' => ['sometimes', 'boolean'],
             'profile.options' => ['sometimes', 'array'],
+            'profile.allow_provider_routing' => ['sometimes', 'boolean'],
             'profile.credential' => ['nullable', 'string', 'min:1'],
             'profile.pricing' => ['nullable', 'array:provider,model,usage,conservative'],
             'profile.pricing.provider' => ['required_with:profile.pricing', 'string', 'min:1'],
@@ -193,11 +118,16 @@ final class ProfileCatalog
         $prompt = $this->string($value, 'prompt');
         $enabled = data_get($value, 'enabled', true);
         $options = $this->associativeArray(data_get($value, 'options', []), 'options');
+        $allowProviderRouting = data_get($value, 'allow_provider_routing', false);
         $credential = $this->nullableString($value, 'credential');
         $pricing = data_get($value, 'pricing');
 
         if (! is_bool($enabled)) {
             throw ValidationException::withMessages(['enabled' => 'The enabled value must be true or false.']);
+        }
+
+        if (! is_bool($allowProviderRouting)) {
+            throw ValidationException::withMessages(['allow_provider_routing' => 'The allow provider routing value must be true or false.']);
         }
 
         $pricingIdentity = null;
@@ -267,6 +197,7 @@ final class ProfileCatalog
             prompt: $prompt,
             enabled: $enabled,
             options: $options,
+            allowProviderRouting: $allowProviderRouting,
             credential: $credential,
             pricingIdentity: $pricingIdentity,
             pricingUsage: $pricingUsage,
@@ -275,9 +206,13 @@ final class ProfileCatalog
     }
 
     /** @return list<string> */
-    private function reasons(Profile $profile, bool $requiresCredential): array
+    public function reasons(Profile $profile, bool $requiresCredential): array
     {
         $reasons = [];
+
+        if (array_key_exists($profile->id, self::RETIRED)) {
+            $reasons[] = self::RETIRED[$profile->id];
+        }
 
         if (! $profile->enabled) {
             $reasons[] = 'Profile is disabled.';
@@ -312,26 +247,26 @@ final class ProfileCatalog
             $reasons[] = 'The search_engine option is supported only by OpenRouter Profiles.';
         }
 
+        $target = $this->pricedResearchTarget($profile);
+        if ($target !== null && $profile->pricingIdentity !== null && $profile->pricingIdentity->key() !== $target) {
+            $reasons[] = "The pricing identity must be [{$target}] to quote the configured research target.";
+        }
+
         $reasons = [...$reasons, ...$this->optionValidator->errors($profile->driver, $profile->options)];
 
         return $reasons;
     }
 
-    /** @return list<string> */
-    private function customGroup(string $group): array
+    /** Parallel processors and Valyu modes each have their own published price and pricing identity. */
+    private function pricedResearchTarget(Profile $profile): ?string
     {
-        if (! str_starts_with($group, 'custom:')) {
-            throw ValidationException::withMessages([
-                'group' => "Unknown group [{$group}]. Use quick, deep, visibility, all, or custom:<name>.",
-            ]);
-        }
+        $target = match ($profile->driver) {
+            ParallelResearchDriver::class => $profile->model,
+            ValyuResearchDriver::class => data_get($profile->options, 'mode', 'standard'),
+            default => null,
+        };
 
-        $members = $this->config->get('librarium.groups.'.$group);
-        if (! is_array($members) || ! array_is_list($members)) {
-            throw ValidationException::withMessages(['group' => "Custom group [{$group}] is not configured."]);
-        }
-
-        return $this->stringList($members, 'group');
+        return is_string($target) ? "{$profile->provider}:research-{$target}" : null;
     }
 
     /** @return array<int, Corpus> */

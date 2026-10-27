@@ -22,7 +22,8 @@ final readonly class OpenAiWebhookController
 
     public function __invoke(Request $request): Response
     {
-        $secret = config('librarium.webhooks.openai.secret');
+        $secret = config('librarium.webhooks.openai.secret')
+            ?? config('services.openai.webhook_secret');
         if (! is_string($secret) || trim($secret) === '') {
             return new Response(status: 404);
         }

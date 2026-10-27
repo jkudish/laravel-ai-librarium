@@ -10,18 +10,20 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
-use Jkudish\LaravelAiLibrarium\Contracts\Driver;
+use Jkudish\LaravelAiLibrarium\Contracts\DurableDriver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
+use Jkudish\LaravelAiLibrarium\Recovery\DurableSubmission;
+use Jkudish\LaravelAiLibrarium\Recovery\RecoveryRequest;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 
 /** Laravel HTTP Driver for durable, standard-effort You.com Research tasks. */
-final readonly class YouResearchDriver implements Driver
+final readonly class YouResearchDriver implements DurableDriver
 {
     private const string ENDPOINT = 'https://api.you.com/v1/research';
 
@@ -75,7 +77,30 @@ final readonly class YouResearchDriver implements Driver
         }
     }
 
-    private function preflight(DriverRequest $request): string
+    public function submitDurable(DriverRequest $request): DurableSubmission
+    {
+        return new DurableSubmission($this->submit($request, $this->preflight($request)));
+    }
+
+    public function retrieveDurable(RecoveryRequest $request, string $reference): ?ResearchResult
+    {
+        $credential = $this->preflight($request);
+        if (! $this->isUuid($reference)) {
+            throw $this->invalidResponse();
+        }
+        $task = $this->task($request, $credential, $reference, Operation::Retrieve);
+        $status = data_get($task, 'status');
+        if ($status === 'completed') {
+            return $this->mapper->map($request, $task, true);
+        }
+        if (in_array($status, ['queued', 'running'], true)) {
+            return null;
+        }
+
+        throw new DriverException('you_research.failed', 'You.com Research failed or was cancelled.', false);
+    }
+
+    private function preflight(DriverRequest|RecoveryRequest $request): string
     {
         $profile = $request->profile;
         if ($profile->provider !== 'you-research'
@@ -101,7 +126,7 @@ final readonly class YouResearchDriver implements Driver
             );
         }
 
-        if (trim($request->prompt) === '' || mb_strlen($request->prompt) > 40_000) {
+        if ($request instanceof DriverRequest && (trim($request->prompt) === '' || mb_strlen($request->prompt) > 40_000)) {
             throw new DriverException(
                 'you_research.invalid_request',
                 'The You.com Research input is invalid.',
@@ -147,7 +172,7 @@ final readonly class YouResearchDriver implements Driver
 
     /** @return array<array-key, mixed> */
     private function task(
-        DriverRequest $request,
+        DriverRequest|RecoveryRequest $request,
         string $credential,
         string $taskId,
         Operation $operation = Operation::Poll,
@@ -176,7 +201,7 @@ final readonly class YouResearchDriver implements Driver
 
     /** @param array<string, mixed> $payload */
     private function send(
-        DriverRequest $request,
+        DriverRequest|RecoveryRequest $request,
         string $credential,
         string $method,
         string $url,
@@ -187,6 +212,7 @@ final readonly class YouResearchDriver implements Driver
 
         try {
             $pending = Http::withHeaders(['X-API-Key' => $credential])
+                ->withoutRedirecting()
                 ->acceptJson()
                 ->connectTimeout(min(self::CONNECT_TIMEOUT_SECONDS, $remaining))
                 ->timeout(min(self::REQUEST_TIMEOUT_SECONDS, $remaining));
@@ -214,7 +240,7 @@ final readonly class YouResearchDriver implements Driver
         return $response;
     }
 
-    private function remainingSeconds(DriverRequest $request): float
+    private function remainingSeconds(DriverRequest|RecoveryRequest $request): float
     {
         $seconds = CarbonImmutable::now()->diffInMilliseconds($request->deadline, false) / 1000;
         if ($seconds < 0.001) {

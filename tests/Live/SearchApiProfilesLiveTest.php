@@ -2,12 +2,7 @@
 
 declare(strict_types=1);
 
-use Jkudish\LaravelAiLibrarium\Drivers\SearchApi\SearchApiDriver;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
-use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
-use Jkudish\LaravelAiLibrarium\Responses\Enums\ResponseStatus;
-use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
-use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 
 beforeEach(function (): void {
     $key = getenv('SEARCHAPI_KEY');
@@ -16,48 +11,35 @@ beforeEach(function (): void {
     }
 
     config()->set('services.searchapi.key', $key);
-
-    collect(config('librarium.profiles'))
-        ->filter(fn (array $profile): bool => data_get($profile, 'driver') === SearchApiDriver::class)
-        ->keys()
-        ->each(fn (string $id) => config()->set("librarium.profiles.{$id}.credential", $key));
+    config()->set('librarium.engines', ['collector' => 'searchapi', 'key' => $key]);
+    config()->set('librarium.timeout', 120);
 });
 
-it('runs a live SearchAPI query through each profile', function (string $profile): void {
-    $response = Librarium::query('What is the latest stable Laravel major version? Cite the official documentation.')
-        ->using($profile)
-        ->timeout(120)
+it('runs a live SearchAPI query through each profile', function (string $profile, string $source): void {
+    $run = Librarium::research('What is the latest stable Laravel major version? Cite the official documentation.')
+        ->only([$source])
         ->run();
+    $result = $run->result($source);
 
-    if ($response->status !== ResponseStatus::Succeeded) {
-        $errors = $response->errors
-            ->map(fn ($error): string => "{$error->code}: {$error->message}")
-            ->implode('; ');
+    expect($run->status())->toBe('done')
+        ->and($result['source'])->toBe($source)
+        ->and($result['provenance']['variant'])->toBe($profile)
+        ->and($run->evidence($source))->not->toBeEmpty();
 
-        $this->fail("Profile [{$profile}] failed: {$errors}");
-    }
-
-    $result = $response->results->sole();
-
-    expect($result->profile)->toBe($profile)
-        ->and($result->content)->toBeString()->not->toBeEmpty();
-
-    if (in_array($profile, ['searchapi'], true)) {
-        expect($result->provenance->collector)->toBeNull()
-            ->and($result->provenance->surface)->toBeNull();
+    if ($source === 'google') {
+        expect($result['provenance']['collector'])->toBeNull()
+            ->and($result['observation'])->toBe('api')
+            ->and($result['answer'])->toBeNull();
     } else {
-        expect($result->provenance->collector)->toBe('searchapi')
-            ->and($result->provenance->surface)->not->toBeNull()
-            ->and($result->provenance->resultKind)->toBe(ResultKind::SurfaceObservation)
-            ->and($result->provenance->retrievalMethods->all())->toBe([RetrievalMethod::SurfaceCollector])
-            ->and($result->provenance->observationMode)->toBe(ObservationMode::SurfaceSnapshot);
+        expect($result['provenance']['collector'])->toBe('searchapi')
+            ->and($result['observation'])->toBe('surface')
+            ->and($result['answer'])->toBeString()->not->toBeEmpty();
     }
 })->with([
-    'raw google' => ['searchapi'],
-    'chatgpt' => ['searchapi-chatgpt'],
-    'gemini' => ['searchapi-gemini'],
-    'perplexity' => ['searchapi-perplexity'],
-    'google ai mode' => ['searchapi-google-ai-mode'],
-    'bing copilot' => ['searchapi-bing-copilot'],
-    'google ai overview' => ['searchapi-google-ai-overview'],
+    'raw google' => ['searchapi', 'google'],
+    'chatgpt' => ['searchapi-chatgpt', 'chatgpt'],
+    'gemini' => ['searchapi-gemini', 'gemini-app'],
+    'google ai mode' => ['searchapi-google-ai-mode', 'google-ai-mode'],
+    'bing copilot' => ['searchapi-bing-copilot', 'copilot'],
+    'google ai overview' => ['searchapi-google-ai-overview', 'google-ai-overview'],
 ]);

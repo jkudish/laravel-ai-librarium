@@ -5,7 +5,6 @@ declare(strict_types=1);
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
-use Jkudish\LaravelAiLibrarium\Responses\Enums\ResponseStatus;
 
 it('runs an explicitly funded You.com canary', function (
     string $profile,
@@ -15,17 +14,23 @@ it('runs an explicitly funded You.com canary', function (
     string $endpoint,
     ?bool $background,
 ): void {
-    $credential = config("librarium.profiles.{$profile}.credential");
+    $credential = config('services.you.key') ?: (getenv('YOU_COM_API_KEY') ?: getenv('YDC_API_KEY'));
     if (! is_string($credential) || trim($credential) === '') {
         $this->markTestSkipped('YOU_COM_API_KEY or YDC_API_KEY is required for the You.com live canary.');
     }
 
-    config()->set("librarium.profiles.{$profile}.credential", $credential);
+    config()->set('librarium.sources.you.key', $credential);
+    config()->set('librarium.timeout', $timeout);
+    $pending = Librarium::research($query)->only(['you']);
+    if ($background === true) {
+        $pending->deep();
+    } elseif ($background === false) {
+        $pending->options(['you' => ['quick' => 'research']]);
+    }
 
-    $preview = Librarium::query($query)->using($profile)->preview();
-    $estimate = $preview->maximumEstimatedCost;
+    $estimate = $pending->dryRun()->result('you')['cost']['estimated'];
 
-    if (! $preview->preflightCostCheckAvailable || $estimate === null) {
+    if ($estimate === null) {
         $this->markTestSkipped('The current pricing quote does not support a maximum-cost preflight check for this canary.');
     }
 
@@ -35,15 +40,13 @@ it('runs an explicitly funded You.com canary', function (
 
     Http::record();
 
-    $response = Librarium::query($query)
-        ->using($profile)
-        ->maxCost($estimate)
-        ->timeout($timeout)
-        ->run();
+    $run = $pending->maxCost($estimate)->run();
+    $result = $run->result('you');
 
-    expect($response->status)->toBe(ResponseStatus::Succeeded)
-        ->and($response->results->sole()->provider)->toBe($provider)
-        ->and($response->results->sole()->citations)->not->toBeEmpty();
+    expect($run->status())->toBe('done')
+        ->and($result['provenance']['variant'])->toBe($profile)
+        ->and($result['provenance']['provider'])->toBe($provider)
+        ->and($result['citations'])->not->toBeEmpty();
 
     Http::assertSent(fn (Request $request): bool => $request->method() === 'POST'
         && $request->url() === $endpoint

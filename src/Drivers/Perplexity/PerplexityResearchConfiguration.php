@@ -6,7 +6,7 @@ namespace Jkudish\LaravelAiLibrarium\Drivers\Perplexity;
 
 /**
  * Reviewed inline research configurations, not mutable provider presets.
- * Sources/access date and deviations: docs/perplexity-spending-bounds.md.
+ * Sources/access date and deviations: docs/history/perplexity-spending-bounds.md.
  * A revision is immutable; changing any request field requires a new revision.
  */
 final class PerplexityResearchConfiguration
@@ -87,6 +87,24 @@ PROMPT;
         }
 
         return $profiles;
+    }
+
+    /**
+     * The template whose frozen options these equal exactly. Consumers
+     * register a template as a custom source binding, so its internal id is
+     * the source variant; the per-model configuration hash identifies it.
+     *
+     * @param  array<string, mixed>  $options
+     */
+    public static function matching(array $options): ?string
+    {
+        foreach (self::profiles() as $id => $profile) {
+            if ($profile['options'] === $options) {
+                return $id;
+            }
+        }
+
+        return null;
     }
 
     /** @return array<string, mixed> */

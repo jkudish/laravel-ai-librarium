@@ -10,11 +10,13 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
-use Jkudish\LaravelAiLibrarium\Contracts\Driver;
+use Jkudish\LaravelAiLibrarium\Contracts\DurableDriver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
+use Jkudish\LaravelAiLibrarium\Recovery\DurableSubmission;
+use Jkudish\LaravelAiLibrarium\Recovery\RecoveryRequest;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
@@ -28,7 +30,7 @@ use Throwable;
  * The provider response ID, background lifecycle, and webhook reconciliation
  * remain private to this Driver.
  */
-final readonly class OpenAiResearchDriver implements Driver
+final readonly class OpenAiResearchDriver implements DurableDriver
 {
     private const string ENDPOINT = 'https://api.openai.com/v1/responses';
 
@@ -38,15 +40,35 @@ final readonly class OpenAiResearchDriver implements Driver
 
     private const int POLL_INTERVAL_SECONDS = 2;
 
+    /** @var list<string> */
+    private const array REASONING_EFFORTS = ['none', 'low', 'medium', 'high', 'xhigh', 'max'];
+
+    /** @var list<string> */
+    private const array RETURN_TOKEN_BUDGETS = ['default', 'unlimited'];
+
+    private const string DEFAULT_REASONING_EFFORT = 'high';
+
+    private const string DEFAULT_RETURN_TOKEN_BUDGET = 'default';
+
     public function __construct(
         private OpenAiResearchResultMapper $mapper,
         private WebhookSignalStore $webhooks,
     ) {}
 
-    /** @return array<string, mixed> */
+    /**
+     * Unset options take the shared JavaScript defaults: reasoning effort
+     * high and the web search tool's default return-token budget. No
+     * max_tool_calls is sent unless one is configured.
+     *
+     * @return array<string, mixed>
+     */
     public static function profileOptionRules(): array
     {
-        return [];
+        return [
+            'reasoning_effort' => ['sometimes', 'string', 'in:'.implode(',', self::REASONING_EFFORTS)],
+            'return_token_budget' => ['sometimes', 'string', 'in:'.implode(',', self::RETURN_TOKEN_BUDGETS)],
+            'max_tool_calls' => ['sometimes', 'integer:strict', 'min:1'],
+        ];
     }
 
     public function run(DriverRequest $request): ResearchResult
@@ -122,6 +144,40 @@ final readonly class OpenAiResearchDriver implements Driver
         }
     }
 
+    public function submitDurable(DriverRequest $request): DurableSubmission
+    {
+        $this->validateRequest($request);
+        $reference = $this->responseId($this->submit($request));
+        try {
+            $this->webhooks->bind($request->profile->provider, $request->requestId, $request->profile->id, $reference);
+        } catch (Throwable) {
+            // Wake hints are best effort; stored signed handles are authoritative.
+        }
+
+        return new DurableSubmission($reference);
+    }
+
+    public function retrieveDurable(RecoveryRequest $request, string $reference): ?ResearchResult
+    {
+        $this->validateRequest($request);
+        if (preg_match('/^resp_[A-Za-z0-9_-]+$/D', $reference) !== 1) {
+            throw new DriverException('openai.invalid_reference', 'Invalid OpenAI research reference.', false);
+        }
+        $response = $this->retrieve($request, $reference);
+        if ($response === null) {
+            return null;
+        }
+        $status = $this->status($response);
+        if ($status === 'completed') {
+            return $this->mapper->map($response, $request);
+        }
+        if (in_array($status, ['queued', 'in_progress'], true)) {
+            return null;
+        }
+
+        throw $this->terminalFailure($status);
+    }
+
     private function hasWebhookSignal(DriverRequest $request): bool
     {
         try {
@@ -131,7 +187,7 @@ final readonly class OpenAiResearchDriver implements Driver
         }
     }
 
-    private function validateRequest(DriverRequest $request): void
+    private function validateRequest(DriverRequest|RecoveryRequest $request): void
     {
         $profile = $request->profile;
 
@@ -165,12 +221,27 @@ final readonly class OpenAiResearchDriver implements Driver
             );
         }
 
+        $options = $request->profile->options;
+        if (array_diff(array_keys($options), ['reasoning_effort', 'return_token_budget', 'max_tool_calls']) !== []
+            || (array_key_exists('reasoning_effort', $options) && ! in_array($options['reasoning_effort'], self::REASONING_EFFORTS, true))
+            || (array_key_exists('return_token_budget', $options) && ! in_array($options['return_token_budget'], self::RETURN_TOKEN_BUDGETS, true))
+            || (array_key_exists('max_tool_calls', $options) && (! is_int($options['max_tool_calls']) || $options['max_tool_calls'] < 1))) {
+            throw new DriverException(
+                'openai.invalid_profile',
+                'The OpenAI research Profile has invalid options.',
+                false,
+            );
+        }
+
         $this->remainingSeconds($request, 'The OpenAI research request could not start before the research deadline.');
     }
 
     /** @return array<array-key, mixed> */
     private function submit(DriverRequest $request): array
     {
+        $options = $request->profile->options;
+        $maxToolCalls = $options['max_tool_calls'] ?? null;
+
         $response = $this->send(
             request: $request,
             method: 'post',
@@ -179,12 +250,13 @@ final readonly class OpenAiResearchDriver implements Driver
                 'model' => $request->profile->model,
                 'input' => $request->prompt,
                 'background' => true,
-                'reasoning' => ['effort' => 'xhigh'],
+                'reasoning' => ['effort' => $options['reasoning_effort'] ?? self::DEFAULT_REASONING_EFFORT],
                 'tools' => [[
                     'type' => 'web_search',
-                    'return_token_budget' => 'unlimited',
+                    'return_token_budget' => $options['return_token_budget'] ?? self::DEFAULT_RETURN_TOKEN_BUDGET,
                 ]],
                 'tool_choice' => 'required',
+                ...($maxToolCalls === null ? [] : ['max_tool_calls' => $maxToolCalls]),
                 'include' => ['web_search_call.action.sources'],
             ],
             operation: Operation::Submit,
@@ -199,7 +271,7 @@ final readonly class OpenAiResearchDriver implements Driver
     }
 
     /** @return array<array-key, mixed>|null */
-    private function retrieve(DriverRequest $request, string $responseId): ?array
+    private function retrieve(DriverRequest|RecoveryRequest $request, string $responseId): ?array
     {
         try {
             $response = $this->send(
@@ -242,7 +314,7 @@ final readonly class OpenAiResearchDriver implements Driver
      * @param  array<string, mixed>  $payload
      */
     private function send(
-        DriverRequest $request,
+        DriverRequest|RecoveryRequest $request,
         string $method,
         string $url,
         array $payload = [],
@@ -345,12 +417,12 @@ final readonly class OpenAiResearchDriver implements Driver
             $response->status() === 403 => new DriverException('openai.authorization', 'OpenAI denied this request.'),
             $response->status() === 404 && $retrieval => new DriverException('openai.response_missing', 'The OpenAI research response is no longer available.', false),
             $response->status() === 429 => new DriverException('openai.rate_limited', 'OpenAI rate limited this request.'),
-            $response->serverError() => new DriverException('openai.unavailable', 'OpenAI is temporarily unavailable.'),
+            $response->serverError() => new DriverException('openai.unavailable', 'OpenAI is temporarily unavailable.', $retrieval),
             default => new DriverException('openai.invalid_request', 'OpenAI rejected this research request.', false),
         };
     }
 
-    private function remainingSeconds(DriverRequest $request, string $message): int
+    private function remainingSeconds(DriverRequest|RecoveryRequest $request, string $message): int
     {
         $seconds = CarbonImmutable::now()->diffInSeconds($request->deadline, false);
         if ($seconds < 1) {

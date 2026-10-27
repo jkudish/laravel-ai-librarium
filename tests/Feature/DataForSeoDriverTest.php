@@ -10,21 +10,20 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Sleep;
 use Illuminate\Validation\ValidationException;
-use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
 use Jkudish\LaravelAiLibrarium\Drivers\DataForSeo\DataForSeoCredential;
 use Jkudish\LaravelAiLibrarium\Drivers\DataForSeo\DataForSeoDriver;
-use Jkudish\LaravelAiLibrarium\Exceptions\RecoveryException;
+use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
+use Jkudish\LaravelAiLibrarium\Execution\RunRuntime;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\Jobs\RunResearch;
-use Jkudish\LaravelAiLibrarium\LaravelAiLibrariumServiceProvider;
 use Jkudish\LaravelAiLibrarium\ProfileCatalog;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Authentication;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Personalization;
-use Jkudish\LaravelAiLibrarium\Responses\Enums\ResponseStatus;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
-use Jkudish\LaravelAiLibrarium\Responses\ResearchResponse;
+use Jkudish\LaravelAiLibrarium\Run;
+use Jkudish\LaravelAiLibrarium\SourceCatalog;
 
 const DATAFORSEO_TEST_ID = '02241638-1535-4139-8000-f0c53c397c88';
 
@@ -32,6 +31,10 @@ beforeEach(function (): void {
     CarbonImmutable::setTestNow('2026-09-06T12:00:00Z');
     Sleep::fake(true, true);
     configureDataForSeoProfiles();
+    config(['librarium.runs.store' => 'memory', 'librarium.engines' => [
+        'collector' => 'dataforseo', 'key' => DataForSeoCredential::encode('dataforseo-login', 'dataforseo-password'),
+        'location_code' => 2840, 'language_code' => 'en',
+    ]]);
 });
 
 afterEach(function (): void {
@@ -41,7 +44,7 @@ afterEach(function (): void {
 
 it('registers six opt-in surface Profiles with exact pricing identities and no curated roster changes', function (): void {
     $profiles = app(ProfileCatalog::class)->all()
-        ->filter(fn ($item): bool => $item->profile->driver === DataForSeoDriver::class);
+        ->filter(fn ($item): bool => is_a($item->profile->driver, DataForSeoDriver::class, true));
 
     expect($profiles->keys()->all())->toBe([
         'dataforseo-chatgpt',
@@ -67,16 +70,14 @@ it('registers six opt-in surface Profiles with exact pricing identities and no c
             ->and($item->profile->pricingUsageConservative)->toBeTrue();
     });
 
-    expect(app(ProfileCatalog::class)->group('quick')['profiles']->pluck('id'))->not->toContain('dataforseo-chatgpt')
-        ->and(app(ProfileCatalog::class)->group('visibility')['profiles']->pluck('id'))->not->toContain('dataforseo-chatgpt')
-        ->and(app(ProfileCatalog::class)->group('all')['profiles']->pluck('id')->all())->toContain('dataforseo-chatgpt', 'dataforseo-google-ai-mode-live');
+    expect(array_column(Librarium::research('Research')->dryRun()->toArray()['results'], 'source'))->not->toContain('chatgpt', 'gemini-app', 'google-ai-mode');
 });
 
 it('ships all DataForSEO Profiles disabled and unavailable until explicit controls and credentials are configured', function (): void {
-    $fresh = require __DIR__.'/../../config/librarium.php';
+    $fresh = require __DIR__.'/../../src/Profiles/bindings.php';
     config()->set('librarium.profiles', $fresh['profiles']);
 
-    $items = app(ProfileCatalog::class)->all()->filter(fn ($item): bool => $item->profile->driver === DataForSeoDriver::class);
+    $items = app(ProfileCatalog::class)->all()->filter(fn ($item): bool => is_a($item->profile->driver, DataForSeoDriver::class, true));
 
     expect($items)->toHaveCount(6);
     $items->each(function ($item): void {
@@ -87,23 +88,15 @@ it('ships all DataForSEO Profiles disabled and unavailable until explicit contro
 });
 
 it('resolves one provider login and password into every DataForSEO Profile without exposing them', function (): void {
-    $fresh = require __DIR__.'/../../config/librarium.php';
-    config()->set('librarium.profiles', $fresh['profiles']);
-    config()->set('librarium.providers.dataforseo', ['login' => 'provider-login', 'password' => 'provider-password']);
-
-    $provider = new LaravelAiLibrariumServiceProvider(app());
-    $provider->register();
-    $provider->boot();
-    app()->forgetInstance(ProfileCatalog::class);
-
-    $profiles = app(ProfileCatalog::class)->all()
-        ->filter(fn ($item): bool => $item->profile->driver === DataForSeoDriver::class);
+    config(['services.dataforseo.login' => 'provider-login', 'services.dataforseo.password' => 'provider-password', 'librarium.engines.key' => null]);
     $encoded = DataForSeoCredential::encode('provider-login', 'provider-password');
-
-    $profiles->each(function ($item) use ($encoded): void {
-        expect($item->profile->credential)->toBe($encoded)
-            ->and(json_encode($item->profile, JSON_THROW_ON_ERROR))->not->toContain('provider-login', 'provider-password', (string) $encoded);
-    });
+    foreach (['chatgpt', 'gemini-app', 'google-ai-mode'] as $engine) {
+        foreach (['standard', 'live'] as $priority) {
+            $profile = app(SourceCatalog::class)->profile($engine, 'quick', ['priority' => $priority]);
+            expect($profile->credential)->toBe($encoded)
+                ->and(json_encode($profile, JSON_THROW_ON_ERROR))->not->toContain('provider-login', 'provider-password', (string) $encoded);
+        }
+    }
 });
 
 it('runs each Standard and Live Profile through the real Librarium runtime on one fixed endpoint', function (string $profile, string $family, string $surface, bool $live): void {
@@ -123,11 +116,9 @@ it('runs each Standard and Live Profile through the real Librarium runtime on on
         ));
     });
 
-    $response = Librarium::query($query)->using($profile)->run();
-    $result = $response->results->sole();
+    $result = variantRun($profile, $query);
 
-    expect($response->status)->toBe(ResponseStatus::Succeeded)
-        ->and($result->provider)->toBe('dataforseo')
+    expect($result->provider)->toBe('dataforseo')
         ->and($result->profile)->toBe($profile)
         ->and($result->provenance->collector)->toBe('dataforseo')
         ->and($result->provenance->surface)->toBe($surface)
@@ -186,7 +177,7 @@ it('maps supported scraper text and table blocks when full Markdown is absent wi
         ],
     )));
 
-    $result = Librarium::query('fallback blocks')->using('dataforseo-chatgpt-live')->run()->results->sole();
+    $result = variantRun('dataforseo-chatgpt-live', 'fallback blocks');
 
     expect($result->content)->toBe("Text answer.\n\n| A | B |\n| - | - |")
         ->and($result->citations)->toBeEmpty()
@@ -207,7 +198,7 @@ it('reports rich item omissions only when projecting structured fallback content
     ]);
     Http::fake(fn () => Http::response($payload));
 
-    $result = Librarium::query('rich answer')->using($profile)->run()->results->sole();
+    $result = variantRun($profile, 'rich answer');
 
     expect($result->content)->toBe($aggregate ? 'Answer with rich content' : 'Projected text')
         ->and(data_get($result->providerMeta, 'omitted_item_types'))->toBe($aggregate ? null : [$richType]);
@@ -232,11 +223,7 @@ it('never substitutes organic AI Mode results for a missing AI overview answer',
         ],
     )));
 
-    $response = Librarium::query('missing answer')->using('dataforseo-google-ai-mode-live')->run();
-
-    expect($response->status)->toBe(ResponseStatus::Failed)
-        ->and($response->errors->sole()->code)->toBe('dataforseo.invalid_response')
-        ->and($response->results)->toBeEmpty();
+    expect(variantFailure('dataforseo-google-ai-mode-live', 'missing answer')->errorCode)->toBe('dataforseo.invalid_response');
 });
 
 it('polls documented pending states and retries only safe GET failures while preserving the POST charge', function (): void {
@@ -264,7 +251,7 @@ it('polls documented pending states and retries only safe GET failures while pre
         return Http::response(dataForSeoEnvelope('dataforseo-gemini', 'ai_optimization/gemini/llm_scraper', 'task_get/advanced/'.DATAFORSEO_TEST_ID, 'gemini', 'poll me', 20000, true, '0'));
     });
 
-    $result = Librarium::query('poll me')->using('dataforseo-gemini')->timeout(120)->run()->results->sole();
+    $result = variantRun('dataforseo-gemini', 'poll me', 120);
 
     expect($result->usage?->actualCost)->toBe('0.001200')
         ->and($calls)->toBe(6);
@@ -300,10 +287,9 @@ it('accepts omitted or null result fields while a task is pending', function (Cl
         return Http::response($payload);
     });
 
-    $response = Librarium::query('optional pending fields')->using('dataforseo-chatgpt')->run();
+    $result = variantRun('dataforseo-chatgpt', 'optional pending fields');
 
-    expect($response->status)->toBe(ResponseStatus::Succeeded)
-        ->and($response->results)->toHaveCount(1)
+    expect($result->content)->not->toBeEmpty()
         ->and($calls)->toBe(3)
         ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'POST'))->toHaveCount(1)
         ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'GET'))->toHaveCount(2);
@@ -339,10 +325,9 @@ it('accepts documented optional envelope and identity metadata while a task is p
         return Http::response($payload);
     });
 
-    $response = Librarium::query('optional pending metadata')->using('dataforseo-chatgpt')->run();
+    $result = variantRun('dataforseo-chatgpt', 'optional pending metadata');
 
-    expect($response->status)->toBe(ResponseStatus::Succeeded)
-        ->and($response->results)->toHaveCount(1)
+    expect($result->content)->not->toBeEmpty()
         ->and($calls)->toBe(3)
         ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'POST'))->toHaveCount(1)
         ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'GET'))->toHaveCount(2);
@@ -383,10 +368,9 @@ it('rejects contradictory envelope and identity metadata while a task is pending
         return Http::response($payload);
     });
 
-    $response = Librarium::query('contradictory pending metadata')->using('dataforseo-chatgpt')->run();
+    $failure = variantFailure('dataforseo-chatgpt', 'contradictory pending metadata');
 
-    expect($response->status)->toBe(ResponseStatus::Failed)
-        ->and($response->errors->sole()->code)->toBe('dataforseo.invalid_response')
+    expect($failure->errorCode)->toBe('dataforseo.invalid_response')
         ->and($calls)->toBe(2)
         ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'POST'))->toHaveCount(1)
         ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'GET'))->toHaveCount(1);
@@ -427,10 +411,9 @@ it('rejects a pending task that claims completed result data', function (Closure
         return Http::response($payload);
     });
 
-    $response = Librarium::query('contradictory pending fields')->using('dataforseo-chatgpt')->run();
+    $failure = variantFailure('dataforseo-chatgpt', 'contradictory pending fields');
 
-    expect($response->status)->toBe(ResponseStatus::Failed)
-        ->and($response->errors->sole()->code)->toBe('dataforseo.invalid_response')
+    expect($failure->errorCode)->toBe('dataforseo.invalid_response')
         ->and($calls)->toBe(2)
         ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'POST'))->toHaveCount(1)
         ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'GET'))->toHaveCount(1);
@@ -465,10 +448,9 @@ it('does not poll or resubmit a task-level internal failure', function (int $tas
         return Http::response($payload);
     });
 
-    $response = Librarium::query('terminal task failure')->using('dataforseo-chatgpt')->run();
+    $failure = variantFailure('dataforseo-chatgpt', 'terminal task failure');
 
-    expect($response->status)->toBe(ResponseStatus::Failed)
-        ->and($response->errors->sole()->code)->toBe($expectedCode)
+    expect($failure->errorCode)->toBe($expectedCode)
         ->and($calls)->toBe(2)
         ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'POST'))->toHaveCount(1)
         ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'GET'))->toHaveCount(1);
@@ -489,11 +471,10 @@ it('never retries an ambiguous paid POST or follows a credential-bearing redirec
         return Http::response('', 302, ['Location' => 'https://redirect.example.test/steal']);
     });
 
-    $response = Librarium::query('one paid attempt')->using('dataforseo-chatgpt')->run();
+    $failure = variantFailure('dataforseo-chatgpt', 'one paid attempt');
 
-    expect($response->status)->toBe(ResponseStatus::Failed)
-        ->and($response->errors->sole()->code)->toBe('dataforseo.ambiguous_submission')
-        ->and($response->errors->sole()->message)->not->toContain('secret-bearing')
+    expect($failure->errorCode)->toBe('dataforseo.ambiguous_submission')
+        ->and($failure->getMessage())->not->toContain('secret-bearing')
         ->and($calls)->toBe(1);
     Sleep::assertNeverSlept();
 })->with(['connection', 'redirect']);
@@ -512,10 +493,7 @@ it('fails closed on mismatched IDs, families, statuses, paths, echoes, and envel
     $mutate($payload);
     Http::fake(fn () => Http::response($payload));
 
-    $response = Librarium::query('identity check')->using('dataforseo-chatgpt-live')->run();
-
-    expect($response->status)->toBe(ResponseStatus::Failed)
-        ->and($response->errors->sole()->code)->toBe($expectedCode);
+    expect(variantFailure('dataforseo-chatgpt-live', 'identity check')->errorCode)->toBe($expectedCode);
 })->with([
     'mismatched task ID' => [function (array &$payload): void {
         $payload['tasks'][0]['id'] = 'not-a-uuid';
@@ -558,7 +536,7 @@ it('accepts the documented ChatGPT receipt alias while keeping the request route
     $payload['tasks'][0]['data']['se'] = 'chatgpt';
     Http::fake(fn () => Http::response($payload));
 
-    expect(Librarium::query('alias')->using('dataforseo-chatgpt-live')->run()->status)->toBe(ResponseStatus::Succeeded);
+    expect(variantRun('dataforseo-chatgpt-live', 'alias')->content)->not->toBeEmpty();
     Http::assertSent(fn (Request $request): bool => $request->url() === 'https://api.dataforseo.com/v3/ai_optimization/chat_gpt/llm_scraper/live/advanced');
 });
 
@@ -570,10 +548,11 @@ it('accepts the observed ChatGPT Standard creation receipt identity', function (
     unset($payload['tasks'][0]['data']['se_type']);
     Http::fake(fn () => Http::response($payload));
 
-    $submission = Librarium::query($query)->using('dataforseo-chatgpt')->submit();
+    $request = variantRequest('dataforseo-chatgpt', $query);
+    $submission = app($request->profile->driver)->submitDurable($request);
 
-    expect($submission->handle->reference)->toBe(DATAFORSEO_TEST_ID)
-        ->and($submission->usage()?->actualCost)->toBe('0.0012');
+    expect($submission->reference)->toBe(DATAFORSEO_TEST_ID)
+        ->and($submission->usage?->actualCost)->toBe('0.0012');
     Http::assertSentCount(1);
 });
 
@@ -583,8 +562,9 @@ it('keeps observed Standard receipt aliases exact', function (string $profile, s
     $mutate($payload, $query);
     Http::fake(fn () => Http::response($payload));
 
-    expect(fn () => Librarium::query($query)->using($profile)->submit())
-        ->toThrow(RecoveryException::class, 'different task family or request');
+    $request = variantRequest($profile, $query);
+    expect(fn () => app($request->profile->driver)->submitDurable($request))
+        ->toThrow(DriverException::class, 'different task family or request');
     Http::assertSentCount(1);
 })->with([
     'encoded echo of another prompt' => [
@@ -612,11 +592,10 @@ it('accepts omitted optional scraper echoes but rejects contradictory product or
     $payload['tasks'][0]['data'] = [...$payload['tasks'][0]['data'], ...$echo];
     Http::fake(fn () => Http::response($payload));
 
-    $response = Librarium::query('echo')->using('dataforseo-chatgpt-live')->run();
-
-    expect($response->status)->toBe($accepted ? ResponseStatus::Succeeded : ResponseStatus::Failed);
-    if (! $accepted) {
-        expect($response->errors->sole()->code)->toBe('dataforseo.invalid_response');
+    if ($accepted) {
+        expect(variantRun('dataforseo-chatgpt-live', 'echo')->content)->not->toBeEmpty();
+    } else {
+        expect(variantFailure('dataforseo-chatgpt-live', 'echo')->errorCode)->toBe('dataforseo.invalid_response');
     }
 })->with([
     'omitted controls are not measured facts' => [[], true],
@@ -630,7 +609,7 @@ it('rejects a calendar-invalid provider observation time rather than normalizing
     $payload['tasks'][0]['result'][0]['datetime'] = '2026-02-30 11:59:58 +00:00';
     Http::fake(fn () => Http::response($payload));
 
-    expect(Librarium::query('bad date')->using('dataforseo-gemini-live')->run()->errors->sole()->code)->toBe('dataforseo.invalid_response');
+    expect(variantFailure('dataforseo-gemini-live', 'bad date')->errorCode)->toBe('dataforseo.invalid_response');
 });
 
 it('fails an expired Standard task and does not submit again', function (): void {
@@ -650,9 +629,9 @@ it('fails an expired Standard task and does not submit again', function (): void
         ));
     });
 
-    $response = Librarium::query('expired')->using('dataforseo-chatgpt')->run();
+    $failure = variantFailure('dataforseo-chatgpt', 'expired');
 
-    expect($response->errors->sole()->code)->toBe('dataforseo.task_not_found')
+    expect($failure->errorCode)->toBe('dataforseo.task_not_found')
         ->and($calls)->toBe(2)
         ->and(collect(Http::recorded())->filter(fn (array $entry): bool => $entry[0]->method() === 'POST'))->toHaveCount(1);
 });
@@ -671,9 +650,9 @@ it('shares the runtime deadline across polling and caps its clock-testable wait'
         ));
     });
 
-    $response = Librarium::query('deadline')->using('dataforseo-gemini')->timeout(10)->run();
+    $failure = variantFailure('dataforseo-gemini', 'deadline', 10);
 
-    expect($response->errors->sole()->code)->toBe('dataforseo.deadline_exceeded')
+    expect($failure->errorCode)->toBe('dataforseo.deadline_exceeded')
         ->and(Http::recorded())->toHaveCount(2);
     Sleep::assertSequence([Sleep::for(10)->seconds()]);
 });
@@ -682,9 +661,7 @@ it('rejects query limits and unsupported controls before HTTP', function (string
     config()->set("librarium.profiles.{$profile}.options", $options);
     Http::fake();
 
-    $response = Librarium::query($query)->using($profile)->run();
-
-    expect($response->errors->sole()->code)->toBe($code);
+    expect(variantFailure($profile, $query)->errorCode)->toBe($code);
     Http::assertNothingSent();
 })->with([
     'scraper too long' => ['dataforseo-gemini-live', str_repeat('x', 2001), ['location_code' => 2840, 'language_code' => 'en'], 'dataforseo.invalid_query'],
@@ -697,7 +674,7 @@ it('rejects query limits and unsupported controls before HTTP', function (string
 it('rejects unknown and secret option bags during preflight', function (array $options): void {
     config()->set('librarium.profiles.dataforseo-gemini.options', $options);
 
-    expect(fn () => Librarium::query('preflight')->using('dataforseo-gemini')->preview())
+    expect(fn () => variantRequest('dataforseo-gemini', 'preflight'))
         ->toThrow(ValidationException::class);
     Http::assertNothingSent();
 })->with([
@@ -717,12 +694,12 @@ it('keeps both raw and encoded credentials out of previews, terminal values, and
     $credential = DataForSeoCredential::encode('secret-login', 'secret-password');
     config()->set('librarium.profiles.dataforseo-gemini-live.credential', $credential);
 
-    $preview = Librarium::query('secret safety')->using('dataforseo-gemini-live')->preview();
-    $response = Librarium::query('secret safety')->using('dataforseo-gemini-live')->run();
-    $wire = json_encode([$preview, $response], JSON_THROW_ON_ERROR);
+    $profile = variantRequest('dataforseo-gemini-live', 'secret safety')->profile;
+    $failure = variantFailure('dataforseo-gemini-live', 'secret safety');
+    $wire = json_encode([$profile, $failure->getMessage()], JSON_THROW_ON_ERROR);
 
     expect($wire)->not->toContain('secret-login', 'secret-password', (string) $credential)
-        ->and($response->errors->sole()->code)->toBe('dataforseo.invalid_response');
+        ->and($failure->errorCode)->toBe('dataforseo.invalid_response');
 });
 
 it('rejects successful receipts that expose configured credentials in retained fields', function (string $path, string $secretForm): void {
@@ -740,11 +717,10 @@ it('rejects successful receipts that expose configured credentials in retained f
     data_set($payload, $path, $secret);
     Http::fake(fn () => Http::response($payload));
 
-    $response = Librarium::query('safe query')->using('dataforseo-gemini-live')->run();
+    $failure = variantFailure('dataforseo-gemini-live', 'safe query');
 
-    expect($response->status)->toBe(ResponseStatus::Failed)
-        ->and($response->errors->sole()->code)->toBe('dataforseo.invalid_response')
-        ->and(json_encode($response, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES))
+    expect($failure->errorCode)->toBe('dataforseo.invalid_response')
+        ->and($failure->getMessage())
         ->not->toContain($login, $password, (string) $credential, base64_encode($login.':'.$password));
 })->with([
     ['version', 'login'],
@@ -754,15 +730,14 @@ it('rejects successful receipts that expose configured credentials in retained f
 ]);
 
 it('quotes all six exact pricing identities offline and enforces maxCost before HTTP', function (string $profile, string $cost): void {
-    $preview = Librarium::query('pricing')->using($profile)->preview();
+    $quote = variantQuote($profile);
 
-    expect($preview->pricingStatus)->toBe('complete')
-        ->and($preview->maximumEstimatedCost)->toBe($cost)
-        ->and($preview->preflightCostCheckAvailable)->toBeTrue();
+    expect($quote->completeness->value)->toBe('complete')
+        ->and((string) $quote->cost->amount)->toBe($cost);
     Http::assertNothingSent();
-
-    expect(fn () => Librarium::query('pricing')->using($profile)->maxCost('0.001')->run())
-        ->toThrow(ValidationException::class);
+    $engine = str_contains($profile, 'gemini') ? 'gemini-app' : (str_contains($profile, 'google') ? 'google-ai-mode' : 'chatgpt');
+    $plan = Librarium::research('pricing')->only([$engine])->options([$engine => ['priority' => str_ends_with($profile, '-live') ? 'live' : 'standard']])->maxCost('0.001')->dryRun();
+    expect($plan->toArray()['skipped'])->toContain(['source' => $engine, 'reason' => 'over_budget']);
     Http::assertNothingSent();
 })->with([
     ['dataforseo-chatgpt', '0.0012'],
@@ -778,8 +753,36 @@ it('honors configured pricing overrides for an exact DataForSEO identity', funct
         'requests' => ['amount' => '0.009', 'currency' => 'USD'],
     ]);
 
-    expect(Librarium::query('pricing')->using('dataforseo-chatgpt')->preview()->maximumEstimatedCost)->toBe('0.009');
+    expect((string) variantQuote('dataforseo-chatgpt')->cost->amount)->toBe('0.009');
     Http::assertNothingSent();
+});
+
+it('persists a quick standard engine task and its paid submission before one-observation refresh', function (): void {
+    Queue::fake();
+    Http::fake(function (Request $request) {
+        return Http::response(dataForSeoEnvelope(
+            'dataforseo-gemini', 'ai_optimization/gemini/llm_scraper',
+            $request->method() === 'POST' ? 'task_post' : 'task_get/advanced/'.DATAFORSEO_TEST_ID,
+            'gemini', 'durable quick', $request->method() === 'POST' ? 20100 : 20000,
+            $request->method() === 'GET', $request->method() === 'POST' ? '0.0012' : '0',
+        ));
+    });
+    $queued = Librarium::research('durable quick')->only(['gemini-app'])->queue();
+    $id = $queued->id();
+    unset($queued);
+    app(RunRuntime::class)->start($id);
+    $pending = Librarium::find($id);
+    expect($pending->status())->toBe('running')
+        ->and($pending->toArray()['depth'])->toBe('quick')
+        ->and($pending->result('gemini-app')['cost']['reported'])->toBe('0.0012')
+        ->and($pending->toArray()['cost']['reported'])->toBe('0.0012');
+    Http::assertSentCount(1);
+    $done = $pending->refresh();
+    expect($done->status())->toBe('done')
+        ->and($done->result('gemini-app')['answer'])->toContain('Collected answer')
+        ->and($done->result('gemini-app')['cost']['reported'])->toBe('0.0012')
+        ->and($done->evidence('gemini-app'))->toHaveCount(2);
+    Http::assertSentCount(2);
 });
 
 it('executes the real encrypted queue job and callback boundary with the same result semantics', function (): void {
@@ -796,19 +799,19 @@ it('executes the real encrypted queue job and callback boundary with the same re
     Queue::fake();
     $callback = null;
 
-    Librarium::query('queued')->using('dataforseo-gemini-live')->queue()
-        ->then(function (ResearchResponse $response) use (&$callback): void {
+    Librarium::research('queued')->only(['gemini-app'])->options(['gemini-app' => ['priority' => 'live']])->queue()
+        ->then(function (Run $response) use (&$callback): void {
             $callback = $response;
         });
     $job = Queue::pushed(RunResearch::class)->sole();
-    $job->handle(app(ExecutesResearch::class));
+    $job->handle(app(RunRuntime::class));
 
     expect($job)->toBeInstanceOf(ShouldBeEncrypted::class)
         ->and($job->tries)->toBe(1)
         ->and($job->timeout)->toBe(7200)
-        ->and($callback)->toBeInstanceOf(ResearchResponse::class)
-        ->and($callback?->results->sole()->provenance->surface)->toBe('gemini')
-        ->and($callback?->results->sole()->usage?->actualCost)->toBe('0.004');
+        ->and($callback)->toBeInstanceOf(Run::class)
+        ->and($callback?->result('gemini-app')['observation'])->toBe('surface')
+        ->and($callback?->result('gemini-app')['cost']['reported'])->toBe('0.004');
 });
 
 /** @return array<string, array{string, string, string, bool}> */
@@ -866,7 +869,7 @@ function dataForSeoEnvelope(
 ): array {
     $controls = dataForSeoControls($profile);
     // Literal identity fields from the nine public endpoint JSON examples,
-    // checked 2026-09-06; references are in docs/dataforseo-profiles.md.
+    // checked 2026-09-06; source controls are in docs/sources-and-options.md.
     $identities = [
         'chatgpt' => [
             'task_post' => ['api' => 'ai_optimization', 'function' => 'task_post', 'se' => 'chatgpt', 'se_type' => 'llm_scraper'],

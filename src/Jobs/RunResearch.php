@@ -4,16 +4,16 @@ declare(strict_types=1);
 
 namespace Jkudish\LaravelAiLibrarium\Jobs;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Queue\ShouldBeEncrypted;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
-use Jkudish\LaravelAiLibrarium\Contracts\ExecutesResearch;
-use Jkudish\LaravelAiLibrarium\Events\ResearchFailed;
-use Jkudish\LaravelAiLibrarium\ResearchPlan;
-use Jkudish\LaravelAiLibrarium\ResearchState;
-use Jkudish\LaravelAiLibrarium\ResearchStatus;
-use Jkudish\LaravelAiLibrarium\ResearchStatusStore;
+use Illuminate\Support\Sleep;
+use Jkudish\LaravelAiLibrarium\Execution\RunRuntime;
+use Jkudish\LaravelAiLibrarium\LibrariumManager;
+use Jkudish\LaravelAiLibrarium\Run;
 use Laravel\Ai\Jobs\Concerns\InvokesQueuedResponseCallbacks;
+use LogicException;
 use Throwable;
 
 final class RunResearch implements ShouldBeEncrypted, ShouldQueue
@@ -29,45 +29,42 @@ final class RunResearch implements ShouldBeEncrypted, ShouldQueue
 
     public int $timeout;
 
-    public function __construct(public readonly ResearchPlan $plan)
+    public function __construct(public readonly string $runId)
     {
-        $this->timeout = $plan->jobTimeout;
-
+        $timeout = config('librarium.queue.timeout', 7200);
+        $researchTimeout = app(LibrariumManager::class)->timeout();
+        if (! is_int($timeout) || $timeout <= $researchTimeout || $timeout > 86400) {
+            throw new LogicException('The queue timeout must exceed librarium.timeout and be at most 86400 seconds.');
+        }
+        $this->timeout = $timeout;
         $connection = config('librarium.queue.connection');
         if (is_string($connection) && $connection !== '') {
             $this->onConnection($connection);
         }
-
         $queue = config('librarium.queue.name', 'research');
         if (is_string($queue) && $queue !== '') {
             $this->onQueue($queue);
         }
     }
 
-    public function handle(ExecutesResearch $executor): void
+    public function handle(RunRuntime $runtime): void
     {
-        $this->withCallbacks(fn () => $executor->run($this->plan));
+        $this->withCallbacks(function () use ($runtime): Run {
+            $deadline = CarbonImmutable::now()->addSeconds(app(LibrariumManager::class)->timeout());
+            $run = $runtime->start($this->runId);
+            while ($run->status() === 'running' && CarbonImmutable::now()->lessThan($deadline)) {
+                Sleep::for(1)->seconds();
+                $run = $runtime->refresh($this->runId);
+            }
+
+            return $run;
+        });
     }
 
     public function failed(Throwable $exception): void
     {
-        $statuses = app(ResearchStatusStore::class);
-        $occurredAt = now()->toImmutable();
-
         try {
-            $shouldDispatch = $statuses->transitionToTerminal(
-                $this->plan->requestId,
-                new ResearchStatus(ResearchState::Failed, 'Research failed unexpectedly.', $occurredAt),
-            );
-        } catch (Throwable $statusException) {
-            report($statusException);
-            $shouldDispatch = true;
-        }
-
-        try {
-            if ($shouldDispatch) {
-                ResearchFailed::dispatch($this->plan->requestId, $exception, $occurredAt);
-            }
+            app(RunRuntime::class)->failInterrupted($this->runId);
         } finally {
             $this->invokeFailureCallbacks($exception);
         }

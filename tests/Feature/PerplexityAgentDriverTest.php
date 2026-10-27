@@ -7,6 +7,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
+use Jkudish\LaravelAiLibrarium\Contracts\DefinesSpendingBound;
 use Jkudish\LaravelAiLibrarium\Drivers\Perplexity\PerplexityAgentDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Perplexity\PerplexityResearchConfiguration;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
@@ -83,16 +84,40 @@ it('refuses research model and configuration drift and oversized prompts before 
     Http::assertNothingSent();
 })->with(['unreviewed model', 'allowed but wrong model', 'changed steps', 'changed revision', 'changed hash', 'unknown option', 'oversized prompt']);
 
-it('compiles an explicitly registered research template without claiming a spending bound', function (): void {
+it('runs a research template registered as a custom source without claiming a spending bound', function (): void {
     $id = 'perplexity-research-high-sol';
-    $profile = PerplexityResearchConfiguration::profiles()[$id];
-    $profile['enabled'] = true;
-    $profile['credential'] = 'test-key';
-    config()->set("librarium.profiles.{$id}", $profile);
-    $query = Librarium::query('Research current agent APIs.')->using($id);
+    $response = perplexityCompletedResponse();
+    $response['model'] = 'openai/gpt-6.1-sol';
+    Http::fake(['https://api.perplexity.ai/v1/agent' => Http::response($response)]);
+    config(['librarium.runs.store' => 'memory', 'librarium.sources.perplexity-research' => [
+        'key' => 'test-key',
+        'quick' => PerplexityResearchConfiguration::profiles()[$id],
+    ]]);
 
-    expect($query->preview()->profiles)->toHaveCount(1)
-        ->and($query->spendingBound()->toArray())->toBe(['kind' => 'unknown']);
+    $plan = Librarium::research('Research current agent APIs.')->only(['perplexity-research'])->dryRun();
+    Http::assertNothingSent();
+    $run = Librarium::research('Research current agent APIs.')->only(['perplexity-research'])->run();
+
+    expect(app(PerplexityAgentDriver::class))->not->toBeInstanceOf(DefinesSpendingBound::class)
+        ->and($plan->status())->toBe('planned')
+        ->and($plan->result('perplexity-research')['cost']['estimated'])->toBeNull()
+        ->and($run->status())->toBe('done')
+        ->and($run->result('perplexity-research')['provenance']['variant'])->toBe('perplexity-research-quick')
+        ->and($run->result('perplexity-research')['provenance']['model'])->toBe('openai/gpt-6.1-sol');
+    Http::assertSentCount(1);
+    Http::assertSent(fn (Request $request): bool => $request->data() === PerplexityResearchConfiguration::payload($id, 'Research current agent APIs.'));
+});
+
+it('refuses a registered research template whose frozen options drift before HTTP', function (): void {
+    Http::fake();
+    $template = PerplexityResearchConfiguration::profiles()['perplexity-research-deep-gemini'];
+    $template['options']['max_steps'] = 15;
+    config(['librarium.runs.store' => 'memory', 'librarium.sources.perplexity-research' => ['key' => 'test-key', 'quick' => $template]]);
+
+    $run = Librarium::research('Research current agent APIs.')->only(['perplexity-research'])->run();
+
+    expect($run->status())->toBe('failed')
+        ->and($run->result('perplexity-research')['error']['code'])->toBe('perplexity.invalid_profile');
     Http::assertNothingSent();
 });
 
@@ -524,6 +549,7 @@ it('rejects malformed or unknown completed output', function (string $path, mixe
     'missing effective model' => ['model', null],
     'invalid effective model' => ['model', 'sonar'],
     'invalid timestamp' => ['completed_at', 'today'],
+    'timestamp above supported maximum' => ['completed_at', 253_402_300_800],
 ]);
 
 it('rejects credentials and private handles reflected into retained Agent output', function (string $private, string $path): void {
@@ -543,6 +569,16 @@ it('rejects credentials and private handles reflected into retained Agent output
     'credential in report' => ['testing-perplexity-key', 'output.1.content.0.text'],
     'private handle in citation title' => ['resp_private_1', 'output.0.results.0.title'],
 ]);
+
+it('accepts the maximum supported completion timestamp', function (): void {
+    $response = perplexityCompletedResponse();
+    $response['completed_at'] = 253_402_300_799;
+    Http::fake(['https://api.perplexity.ai/v1/agent' => Http::response($response)]);
+
+    $result = perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-sonar-pro'));
+
+    expect($result->completedAt->getTimestamp())->toBe(253_402_300_799);
+});
 
 it('strictly validates referenced search evidence and keeps only cited results', function (string $path, mixed $value): void {
     $response = perplexityCompletedResponse();

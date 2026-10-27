@@ -10,9 +10,10 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
-use Jkudish\LaravelAiLibrarium\Contracts\DurableDriver;
+use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
+use Jkudish\LaravelAiLibrarium\Profile;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Recovery\DurableSubmission;
@@ -32,7 +33,7 @@ use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
  * See docs/perplexity-spending-bounds.md for the sourced provider limitations
  * and the alternative control sets a provable bound would require.
  */
-final readonly class PerplexityAgentDriver implements DurableDriver
+readonly class PerplexityAgentDriver implements Driver
 {
     private const string ENDPOINT = 'https://api.perplexity.ai/v1/agent';
 
@@ -203,7 +204,10 @@ final readonly class PerplexityAgentDriver implements DurableDriver
             && $options === ['configuration' => 'frozen-low-'.self::FROZEN_LOW_REVISION]
             && $profile->resultKind === ResultKind::GroundedAnswer
             && $profile->retrievalMethods->values()->all() === [RetrievalMethod::ModelSearchTool];
-        $research = PerplexityResearchConfiguration::profiles()[$profile->id] ?? null;
+        // Templates register as custom source bindings, so the frozen
+        // options, not the binding id, identify a reviewed configuration.
+        $researchId = $this->researchTemplate($profile);
+        $research = $researchId === null ? null : PerplexityResearchConfiguration::profiles()[$researchId];
         $isResearchInline = $research !== null
             && $profile->model === $research['model']
             && $options === $research['options']
@@ -265,7 +269,10 @@ final readonly class PerplexityAgentDriver implements DurableDriver
     ): array {
         $payload = match ($preset) {
             'frozen-low' => $this->frozenLowPayload($request),
-            'frozen-research' => PerplexityResearchConfiguration::payload($request->profile->id, $request->prompt),
+            'frozen-research' => PerplexityResearchConfiguration::payload(
+                $this->researchTemplate($request->profile) ?? throw $this->unknownState(),
+                $request->prompt,
+            ),
             default => ['input' => $request->prompt, 'preset' => $preset],
         };
 
@@ -380,7 +387,12 @@ PROMPT,
     private function isInline(DriverRequest|RecoveryRequest $request): bool
     {
         return in_array($request->profile->id, ['perplexity-sonar-pro', self::FROZEN_LOW_PROFILE], true)
-            || array_key_exists($request->profile->id, PerplexityResearchConfiguration::profiles());
+            || $this->researchTemplate($request->profile) !== null;
+    }
+
+    private function researchTemplate(Profile $profile): ?string
+    {
+        return PerplexityResearchConfiguration::matching(array_diff_key($profile->options, ['request_timeout_seconds' => true]));
     }
 
     /** @return array<array-key, mixed>|null */

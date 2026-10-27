@@ -8,6 +8,7 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Jkudish\LaravelAiLibrarium\Drivers\SearchApi\SearchApiDriver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
+use Jkudish\LaravelAiLibrarium\Exceptions\SelectionException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\ProfileCatalog;
@@ -15,6 +16,7 @@ use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ContentFormat;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
+use Jkudish\LaravelAiLibrarium\SourceCatalog;
 
 beforeEach(function (): void {
     CarbonImmutable::setTestNow('2026-08-16T12:00:00Z');
@@ -29,7 +31,7 @@ afterEach(function (): void {
     CarbonImmutable::setTestNow();
 });
 
-it('registers the seven SearchAPI Profiles with explicit configured-only pricing assumptions', function (): void {
+it('registers the six SearchAPI Profiles with explicit configured-only pricing assumptions', function (): void {
     $profiles = app(ProfileCatalog::class)->all()
         ->filter(fn ($item): bool => $item->profile->driver === SearchApiDriver::class)
         ->mapWithKeys(fn ($item, string $id): array => [$id => [
@@ -42,19 +44,18 @@ it('registers the seven SearchAPI Profiles with explicit configured-only pricing
         'searchapi' => ['searchapi:search', ['successful_search_request' => '1'], true],
         'searchapi-chatgpt' => ['searchapi:search', ['successful_search_request' => '1'], true],
         'searchapi-gemini' => ['searchapi:search', ['successful_search_request' => '1'], true],
-        'searchapi-perplexity' => ['searchapi:search', ['successful_search_request' => '1'], true],
         'searchapi-google-ai-mode' => ['searchapi:search', ['successful_search_request' => '1'], true],
         'searchapi-bing-copilot' => ['searchapi:search', ['successful_search_request' => '1'], true],
         'searchapi-google-ai-overview' => ['searchapi:search', ['successful_search_request' => '2'], true],
     ]);
 });
 
-it('declares canonical surface semantics for all six SearchAPI surface Profiles', function (): void {
-    $profiles = app(ProfileCatalog::class)->group('visibility')['profiles']
-        ->filter(fn ($profile): bool => $profile->driver === SearchApiDriver::class)
-        ->filter(fn ($profile): bool => $profile->observation === ObservationMode::SurfaceSnapshot);
+it('declares canonical surface semantics for all five SearchAPI surface Profiles', function (): void {
+    config(['librarium.engines.collector' => 'searchapi']);
+    $profiles = collect(Librarium::sources()['engines'])
+        ->map(fn (array $engine) => app(SourceCatalog::class)->profile($engine['id'], 'quick'));
 
-    expect($profiles)->toHaveCount(6);
+    expect($profiles)->toHaveCount(5);
     $profiles->each(function ($profile): void {
         expect($profile->resultKind)->toBe(ResultKind::SurfaceObservation)
             ->and($profile->observation)->toBe(ObservationMode::SurfaceSnapshot)
@@ -63,12 +64,10 @@ it('declares canonical surface semantics for all six SearchAPI surface Profiles'
 });
 
 it('keeps SearchAPI pricing unavailable until the operator configures its rate', function (): void {
-    $preview = Librarium::query('What changed?')->using('searchapi')->preview();
+    $quote = variantQuote('searchapi');
 
-    expect($preview->pricingStatus)->toBe('unavailable')
-        ->and($preview->preflightCostCheckAvailable)->toBeFalse()
-        ->and($preview->knownCostSubtotals)->toBeEmpty()
-        ->and($preview->pricingQuotes->sole()['quote']->completeness->value)->toBe('unavailable');
+    expect($quote->completeness->value)->toBe('unavailable')
+        ->and($quote->cost)->toBeNull();
 
     Http::assertNothingSent();
 });
@@ -78,12 +77,11 @@ it('quotes SearchAPI offline after the operator configures its request rate', fu
         'successful_search_request' => ['amount' => '0.004', 'currency' => 'USD'],
     ]);
 
-    $preview = Librarium::query('What changed?')->using($profile)->preview();
+    $quote = variantQuote($profile);
 
-    expect($preview->pricingStatus)->toBe('complete')
-        ->and($preview->maximumEstimatedCost)->toBe($cost)
-        ->and($preview->preflightCostCheckAvailable)->toBeTrue()
-        ->and($preview->pricingQuotes->sole()['quote']->source->value)->toBe('configured');
+    expect($quote->completeness->value)->toBe('complete')
+        ->and((string) $quote->cost->amount)->toBe($cost)
+        ->and($quote->source->value)->toBe('configured');
 
     Http::assertNothingSent();
 })->with([
@@ -116,7 +114,6 @@ it('sends one bearer-authenticated GET with the built-in engine and query and no
     'raw google' => ['searchapi', 'google'],
     'chatgpt' => ['searchapi-chatgpt', 'chatgpt'],
     'gemini' => ['searchapi-gemini', 'gemini'],
-    'perplexity' => ['searchapi-perplexity', 'perplexity'],
     'google ai mode' => ['searchapi-google-ai-mode', 'google_ai_mode'],
     'bing copilot' => ['searchapi-bing-copilot', 'bing_copilot'],
 ]);
@@ -473,20 +470,11 @@ it('rejects an expired deadline before making any request', function (): void {
     Http::assertNothingSent();
 });
 
-it('registers the SearchAPI visibility surfaces in catalog order and keeps the raw search profile eligible', function (): void {
-    $catalog = app(ProfileCatalog::class);
-
-    expect($catalog->find('searchapi')?->isEligible())->toBeTrue()
-        ->and($catalog->group('visibility')['profiles']->pluck('id')->all())->toBe([
-            'searchapi-chatgpt',
-            'searchapi-gemini',
-            'searchapi-perplexity',
-            'searchapi-google-ai-mode',
-            'searchapi-bing-copilot',
-            'searchapi-google-ai-overview',
-            'perplexity-sonar-pro',
-            'gemini-grounded',
-            'grok',
+it('registers SearchAPI engines in shared catalog order without adding API baselines', function (): void {
+    config(['librarium.engines.collector' => 'searchapi']);
+    expect(app(ProfileCatalog::class)->find('searchapi')?->isEligible())->toBeTrue()
+        ->and(array_column(Librarium::sources()['engines'], 'id'))->toBe([
+            'chatgpt', 'gemini-app', 'google-ai-mode', 'google-ai-overview', 'copilot',
         ]);
 });
 
@@ -528,3 +516,28 @@ function searchApiFixture(string $name): array
 
     return is_array($decoded) ? $decoded : [];
 }
+
+it('rejects the retired SearchAPI Perplexity name before storing a Run', function (): void {
+    expect(config('librarium.profiles'))->not->toHaveKey('searchapi-perplexity');
+
+    try {
+        Librarium::research('best pizza in Rome')->only(['searchapi-perplexity'])->dryRun();
+        $this->fail('The retired name should be rejected.');
+    } catch (SelectionException $exception) {
+        expect($exception->errorCode)->toBe('unknown_name');
+    }
+
+    Http::assertNothingSent();
+});
+
+it('keeps a retired SearchAPI Perplexity Profile from a published configuration ineligible', function (): void {
+    config()->set('librarium.profiles.searchapi-perplexity', [
+        ...config('librarium.profiles.searchapi-chatgpt'),
+        'credential' => 'testing-searchapi-key',
+    ]);
+
+    $availability = app(ProfileCatalog::class)->find('searchapi-perplexity');
+
+    expect($availability?->isEligible())->toBeFalse()
+        ->and($availability?->reasons)->toContain('Profile is retired: SearchAPI deprecated its perplexity engine (observed 2026-10-09) and offers no replacement.');
+});

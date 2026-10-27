@@ -12,6 +12,7 @@ use Jkudish\LaravelAiLibrarium\Drivers\Exa\ExaResearchConfiguration;
 use Jkudish\LaravelAiLibrarium\Drivers\Exa\ExaResearchDriver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
+use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\Profile;
 use Jkudish\LaravelAiLibrarium\ProfileOptionValidator;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
@@ -367,6 +368,23 @@ it('refuses a frozen research level whose options differ from its reviewed templ
     'general profile claiming a configuration' => ['exa-research', ['configuration' => 'research-auto-2026-10-09', 'effort' => 'auto', 'max_cost_dollars' => 1]],
     'unreviewed level' => ['exa-research-deep', ['effort' => 'ultra', 'max_cost_dollars' => 5]],
 ]);
+
+it('identifies a frozen research level registered as a custom source binding by its configuration', function (): void {
+    Http::fake();
+    $template = ExaResearchConfiguration::profiles()['exa-research-ultra'];
+    $registered = exaResearchRequest(options: $template['options'], id: 'consumer-research-deep');
+    $drifted = exaResearchRequest(options: [...$template['options'], 'max_cost_dollars' => 6], id: 'consumer-research-deep');
+
+    expect((string) exaResearchDriver()->spendingBound($registered)->maximumCost?->amount)->toBe('5')
+        ->and(exaResearchDriver()->spendingBound($drifted)->kind)->toBe(SpendingBoundKind::Unknown)
+        ->and(exaResearchDriver()->spendingBound(exaResearchRequest(options: [], id: 'consumer-research-deep'))->kind)->toBe(SpendingBoundKind::Unknown);
+
+    config(['librarium.runs.store' => 'memory', 'librarium.sources.consumer-research' => ['key' => 'testing-exa-key', 'deep' => $template]]);
+    $plan = Librarium::research('Compare durable research systems.')->deep()->only(['consumer-research'])->dryRun();
+    expect($plan->status())->toBe('planned')
+        ->and($plan->result('consumer-research')['provenance']['variant'])->toBe('consumer-research-deep');
+    Http::assertNothingSent();
+});
 
 it('maps a run that stopped at its time limit as a completed report', function (): void {
     Http::fake(['https://api.exa.ai/agent/runs*' => Http::sequence()

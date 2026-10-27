@@ -18,26 +18,34 @@
     ],
     "require": {
         "php": "^8.4",
-        "illuminate/console": "^13.0",
-        "illuminate/contracts": "^13.0",
-        "illuminate/http": "^13.0",
-        "illuminate/routing": "^13.0",
-        "illuminate/support": "^13.0",
-        "illuminate/validation": "^13.0",
-        "jkudish/laravel-ai-pricing": "^0.1.1 || ^0.2.0 || ^0.3.0 || ^0.4.1",
+        "illuminate/cache": "^13.30",
+        "illuminate/console": "^13.30",
+        "illuminate/contracts": "^13.30",
+        "illuminate/database": "^13.30",
+        "illuminate/encryption": "^13.30",
+        "illuminate/filesystem": "^13.30",
+        "illuminate/http": "^13.30",
+        "illuminate/redis": "^13.30",
+        "illuminate/routing": "^13.30",
+        "illuminate/support": "^13.30",
+        "illuminate/validation": "^13.30",
+        "jkudish/laravel-ai-pricing": "^0.3.1 || ^0.4.1",
+        "jkudish/librarium-spec": "^1.0",
         "laravel/ai": "^1.0.1",
-        "laravel/prompts": "^0.3.24",
-        "league/commonmark": "^2.8",
-        "standard-webhooks/standard-webhooks": "^1.0.2"
+        "laravel/prompts": "^0.3.15",
+        "league/commonmark": "^2.10.2",
+        "opis/json-schema": "^2.6",
+        "standard-webhooks/standard-webhooks": "^1.0"
     },
     "require-dev": {
-        "laravel/pint": "^1.26",
-        "larastan/larastan": "^3.12",
+        "laravel/pint": "^1.32.1",
+        "larastan/larastan": "^3.13",
         "orchestra/testbench": "^11.0",
-        "pestphp/pest": "^5.0",
-        "pestphp/pest-plugin-arch": "^5.0",
-        "pestphp/pest-plugin-laravel": "^5.0",
-        "phpstan/extension-installer": "^1.4"
+        "pestphp/pest": "^4.4.1 || ^5.3.1",
+        "pestphp/pest-plugin-arch": "^4.0 || ^5.0",
+        "pestphp/pest-plugin-laravel": "^4.1 || ^5.0.1",
+        "phpstan/extension-installer": "^1.4.3",
+        "predis/predis": "^3.4"
     },
     "autoload": {
         "psr-4": {
@@ -54,7 +62,11 @@
         "prepare": "@php vendor/bin/testbench package:discover --ansi",
         "analyse": "vendor/bin/phpstan analyse --memory-limit=1G",
         "test": "vendor/bin/pest tests/ArchTest.php tests/Feature tests/Unit",
-        "test:conformance": "vendor/bin/pest tests/Feature/ApplicationDefinedDriverTest.php tests/Feature/ProfileBindingMatrixTest.php tests/Unit/ContractSnapshotTest.php tests/Unit/ResearchResponseTest.php",
+        "test:conformance": "vendor/bin/pest tests/Feature/SharedFixturesTest.php tests/Feature/RunStoreTest.php",
+        "test:redis": [
+            "@php -r \"if (! ctype_digit((string) getenv('LIBRARIUM_REDIS_TEST_PORT'))) { fwrite(STDERR, 'Provide LIBRARIUM_REDIS_TEST_PORT for a disposable loopback Redis server.'.PHP_EOL); exit(1); }\"",
+            "vendor/bin/pest tests/Feature/RedisRunStoreTest.php --fail-on-skipped"
+        ],
         "test:live:gemini": [
             "@php -r \"if (getenv('LIBRARIUM_LIVE_TESTS') !== '1') { fwrite(STDERR, 'LIBRARIUM_LIVE_TESTS=1 is required to opt in to live provider tests.'.PHP_EOL); exit(1); }\"",
             "@php -r \"if (! is_string(getenv('GEMINI_API_KEY')) || trim((string) getenv('GEMINI_API_KEY')) === '') { fwrite(STDERR, 'GEMINI_API_KEY is required for the live Gemini canary.'.PHP_EOL); exit(1); }\"",

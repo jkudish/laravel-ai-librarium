@@ -6,6 +6,7 @@ namespace Jkudish\LaravelAiLibrarium\Console\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Validation\ValidationException;
+use Jkudish\LaravelAiLibrarium\Run;
 use JsonException;
 use Symfony\Component\Console\Output\ConsoleOutputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -23,7 +24,31 @@ abstract class LibrariumCommand extends Command
 
     protected function agentMode(): bool
     {
-        return (bool) $this->option('agent');
+        return (bool) $this->option('json');
+    }
+
+    protected function writeRun(Run $run): int
+    {
+        if ($this->agentMode()) {
+            $this->writeJson($run->toArray());
+        } else {
+            $this->line($run->id().' '.$run->status());
+            foreach ($run->toArray()['results'] as $result) {
+                $this->line($result['source'].': '.$result['status']);
+                if ($result['answer'] !== null) {
+                    $this->output->writeln($result['answer'], OutputInterface::OUTPUT_RAW);
+                }
+            }
+            if ($run->status() === 'running') {
+                $this->line('Return with: php artisan librarium:show '.$run->id());
+            }
+        }
+
+        return match ($run->status()) {
+            'failed' => self::EXIT_RESEARCH_FAILED,
+            'partial' => self::EXIT_PARTIAL,
+            default => self::SUCCESS,
+        };
     }
 
     /** @param array<string, mixed> $value */

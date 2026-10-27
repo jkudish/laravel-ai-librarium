@@ -6,7 +6,7 @@ namespace Jkudish\LaravelAiLibrarium\Drivers\Exa;
 
 /**
  * Reviewed Exa Agent research levels with fixed native per-run caps.
- * Sources/access date and limits: docs/exa-parallel-research-bounds.md.
+ * Sources/access date and limits: docs/history/exa-parallel-research-bounds.md.
  * A revision is immutable; changing any request field requires a new revision.
  */
 final class ExaResearchConfiguration
@@ -54,6 +54,22 @@ final class ExaResearchConfiguration
         }
 
         return $profiles;
+    }
+
+    /**
+     * The reviewed template frozen under this configuration, if any.
+     *
+     * @return array{options: array<string, mixed>, prompt: string}|null
+     */
+    public static function matching(mixed $configuration): ?array
+    {
+        foreach (self::profiles() as $profile) {
+            if ($profile['options']['configuration'] === $configuration) {
+                return $profile;
+            }
+        }
+
+        return null;
     }
 
     /** @return list<string> */

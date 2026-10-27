@@ -10,14 +10,11 @@ use RuntimeException;
 
 final readonly class ReleaseReadiness
 {
-    private const string PROFILE_SNAPSHOT_SHA256 = '83739ba138c2db2c4673aada5834a5586f085a6c971253b155339eb570dbb9f9';
-
     /** @var list<array{id: string, title: string}> */
     private const array GATES = [
         ['id' => 'php-8.4-lowest-compatibility', 'title' => 'PHP 8.4 lowest-dependency compatibility'],
         ['id' => 'php-8.5-highest-compatibility', 'title' => 'PHP 8.5 highest-dependency compatibility'],
         ['id' => '2593', 'title' => 'SearchAPI and Firecrawl fidelity bake-off'],
-        ['id' => '2594', 'title' => 'PlanMode and Agentsy dogfood'],
         ['id' => '2986', 'title' => 'SearchAPI live canaries'],
         ['id' => '3471', 'title' => 'DataForSEO acceptance'],
         ['id' => 'remaining-live-canaries', 'title' => 'Remaining release-required live canaries'],
@@ -27,14 +24,17 @@ final readonly class ReleaseReadiness
     /** @var array<string, string> */
     private const array RUNTIME_CONSTRAINTS = [
         'php' => '^8.4',
-        'illuminate/console' => '^13.0',
-        'illuminate/contracts' => '^13.0',
-        'illuminate/http' => '^13.0',
-        'illuminate/routing' => '^13.0',
-        'illuminate/support' => '^13.0',
-        'illuminate/validation' => '^13.0',
-        'jkudish/laravel-ai-pricing' => '^0.1.1 || ^0.2.0 || ^0.3.0 || ^0.4.1',
+        'illuminate/console' => '^13.30',
+        'illuminate/contracts' => '^13.30',
+        'illuminate/http' => '^13.30',
+        'illuminate/routing' => '^13.30',
+        'illuminate/support' => '^13.30',
+        'illuminate/validation' => '^13.30',
+        'jkudish/laravel-ai-pricing' => '^0.3.1 || ^0.4.1',
         'laravel/ai' => '^1.0.1',
+        'laravel/prompts' => '^0.3.15',
+        'league/commonmark' => '^2.10.2',
+        'standard-webhooks/standard-webhooks' => '^1.0',
     ];
 
     /** @var array<string, string> */
@@ -55,12 +55,7 @@ final readonly class ReleaseReadiness
             throw new RuntimeException('CHANGELOG.md is unreadable.');
         }
 
-        $snapshotHash = hash_file('sha256', $this->root.'/tests/Support/Profiles/v2/catalog.tsv');
-        if (! is_string($snapshotHash)) {
-            throw new RuntimeException('The accepted TypeScript Profile snapshot is unreadable.');
-        }
-
-        return self::evaluate($composer, $changelog, $manifest, $snapshotHash);
+        return self::evaluate($composer, $changelog, $manifest);
     }
 
     public function check(): void
@@ -81,9 +76,9 @@ final readonly class ReleaseReadiness
         array $composer,
         string $changelog,
         array $manifest,
-        string $profileSnapshotHash,
     ): array {
-        self::validateManifest($manifest, $profileSnapshotHash);
+        self::validateManifest($manifest);
+
         $blockers = [];
         $requirements = $composer['require'] ?? null;
         $developmentRequirements = $composer['require-dev'] ?? null;
@@ -124,10 +119,15 @@ final readonly class ReleaseReadiness
             $blockers[] = 'CHANGELOG.md retains an Unreleased heading after the 1.0.0 release.';
         }
 
-        /** @var array<string, mixed> $typescript */
-        $typescript = $manifest['typescript'];
-        if ($typescript['tag'] === null) {
-            $blockers[] = 'The accepted TypeScript v2 release tag is not recorded.';
+        preg_match_all('/^## \[?(\d+\.\d+\.\d+[^\]\s]*)\]?/m', $changelog, $versions);
+        $otherVersions = array_values(array_unique(array_diff($versions[1], ['1.0.0'])));
+        if ($otherVersions !== [] || count(array_keys($versions[1], '1.0.0', true)) > 1) {
+            $found = $otherVersions === [] ? 'a repeated 1.0.0 section' : implode(', ', $otherVersions);
+            $blockers[] = "CHANGELOG.md must contain only the first 1.0.0 release section; found [{$found}].";
+        }
+
+        if (! isset($requirements['jkudish/librarium-spec'])) {
+            $blockers[] = 'The shared librarium-spec package must be required; its conformance fixtures replace TypeScript snapshots.';
         }
 
         /** @var list<array{id: string, title: string, status: string, evidence: mixed}> $gates */
@@ -150,27 +150,19 @@ final readonly class ReleaseReadiness
     /**
      * @param  array<string, mixed>  $manifest
      */
-    private static function validateManifest(array $manifest, string $profileSnapshotHash): void
+    private static function validateManifest(array $manifest): void
     {
-        $typescript = $manifest['typescript'] ?? null;
         $gates = $manifest['gates'] ?? null;
 
         if (
-            array_keys($manifest) !== ['schema_version', 'target_version', 'typescript', 'gates']
+            array_keys($manifest) !== ['schema_version', 'target_version', 'gates']
             || $manifest['schema_version'] !== 1
             || $manifest['target_version'] !== '1.0.0'
-            || ! is_array($typescript)
-            || array_keys($typescript) !== ['version', 'tag', 'commit', 'profile_snapshot_sha256']
-            || $typescript['version'] !== '2.0.0'
-            || ! in_array($typescript['tag'], [null, 'v2.0.0'], true)
-            || $typescript['commit'] !== '889b0366b5baafff117198632e04b24e521ac93d'
-            || $profileSnapshotHash !== self::PROFILE_SNAPSHOT_SHA256
-            || $typescript['profile_snapshot_sha256'] !== self::PROFILE_SNAPSHOT_SHA256
             || ! is_array($gates)
             || ! array_is_list($gates)
             || $gates === []
         ) {
-            throw new RuntimeException('The release-readiness manifest is malformed or does not match the accepted v2 Profile snapshot.');
+            throw new RuntimeException('The release-readiness manifest is malformed.');
         }
 
         $ids = [];

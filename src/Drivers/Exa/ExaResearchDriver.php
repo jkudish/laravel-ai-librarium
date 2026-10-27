@@ -275,11 +275,16 @@ final readonly class ExaResearchDriver implements DefinesSpendingBound, DurableD
     {
         $profile = $request->profile;
         // A frozen research level must match its reviewed template exactly;
-        // the general Profile cannot claim a reviewed configuration.
-        $template = ExaResearchConfiguration::profiles()[$profile->id] ?? null;
-        $identity = $template === null
-            ? $profile->id === 'exa-research' && ! array_key_exists('configuration', $profile->options)
-            : $profile->options === $template['options'] && $profile->prompt === $template['prompt'];
+        // the general Profile cannot claim a reviewed configuration. Templates
+        // register as custom source bindings, so the configuration, not the
+        // binding id, identifies the reviewed level.
+        $template = ExaResearchConfiguration::matching($profile->options['configuration'] ?? null);
+        $identity = array_key_exists('configuration', $profile->options)
+            ? $template !== null
+                && $profile->id !== 'exa-research'
+                && $profile->options === $template['options']
+                && $profile->prompt === $template['prompt']
+            : $profile->id === 'exa-research';
 
         return $identity
             && $profile->provider === 'exa'

@@ -216,6 +216,10 @@ final class PrWorkflow
             'APP_ENV' => 'testing',
             'CI' => '1',
             'COMPOSER_NO_INTERACTION' => '1',
+            // Only the disposable loopback Redis proof endpoint, never a URL,
+            // credential or arbitrary host. Redis tests always use 127.0.0.1.
+            'LIBRARIUM_REDIS_TEST_PORT' => isset($ambient['LIBRARIUM_REDIS_TEST_PORT']) && ctype_digit($ambient['LIBRARIUM_REDIS_TEST_PORT'])
+                ? $ambient['LIBRARIUM_REDIS_TEST_PORT'] : null,
         ], is_string(...));
     }
 

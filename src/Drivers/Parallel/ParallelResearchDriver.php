@@ -9,12 +9,14 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Sleep;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
+use Jkudish\LaravelAiLibrarium\Contracts\DeclaresDeadline;
 use Jkudish\LaravelAiLibrarium\Contracts\DefinesSpendingBound;
 use Jkudish\LaravelAiLibrarium\Contracts\DurableDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
 use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
+use Jkudish\LaravelAiLibrarium\Profile;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
 use Jkudish\LaravelAiLibrarium\Recovery\DurableSubmission;
@@ -32,16 +34,39 @@ use Jkudish\LaravelAiLibrarium\Responses\Source;
 use Jkudish\LaravelAiLibrarium\SpendingBound;
 use Jkudish\LaravelAiPricing\ValueObjects\ModelIdentity;
 use Jkudish\LaravelAiPricing\ValueObjects\Usage as PricingUsage;
+use JsonException;
+use stdClass;
 
 /** Runs one durable Parallel Task API deep-research job to completion. */
-final readonly class ParallelResearchDriver implements DefinesSpendingBound, DurableDriver
+final readonly class ParallelResearchDriver implements DeclaresDeadline, DefinesSpendingBound, DurableDriver
 {
     private const string ENDPOINT = 'https://api.parallel.ai/v1/tasks/runs';
 
     private const float POLL_INTERVAL_SECONDS = 1.0;
 
-    /** @var list<string> */
-    private const array PROCESSORS = ['pro'];
+    private const string DEFAULT_OUTPUT_DESCRIPTION = 'A thorough cited research report that directly answers the request.';
+
+    /**
+     * Every processor Parallel lists (docs.parallel.ai, checked 2026-10-11),
+     * mapped to its default polling deadline in seconds. Processors through
+     * pro finish within 10 minutes and get 30; ultra and above get 1.5x the
+     * documented upper latency, rounded up to 15 minutes, because queue time
+     * is extra. A Profile's request_timeout_seconds replaces it; the shared
+     * research deadline always caps it.
+     *
+     * @var array<string, int>
+     */
+    public const array PROCESSOR_DEADLINE_SECONDS = [
+        'lite' => 1800,
+        'base' => 1800,
+        'core' => 1800,
+        'core2x' => 1800,
+        'pro' => 1800,
+        'ultra' => 2700,
+        'ultra2x' => 4500,
+        'ultra4x' => 8100,
+        'ultra8x' => 10800,
+    ];
 
     public function __construct(private ParallelTransport $transport) {}
 
@@ -51,11 +76,19 @@ final readonly class ParallelResearchDriver implements DefinesSpendingBound, Dur
         return ParallelOptions::researchRules();
     }
 
+    public static function deadlineSeconds(Profile $profile): ?int
+    {
+        $timeout = $profile->options['request_timeout_seconds'] ?? null;
+
+        return is_int($timeout) ? $timeout : self::PROCESSOR_DEADLINE_SECONDS[$profile->model ?? ''] ?? null;
+    }
+
     /**
      * Parallel charges one processor fee per successful Task Run, whatever
      * the output size. The driver submits exactly one run, never resubmits,
      * and sends no pay-per-use data sources or MCP servers, which are the
      * only documented surcharges. Polling and result retrieval are free.
+     * Every listed processor has its own `research-{processor}` identity.
      */
     public function spendingBound(DriverRequest $request): SpendingBound
     {
@@ -79,6 +112,7 @@ final readonly class ParallelResearchDriver implements DefinesSpendingBound, Dur
     {
         $processor = $this->validateProfile($request);
         $options = ParallelOptions::research($request->profile->options);
+        $request = $request->withinSeconds(self::deadlineSeconds($request->profile) ?? self::PROCESSOR_DEADLINE_SECONDS['pro']);
         $runId = $this->submit($request, $processor, $options);
         $request->progress('Parallel is researching in the background.');
 
@@ -177,7 +211,7 @@ final readonly class ParallelResearchDriver implements DefinesSpendingBound, Dur
         return $profile->id === 'parallel-research'
             && $profile->provider === 'parallel'
             && is_string($profile->model)
-            && in_array($profile->model, self::PROCESSORS, true)
+            && array_key_exists($profile->model, self::PROCESSOR_DEADLINE_SECONDS)
             && $profile->resultKind === ResultKind::ResearchReport
             && $profile->grounding === GroundingPolicy::Required
             && $profile->observation === ObservationMode::ApiOutput
@@ -204,14 +238,17 @@ final readonly class ParallelResearchDriver implements DefinesSpendingBound, Dur
         $sourcePolicy = array_filter([
             'include_domains' => $options['include_domains'] ?? null,
             'exclude_domains' => $options['exclude_domains'] ?? null,
+            'after_date' => $options['after_date'] ?? null,
         ], static fn (mixed $value): bool => $value !== null);
+        $outputSchema = $options['output_schema'] ?? self::DEFAULT_OUTPUT_DESCRIPTION;
         $response = $this->transport->post($request, self::ENDPOINT, array_filter([
             'input' => $request->prompt,
             'processor' => $processor,
-            'task_spec' => ['output_schema' => [
-                'type' => 'text',
-                'description' => 'A thorough cited research report that directly answers the request.',
-            ]],
+            'metadata' => $options['metadata'] ?? null,
+            'memory_scope_key' => $options['memory_scope_key'] ?? null,
+            'task_spec' => ['output_schema' => is_array($outputSchema)
+                ? ['type' => 'json', 'json_schema' => $outputSchema]
+                : ['type' => 'text', 'description' => $outputSchema]],
             'source_policy' => $sourcePolicy === [] ? null : $sourcePolicy,
             'advanced_settings' => isset($options['location']) ? ['location' => $options['location']] : null,
         ], static fn (mixed $value): bool => $value !== null), true, $enforcePostResponseDeadline);
@@ -323,25 +360,29 @@ final readonly class ParallelResearchDriver implements DefinesSpendingBound, Dur
             throw $this->transport->failure($response, true);
         }
 
-        return $this->result($request, $this->json($response), $runId, $processor);
+        return $this->result($request, $response, $runId, $processor);
     }
 
-    /** @param array<array-key, mixed> $json */
     private function result(
         DriverRequest|RecoveryRequest $request,
-        array $json,
+        Response $response,
         string $runId,
         string $processor,
     ): ResearchResult {
+        $json = $this->json($response);
         $run = $json['run'] ?? null;
         $output = $json['output'] ?? null;
+        $structured = is_array($request->profile->options['output_schema'] ?? null);
         if (! is_array($run) || array_is_list($run) || ! is_array($output) || array_is_list($output)
             || $this->runId($run['run_id'] ?? null) !== $runId
             || ($run['status'] ?? null) !== 'completed'
             || ($run['processor'] ?? null) !== $processor
-            || ($output['type'] ?? null) !== 'text'
-            || ! is_string($output['content'] ?? null) || trim($output['content']) === ''
+            || ($output['type'] ?? null) !== ($structured ? 'json' : 'text')
             || ! is_array($output['basis'] ?? null) || ! array_is_list($output['basis'])) {
+            throw $this->invalidResponse();
+        }
+        $content = $structured ? $this->structuredContent($response) : $output['content'] ?? null;
+        if (! $content instanceof stdClass && (! is_string($content) || trim($content) === '')) {
             throw $this->invalidResponse();
         }
 
@@ -349,8 +390,8 @@ final readonly class ParallelResearchDriver implements DefinesSpendingBound, Dur
         $now = CarbonImmutable::now();
 
         return TerminalRedaction::guard(ResearchResult::make(
-            contentFormat: ContentFormat::Markdown,
-            content: $output['content'],
+            contentFormat: $structured ? ContentFormat::Json : ContentFormat::Markdown,
+            content: $content,
             requestedProfile: $request->requestedProfile->id,
             provider: 'parallel',
             profile: 'parallel-research',
@@ -434,6 +475,21 @@ final readonly class ParallelResearchDriver implements DefinesSpendingBound, Dur
         }
 
         return [collect($citations), $basis];
+    }
+
+    /** Decodes JSON output as objects so the result keeps the provider's object and list shapes. */
+    private function structuredContent(Response $response): ?stdClass
+    {
+        try {
+            $decoded = json_decode($response->body(), false, 512, JSON_THROW_ON_ERROR | JSON_BIGINT_AS_STRING);
+        } catch (JsonException) {
+            return null;
+        }
+        $content = $decoded instanceof stdClass && ($decoded->output ?? null) instanceof stdClass
+            ? $decoded->output->content ?? null
+            : null;
+
+        return $content instanceof stdClass && get_object_vars($content) !== [] ? $content : null;
     }
 
     private function wait(DriverRequest $request): void

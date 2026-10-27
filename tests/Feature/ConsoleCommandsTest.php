@@ -4,537 +4,132 @@ declare(strict_types=1);
 
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Artisan;
-use Illuminate\Support\Facades\Exceptions;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
-use Jkudish\LaravelAiLibrarium\Console\Commands\LibrariumCommand;
-use Jkudish\LaravelAiLibrarium\Contracts\Librarium as LibrariumContract;
-use Jkudish\LaravelAiLibrarium\DurableOutcome;
+use Illuminate\Support\Sleep;
+use Illuminate\Support\Str;
 use Jkudish\LaravelAiLibrarium\Facades\Librarium;
-use Jkudish\LaravelAiLibrarium\PendingResearch;
-use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
-use Jkudish\LaravelAiLibrarium\Profiles\Enums\ObservationMode;
-use Jkudish\LaravelAiLibrarium\ResearchHandle;
-use Jkudish\LaravelAiLibrarium\ResearchPlan;
-use Jkudish\LaravelAiLibrarium\ResearchState;
-use Jkudish\LaravelAiLibrarium\ResearchStatus;
-use Jkudish\LaravelAiLibrarium\ResearchStatusStore;
-use Jkudish\LaravelAiLibrarium\Responses\Enums\Corpus;
-use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
-use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
-use Jkudish\LaravelAiLibrarium\Responses\ResearchResponse;
-use Jkudish\LaravelAiLibrarium\Tests\Support\FakeProfileDriver;
+use Jkudish\LaravelAiLibrarium\Jobs\RunResearch;
+use Jkudish\LaravelAiLibrarium\LibrariumManager;
+use Jkudish\LaravelAiLibrarium\Run;
+use Jkudish\LaravelAiLibrarium\Spec;
+use Jkudish\LaravelAiLibrarium\StoredRun;
+use Symfony\Component\Process\InputStream;
 use Symfony\Component\Process\Process;
 
 beforeEach(function (): void {
-    config()->set('librarium.default_group', 'quick');
-    config()->set('librarium.profiles', [
-        'eligible' => consoleProfileConfig('provider-a', '0.05'),
-        'backup' => consoleProfileConfig('provider-b', '0.02'),
-        'unavailable' => consoleProfileConfig('provider-c', '0.01', enabled: false),
-    ]);
-    config()->set('librarium.groups.custom:focused', ['eligible', 'unavailable']);
-    config()->set('librarium.groups.custom:quick-test', ['eligible', 'unavailable']);
-    config()->set('librarium.default_group', 'custom:quick-test');
+    config(['librarium.runs.store' => 'memory', 'services.firecrawl.key' => 'placeholder']);
 });
 
-it('shows an interactive compiled preview and allows exiting without dispatch', function (): void {
-    $fake = Librarium::fake()->preventStrayQueries();
-
-    $this->artisan('librarium:query', ['query' => 'Compare research tools.'])
-        ->expectsQuestion('How should Librarium select Profiles?', 'profile:eligible')
-        ->expectsQuestion('Add safeguards (optional)', [])
-        ->expectsPromptsInfo('Compiled research preview')
-        ->expectsOutputToContain('eligible')
-        ->expectsOutputToContain('Conservative pre-dispatch estimate: $0.05')
-        ->expectsQuestion('What would you like to do?', 'exit')
-        ->expectsPromptsOutro('No research was dispatched.')
-        ->assertSuccessful();
-
-    $fake->assertNeverQueried()->assertNeverQueued();
-});
-
-it('dispatches an explicit interactive run after preview without asking again', function (): void {
-    $fake = Librarium::fake([consoleResponse('markdown-success.json')])->preventStrayQueries();
-
-    $this->artisan('librarium:query', [
-        'query' => 'Run after preview.',
-        '--profile' => ['eligible'],
-        '--run' => true,
-    ])
-        ->expectsQuestion('Add safeguards (optional)', [])
-        ->expectsPromptsInfo('Compiled research preview')
-        ->expectsOutputToContain('Result')
-        ->doesntExpectOutputToContain('# Result')
-        ->assertSuccessful();
-
-    expect($fake->queries())->toHaveCount(1)
-        ->and($fake->queuedQueries())->toBeEmpty();
-});
-
-it('runs by default when the interactive action menu is accepted', function (): void {
-    $fake = Librarium::fake([consoleResponse('markdown-success.json')])->preventStrayQueries();
-
-    $this->artisan('librarium:query', [
-        'query' => 'Run from the action menu.',
-        '--profile' => ['eligible'],
-    ])
-        ->expectsQuestion('Add safeguards (optional)', [])
-        ->expectsPromptsInfo('Compiled research preview')
-        ->expectsQuestion('What would you like to do?', 'run')
-        ->assertSuccessful();
-
-    expect($fake->queries())->toHaveCount(1)
-        ->and($fake->queuedQueries())->toBeEmpty();
-});
-
-it('summarizes unavailable Profiles in one compact neutral note', function (): void {
-    $fake = Librarium::fake()->preventStrayQueries();
-
-    $this->artisan('librarium:query', ['query' => 'Summarize availability.'])
-        ->expectsQuestion('How should Librarium select Profiles?', 'default')
-        ->expectsQuestion('Add safeguards (optional)', [])
-        ->expectsOutputToContain('Unavailable Profiles (1): unavailable — profile is disabled.')
-        ->doesntExpectOutputToContain('Preview notes:')
-        ->expectsQuestion('What would you like to do?', 'exit')
-        ->assertSuccessful();
-
-    $fake->assertNeverQueried()->assertNeverQueued();
-});
-
-it('suggests a verified conservative quote for the maximum-cost preflight check', function (): void {
-    $fake = Librarium::fake()->preventStrayQueries();
-
-    $this->artisan('librarium:query', [
-        'query' => 'Set a useful ceiling.',
-        '--profile' => ['eligible'],
-    ])
-        ->expectsQuestion('Add safeguards (optional)', ['max_cost'])
-        ->expectsPromptsInfo('Compiled research preview')
-        ->expectsOutputToContain('Conservative pre-dispatch estimate: $0.05')
-        ->expectsQuestion('Maximum quoted cost in USD', '0.05')
-        ->expectsOutputToContain('Maximum quoted cost set to 0.05 USD; provider charges are not capped.')
-        ->expectsQuestion('What would you like to do?', 'exit')
-        ->assertSuccessful();
-
-    $fake->assertNeverQueried()->assertNeverQueued();
-});
-
-it('stops safely when a requested maximum-cost preflight check is unavailable', function (): void {
-    config()->set('librarium.profiles.unknown', consoleProfileConfig('unknown-provider', '0.01'));
-    config()->set('ai-pricing.prices', []);
-    $fake = Librarium::fake()->preventStrayQueries();
-
-    $this->artisan('librarium:query', [
-        'query' => 'Do not invent a ceiling.',
-        '--profile' => ['unknown'],
-    ])
-        ->expectsQuestion('Add safeguards (optional)', ['max_cost'])
-        ->expectsOutputToContain('Estimated cost: unavailable')
-        ->expectsPromptsWarning("A conservative pre-dispatch estimate isn't available for this selection.")
-        ->expectsPromptsOutro('No research was dispatched.')
-        ->assertSuccessful();
-
-    $fake->assertNeverQueried()->assertNeverQueued();
-});
-
-it('returns a deterministic agent preview without dispatching', function (): void {
-    $fake = Librarium::fake()->preventStrayQueries();
-
-    $exit = Artisan::call('librarium:query', [
-        'query' => 'Preview from automation.',
-        '--agent' => true,
-        '--profile' => ['eligible'],
-        '--fallback' => ['backup'],
-        '--timeout' => '120',
-        '--max-cost' => '0.10',
-        '--currency' => 'USD',
-    ]);
+it('prints schema-valid dry-run JSON without calls, storage or terminal formatting', function (): void {
+    $exit = Artisan::call('librarium:research', ['question' => 'q', '--only' => 'firecrawl', '--dry-run' => true, '--json' => true]);
     $output = Artisan::output();
-    $decoded = json_decode($output, true, 512, JSON_THROW_ON_ERROR);
-
-    expect($exit)->toBe(0)
-        ->and($output)->not->toContain("\e[")
-        ->and($decoded)->toMatchArray([
-            'schema_version' => 1,
-            'type' => 'preview',
-            'query' => 'Preview from automation.',
-            'profiles' => ['eligible'],
-            'fallbacks' => ['backup'],
-            'unavailable' => [],
-            'warnings' => [],
-            'cost' => ['amount' => '0.07', 'currency' => 'USD', 'complete' => true],
-        ])
-        ->and($decoded['pricing']['schema_version'])->toBe(1)
-        ->and($decoded['pricing']['status'])->toBe('complete')
-        ->and($decoded['pricing']['known_subtotals'])->toBe([['amount' => '0.07', 'currency' => 'USD']])
-        ->and($decoded['pricing']['preflight_cost_check_available'])->toBeTrue()
-        // Deprecated alias remains equivalent for existing consumers.
-        ->and($decoded['pricing']['hard_ceiling_available'])->toBeTrue()
-        ->and($decoded['pricing']['quotes'])->toHaveCount(2)
-        ->and($decoded['pricing']['quotes'][0])->toMatchArray([
-            'profile' => 'eligible',
-            'role' => 'primary',
-            'reachable_from' => ['eligible'],
-            'maximum_invocations' => 1,
-            'identity' => ['provider' => 'provider-a', 'model' => 'test-model'],
-            'usage' => ['requests' => '1'],
-            'conservative_usage_bound' => true,
-            'freshness' => ['status' => 'current', 'retrieved_at' => null],
-        ])
-        ->and($decoded['pricing']['quotes'][0]['quote'])->toMatchArray([
-            'completeness' => 'complete',
-            'cost' => ['amount' => '0.05', 'currency' => 'USD'],
-            'source' => 'configured',
-            'missing_units' => [],
-        ])
-        ->and($decoded['pricing']['quotes'][1])->toMatchArray([
-            'profile' => 'backup',
-            'role' => 'fallback',
-            'reachable_from' => ['eligible'],
-            'maximum_invocations' => 1,
-            'identity' => ['provider' => 'provider-b', 'model' => 'test-model'],
-            'usage' => ['requests' => '1'],
-            'conservative_usage_bound' => true,
-            'freshness' => ['status' => 'current', 'retrieved_at' => null],
-        ])
-        ->and($decoded['pricing']['quotes'][1]['quote'])->toMatchArray([
-            'completeness' => 'complete',
-            'cost' => ['amount' => '0.02', 'currency' => 'USD'],
-            'source' => 'configured',
-            'missing_units' => [],
-        ]);
-
-    $fake->assertNeverQueried()->assertNeverQueued();
-});
-
-it('runs in agent mode and prints only the public response representation', function (string $fixture, int $expectedExit): void {
-    $response = consoleResponse($fixture);
-    $fake = Librarium::fake([$response])->preventStrayQueries();
-
-    $exit = Artisan::call('librarium:query', [
-        'query' => 'Automated run.',
-        '--agent' => true,
-        '--profile' => ['eligible'],
-        '--run' => true,
-    ]);
-
-    expect($exit)->toBe($expectedExit)
-        ->and(json_decode(Artisan::output(), true, 512, JSON_THROW_ON_ERROR))->toBe($response->toArray())
-        ->and($fake->queries())->toHaveCount(1)
-        ->and($fake->queuedQueries())->toBeEmpty();
-})->with([
-    'succeeded' => ['markdown-success.json', 0],
-    'partial' => ['partial-top-level-usage.json', LibrariumCommand::EXIT_PARTIAL],
-    'failed' => ['failed.json', LibrariumCommand::EXIT_RESEARCH_FAILED],
-]);
-
-it('queues in agent mode with a minimal envelope', function (): void {
-    $fake = Librarium::fake()->preventStrayQueries();
-
-    $exit = Artisan::call('librarium:query', [
-        'query' => 'Automated queue.',
-        '--agent' => true,
-        '--group' => 'custom:focused',
-        '--queue' => true,
-    ]);
-    $output = json_decode(Artisan::output(), true, 512, JSON_THROW_ON_ERROR);
-
-    expect($exit)->toBe(0)
-        ->and($output)->toMatchArray(['schema_version' => 1, 'type' => 'queued'])
-        ->and($output['request_id'])->toBeString()->not->toBeEmpty()
-        ->and($fake->queries())->toBeEmpty()
-        ->and($fake->queuedQueries())->toHaveCount(1)
-        ->and($fake->queuedQueries()->sole(fn (ResearchPlan $plan): bool => $plan->preview->profiles->pluck('id')->all() === ['eligible']))->toBeInstanceOf(ResearchPlan::class);
-});
-
-it('rejects conflicting and malformed query options before dispatch', function (array $arguments): void {
-    $fake = Librarium::fake()->preventStrayQueries();
-
-    $exit = Artisan::call('librarium:query', [
-        'query' => 'Invalid automation request.',
-        '--agent' => true,
-        ...$arguments,
-    ]);
-
-    expect($exit)->toBe(LibrariumCommand::EXIT_INVALID)
-        ->and(Artisan::output())->toBe('');
-
-    $fake->assertNeverQueried()->assertNeverQueued();
-})->with([
-    'selector conflict' => [['--profile' => ['eligible'], '--group' => 'all']],
-    'action conflict' => [['--run' => true, '--queue' => true]],
-    'malformed timeout' => [['--profile' => ['eligible'], '--timeout' => '12seconds', '--run' => true]],
-    'currency without cost' => [['--profile' => ['eligible'], '--currency' => 'CAD']],
-    'duplicate profiles' => [['--profile' => ['eligible', 'eligible'], '--run' => true]],
-    'unavailable profile' => [['--profile' => ['unavailable'], '--run' => true]],
-]);
-
-it('requires a query in no-interaction mode without implying JSON', function (): void {
-    $fake = Librarium::fake()->preventStrayQueries();
-
-    $missingExit = Artisan::call('librarium:query', ['--no-interaction' => true]);
-
-    expect($missingExit)->toBe(LibrariumCommand::EXIT_INVALID)
-        ->and(Artisan::output())->toContain('query argument is required');
-
-    $fake->assertNeverQueried()->assertNeverQueued();
-});
-
-it('uses human preview output in strict no-interaction mode', function (): void {
-    $fake = Librarium::fake()->preventStrayQueries();
-
-    $this->artisan('librarium:query', [
-        'query' => 'Plain automation preview.',
-        '--no-interaction' => true,
-        '--profile' => ['eligible'],
-    ])
-        ->expectsOutputToContain('Research preview')
-        ->expectsOutputToContain('No research was dispatched.')
-        ->assertSuccessful();
-
-    $fake->assertNeverQueried()->assertNeverQueued();
-});
-
-it('shows a human preview before an explicit no-interaction run', function (): void {
-    $fake = Librarium::fake([consoleResponse('markdown-success.json')])->preventStrayQueries();
-
-    $this->artisan('librarium:query', [
-        'query' => 'Plain automated run.',
-        '--no-interaction' => true,
-        '--profile' => ['eligible'],
-        '--run' => true,
-    ])
-        ->expectsOutputToContain('Research preview')
-        ->expectsOutputToContain('Research succeeded.')
-        ->doesntExpectOutputToContain('No research was dispatched.')
-        ->assertSuccessful();
-
-    expect($fake->queries())->toHaveCount(1)
-        ->and($fake->queuedQueries())->toBeEmpty();
-});
-
-it('fails a real non-tty interactive invocation rather than waiting for input', function (): void {
-    $process = new Process([PHP_BINARY, 'vendor/bin/testbench', 'librarium:query'], dirname(__DIR__, 2));
-    $process->setEnv(['APP_ENV' => 'local']);
-    $process->setInput('');
-    $process->setTimeout(10);
-    $process->run();
-
-    expect($process->getExitCode())->toBe(LibrariumCommand::EXIT_INVALID)
-        ->and($process->getOutput().$process->getErrorOutput())->toContain('non-interactive query requires --agent or --no-interaction');
-});
-
-it('keeps real agent validation stdout empty and stderr bounded and secret-safe', function (): void {
-    $secretQuery = 'do-not-echo-this-query-secret';
-    $process = new Process([
-        PHP_BINARY,
-        'vendor/bin/testbench',
-        'librarium:query',
-        $secretQuery,
-        '--agent',
-        '--profile=gemini-grounded',
-        '--group=all',
-    ], dirname(__DIR__, 2));
-    $process->setEnv(['APP_ENV' => 'local']);
-    $process->setTimeout(10);
-    $process->run();
-
-    expect($process->getExitCode())->toBe(LibrariumCommand::EXIT_INVALID)
-        ->and($process->getOutput())->toBe('')
-        ->and($process->getErrorOutput())->toContain('--profile and --group cannot be combined.')
-        ->and($process->getErrorOutput())->not->toContain($secretQuery)
-        ->and($process->getErrorOutput())->not->toContain("\e[")
-        ->and(mb_strlen($process->getErrorOutput()))->toBeLessThanOrEqual(501);
-});
-
-it('reports unexpected failures internally without exposing them to the operator', function (): void {
-    $secret = 'unexpected-sensitive-detail';
-    Exceptions::fake();
-    app()->instance(LibrariumContract::class, new class($secret) implements LibrariumContract
-    {
-        public function __construct(private readonly string $message) {}
-
-        public function query(string $input): PendingResearch
-        {
-            throw new RuntimeException($this->message);
-        }
-
-        public function retrieve(ResearchHandle $handle, bool $capture = true): DurableOutcome
-        {
-            throw new RuntimeException($this->message);
-        }
-
-        public function status(string $requestId): ?ResearchStatus
-        {
-            return null;
-        }
-    });
-
-    $this->artisan('librarium:query', [
-        'query' => 'Fail safely.',
-        '--no-interaction' => true,
-    ])
-        ->expectsOutputToContain('The Librarium command could not be completed.')
-        ->doesntExpectOutputToContain($secret)
-        ->assertFailed();
-
-    Exceptions::assertReported(
-        fn (RuntimeException $exception): bool => $exception->getMessage() === $secret,
-    );
-});
-
-it('reports status in human mode', function (): void {
-    $status = new ResearchStatus(
-        ResearchState::Running,
-        'Waiting safely.',
-        CarbonImmutable::parse('2026-08-28T12:00:00Z'),
-    );
-    app(ResearchStatusStore::class)->put('request-123', $status);
-
-    $this->artisan('librarium:status')
-        ->expectsQuestion('Request ID', 'request-123')
-        ->expectsPromptsInfo('Librarium request request-123')
-        ->expectsOutputToContain('Waiting safely.')
-        ->assertSuccessful();
-});
-
-it('reports status in agent mode', function (): void {
-    $status = new ResearchStatus(
-        ResearchState::Running,
-        'Waiting safely.',
-        CarbonImmutable::parse('2026-08-28T12:00:00Z'),
-    );
-    app(ResearchStatusStore::class)->put('request-123', $status);
-
-    $exit = Artisan::call('librarium:status', ['requestId' => 'request-123', '--agent' => true]);
-    $output = json_decode(Artisan::output(), true, 512, JSON_THROW_ON_ERROR);
-
-    expect($exit)->toBe(0)
-        ->and($output)->toBe([
-            'schema_version' => 1,
-            'type' => 'status',
-            'request_id' => 'request-123',
-            'status' => $status->toArray(),
-        ]);
-});
-
-it('uses a stable exit when agent status is missing', function (): void {
-    $exit = Artisan::call('librarium:status', ['requestId' => 'missing', '--agent' => true]);
-
-    expect($exit)->toBe(LibrariumCommand::EXIT_NOT_FOUND)
-        ->and(Artisan::output())->toBe('');
-});
-
-it('does not echo a missing agent request ID to real stderr', function (): void {
-    $secretRequestId = 'do-not-echo-this-request-secret';
-    $process = new Process([
-        PHP_BINARY,
-        'vendor/bin/testbench',
-        'librarium:status',
-        $secretRequestId,
-        '--agent',
-    ], dirname(__DIR__, 2));
-    $process->setEnv(['APP_ENV' => 'local']);
-    $process->setTimeout(10);
-    $process->run();
-
-    expect($process->getExitCode())->toBe(LibrariumCommand::EXIT_NOT_FOUND)
-        ->and($process->getOutput())->toBe('')
-        ->and($process->getErrorOutput())->toBe("No status was found for that request.\n")
-        ->and($process->getErrorOutput())->not->toContain($secretRequestId);
-});
-
-it('lists eligible and unavailable profiles without exposing secret-bearing config', function (): void {
-    $secret = 'super-secret-profile-credential';
-    config()->set('librarium.profiles.eligible.credential', $secret);
-    config()->set('librarium.profiles.unavailable.credential', null);
-
-    $exit = Artisan::call('librarium:profiles', ['--agent' => true]);
-    $json = Artisan::output();
-    $output = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
-
-    expect($exit)->toBe(0)
-        ->and($json)->not->toContain($secret)
-        ->and($output['type'])->toBe('profiles')
-        ->and($output['profiles'][0])->toMatchArray([
-            'id' => 'eligible',
-            'provider' => 'provider-a',
-            'eligible' => true,
-            'reasons' => [],
-        ])
-        ->and($output['profiles'][2])->toMatchArray([
-            'id' => 'unavailable',
-            'eligible' => false,
-        ]);
-});
-
-it('lists unavailable profiles safely in human mode', function (): void {
-    $secret = 'super-secret-profile-credential';
-    config()->set('librarium.profiles.eligible.credential', $secret);
-    config()->set('librarium.profiles.unavailable.credential', null);
-
-    $this->artisan('librarium:profiles')
-        ->doesntExpectOutputToContain($secret)
-        ->expectsOutputToContain('Credential is not configured.')
-        ->assertSuccessful();
-});
-
-it('fails safely when no profiles are eligible and never reaches a provider', function (): void {
-    config()->set('librarium.profiles.eligible.enabled', false);
-    config()->set('librarium.profiles.backup.enabled', false);
-    $fake = Librarium::fake()->preventStrayQueries();
-
-    $this->artisan('librarium:query', ['query' => 'No available profile.'])
-        ->expectsOutputToContain('No eligible Profiles are configured.')
-        ->assertExitCode(LibrariumCommand::EXIT_INVALID);
-
+    $run = Run::fromArray(json_decode($output, true, 512, JSON_THROW_ON_ERROR));
+    expect($exit)->toBe(0)->and($run->status())->toBe('planned')->and(Librarium::find($run->id()))->toBeNull()->and($output)->not->toContain("\e[");
     Http::assertNothingSent();
-    $fake->assertNeverQueried()->assertNeverQueued();
 });
 
-function consoleResponse(string $fixture): ResearchResponse
-{
-    $value = json_decode(
-        File::get(__DIR__.'/../Support/Contracts/v1/fixtures/valid/'.$fixture),
-        true,
-        512,
-        JSON_THROW_ON_ERROR,
-    );
+it('waits with per-source progress and prints the recovered report', function (): void {
+    Sleep::fake();
+    Http::fake([
+        'https://api.openai.com/v1/responses' => Http::response(['id' => 'resp_cli_4957', 'status' => 'queued']),
+        'https://api.openai.com/v1/responses/resp_cli_4957' => Http::response([
+            'id' => 'resp_cli_4957', 'status' => 'completed', 'model' => 'gpt-6.1-sol',
+            'output' => [
+                ['type' => 'web_search_call', 'status' => 'completed', 'action' => ['type' => 'search']],
+                ['type' => 'message', 'content' => [['type' => 'output_text', 'text' => 'CLI recovered report.', 'annotations' => [
+                    ['type' => 'url_citation', 'url' => 'https://example.org/report', 'title' => 'Report'],
+                ]]]],
+            ],
+        ]),
+    ]);
+    expect(Artisan::call('librarium:research', ['question' => 'q', '--deep' => true, '--only' => 'openai']))->toBe(0)
+        ->and(Artisan::output())->toContain('Ctrl-C detaches', 'openai: running', 'openai: done', 'CLI recovered report.')
+        ->not->toContain('testing-openai-key', 'resp_cli_4957');
+    Http::assertSentCount(2);
+});
 
-    if (! is_array($value)) {
-        throw new RuntimeException('The response fixture must decode to an array.');
+it('detaches on a real SIGINT at a locked read or ordinary sleep and resumes without resubmitting', function (string $mode): void {
+    if (! extension_loaded('pcntl') || ! is_dir('/proc/self')) {
+        $this->markTestSkipped('The real signal proof requires Linux and pcntl.');
     }
+    $root = sys_get_temp_dir().'/librarium-signal-'.Str::uuid();
+    File::makeDirectory($root);
+    $script = dirname(__DIR__).'/Support/console-signal.php';
+    $input = new InputStream;
+    $process = new Process([PHP_BINARY, $script, $root, $mode]);
+    $process->setInput($input);
+    $process->setTimeout(20);
+    $process->start();
+    try {
+        $barrier = $mode === 'locked-read' ? 'locked-read' : 'awaiting-sleep';
+        expect($process->waitUntil(fn (string $type, string $output): bool => str_contains($output, $barrier)))->toBeTrue();
+        if ($mode === 'sleep') {
+            $deadline = microtime(true) + 10;
+            do {
+                $channel = @file_get_contents('/proc/'.$process->getPid().'/wchan');
+                clearstatcache();
+                $sleeping = is_string($channel) && str_contains($channel, 'nanosleep') && File::glob($root.'/runs/*/run.json.lock') === [];
+                if (! $sleeping) {
+                    usleep(1000);
+                }
+            } while (! $sleeping && microtime(true) < $deadline && $process->isRunning());
+            expect($sleeping)->toBeTrue();
+        }
+        $process->signal(SIGINT);
+        $input->write("continue\n");
+        $input->close();
+        expect($process->wait())->toBe(130);
+        $pending = Run::fromArray(json_decode($process->getOutput(), true, 512, JSON_THROW_ON_ERROR));
+        expect($pending->status())->toBe('running')->and($pending->result('openai')['status'])->toBe('running')
+            ->and(File::glob($root.'/runs/*/run.json.lock'))->toBeEmpty();
+        $resume = new Process([PHP_BINARY, $script, $root, 'resume', $pending->id()]);
+        $resume->setTimeout(15);
+        expect($resume->run())->toBe(0);
+        $done = Run::fromArray(json_decode($resume->getOutput(), true, 512, JSON_THROW_ON_ERROR));
+        expect($done->status())->toBe('done')->and($done->result('openai')['answer'])->toBe('Recovered after real SIGINT.');
+        $requests = explode("\n", trim(File::get($root.'/requests.log')));
+        expect($requests)->toBe(['POST', 'GET', 'GET'])
+            ->and($process->getOutput().$process->getErrorOutput().$resume->getOutput().$resume->getErrorOutput())->not->toContain('dummy-offline-key', 'resp_signal_proof');
+    } finally {
+        $process->stop();
+        File::deleteDirectory($root);
+    }
+})->with(['locked-read', 'sleep']);
 
-    return ResearchResponse::fromArray($value);
-}
+it('queues one job, shows the stored Run and lists sources without secrets', function (): void {
+    Bus::fake();
+    expect(Artisan::call('librarium:research', ['question' => 'q', '--deep' => true, '--only' => 'openai', '--no-wait' => true, '--json' => true]))->toBe(0);
+    $queued = json_decode(Artisan::output(), true, 512, JSON_THROW_ON_ERROR);
+    expect($queued['status'])->toBe('running');
+    Bus::assertDispatchedTimes(RunResearch::class, 1);
+    expect(Artisan::call('librarium:show', ['id' => $queued['id'], '--json' => true]))->toBe(0);
+    expect(json_decode(Artisan::output(), true, 512, JSON_THROW_ON_ERROR)['id'])->toBe($queued['id']);
+    expect(Artisan::call('librarium:sources', ['--json' => true]))->toBe(0);
+    $output = Artisan::output();
+    expect(json_decode($output, true, 512, JSON_THROW_ON_ERROR)['sources'])->toHaveCount(16)->and($output)->not->toContain('testing-openai-key', 'placeholder');
+    Http::assertNothingSent();
+});
 
-/** @return array<string, mixed> */
-function consoleProfileConfig(string $provider, string $cost, bool $enabled = true): array
-{
-    $prices = config('ai-pricing.prices', []);
-    $prices["{$provider}:test-model"] = [
-        'requests' => ['amount' => $cost, 'currency' => 'USD'],
-    ];
-    config()->set('ai-pricing.prices', $prices);
+it('returns stable failure exits and keeps real JSON stderr secret-safe', function (): void {
+    expect(Artisan::call('librarium:show', ['id' => 'run_01JAB2C3D4E5F6G7H8J9K0M1N2', '--json' => true]))->toBe(3)->and(Artisan::output())->toBe('');
+    $process = new Process([PHP_BINARY, 'vendor/bin/testbench', 'librarium:research', 'secret-question', '--only=unknown', '--json', '--dry-run'], dirname(__DIR__, 2));
+    $process->setTimeout(15);
+    $process->run();
+    expect($process->getExitCode())->toBe(2)->and($process->getOutput())->toBe('')->and($process->getErrorOutput())->toContain('unknown_name')->not->toContain('secret-question', "\e[");
+});
 
-    return [
-        'driver' => FakeProfileDriver::class,
-        'provider' => $provider,
-        'model' => 'test-model',
-        'result_kind' => ResultKind::GroundedAnswer->value,
-        'grounding' => GroundingPolicy::Required->value,
-        'observation' => ObservationMode::ApiOutput->value,
-        'corpora' => [Corpus::Web->value],
-        'retrieval_methods' => [RetrievalMethod::ModelSearchTool->value],
-        'prompt' => 'Research carefully: {{ query }}',
-        'enabled' => $enabled,
-        'options' => ['temperature' => 0.2],
-        'pricing' => [
-            'provider' => $provider,
-            'model' => 'test-model',
-            'usage' => ['requests' => 1],
-            'conservative' => true,
-        ],
-    ];
-}
+it('prunes old Runs over several pages without deleting newer Runs', function (): void {
+    config(['librarium.runs.keep_days' => 7]);
+    $fixture = Spec::read('fixtures/runs/valid/summary-run.json');
+    $store = app(LibrariumManager::class)->store();
+    $now = CarbonImmutable::now();
+    for ($i = 0; $i < 52; $i++) {
+        $fixture['id'] = 'run_'.Str::ulid();
+        $fixture['created_at'] = $now->subDays($i < 51 ? 30 : 1)->toIso8601ZuluString();
+        $fixture['finished_at'] = $fixture['created_at'];
+        $store->save(new StoredRun(Run::fromArray($fixture)), null);
+    }
+    expect(Artisan::call('librarium:prune', ['--json' => true]))->toBe(0)->and(json_decode(Artisan::output(), true)['deleted'])->toBe(51)->and($store->list())->toHaveCount(1);
+});

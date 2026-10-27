@@ -10,7 +10,6 @@ use Illuminate\Support\Facades\Http;
 use Jkudish\LaravelAiLibrarium\Drivers\SerpApi\SerpApiDriver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
-use Jkudish\LaravelAiLibrarium\Facades\Librarium;
 use Jkudish\LaravelAiLibrarium\Profile;
 use Jkudish\LaravelAiLibrarium\ProfileCatalog;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
@@ -276,10 +275,9 @@ it('meters one successful search and leaves pricing unavailable without an opera
         ->and($profile?->pricingUsage?->toArray())->toBe(['successful_search_request' => '1'])
         ->and($profile?->pricingUsageConservative)->toBeTrue();
 
-    $unconfigured = Librarium::query('pricing')->using('serpapi')->preview();
-    expect($unconfigured->pricingStatus)->toBe('unavailable')
-        ->and($unconfigured->preflightCostCheckAvailable)->toBeFalse()
-        ->and($unconfigured->knownCostSubtotals)->toBeEmpty();
+    $unconfigured = variantQuote('serpapi');
+    expect($unconfigured->completeness->value)->toBe('unavailable')
+        ->and($unconfigured->cost)->toBeNull();
 
     Http::assertNothingSent();
 });
@@ -290,10 +288,10 @@ it('quotes the metered search only from an operator-configured rate', function (
     ]);
     configureSerpApiProfile();
 
-    $configured = Librarium::query('pricing')->using('serpapi')->preview();
-    expect($configured->pricingStatus)->toBe('complete')
-        ->and($configured->maximumEstimatedCost)->toBe('0.00625')
-        ->and($configured->pricingQuotes->sole()['quote']->source->value)->toBe('configured');
+    $configured = variantQuote('serpapi');
+    expect($configured->completeness->value)->toBe('complete')
+        ->and((string) $configured->cost->amount)->toBe('0.00625')
+        ->and($configured->source->value)->toBe('configured');
 
     Http::assertNothingSent();
 });

@@ -34,7 +34,7 @@ afterEach(function (): void {
     CarbonImmutable::setTestNow();
 });
 
-it('sends the exact deadline-bounded streaming request with subscription token authentication', function (): void {
+it('sends the exact deadline-bounded streaming request without allowing subscription token redirects', function (): void {
     Http::fake(function (Request $request, array $options) {
         expect($request->method())->toBe('POST')
             ->and($request->url())->toBe('https://api.search.brave.com/res/v1/chat/completions')
@@ -49,6 +49,7 @@ it('sends the exact deadline-bounded streaming request with subscription token a
             ])
             ->and($options['connect_timeout'])->toBe(2)
             ->and($options['timeout'])->toBe(2)
+            ->and($options['allow_redirects'] ?? null)->toBeFalse()
             ->and($options['stream'])->toBeTrue();
 
         return Http::response(braveSse(['Answer.', braveCitation()]));
