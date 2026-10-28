@@ -1,7 +1,6 @@
 # Laravel AI Librarium
 
 [![Packagist version](https://img.shields.io/packagist/v/jkudish/laravel-ai-librarium)](https://packagist.org/packages/jkudish/laravel-ai-librarium)
-[![Packagist downloads](https://img.shields.io/packagist/dt/jkudish/laravel-ai-librarium)](https://packagist.org/packages/jkudish/laravel-ai-librarium)
 [![PHP version](https://img.shields.io/packagist/dependency-v/jkudish/laravel-ai-librarium/php)](composer.json)
 [![License: MIT](https://img.shields.io/packagist/l/jkudish/laravel-ai-librarium?color=blue)](LICENSE.md)
 
