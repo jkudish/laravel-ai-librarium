@@ -67,6 +67,24 @@ final readonly class Citation implements JsonSerializable
     /** @param array<array-key, mixed> $value */
     private static function validate(array $value): void
     {
+        // The usual citation needs no Validator allocation. Its Source still
+        // validates independently; noncanonical values retain Laravel's errors.
+        if (array_diff(array_keys($value), ['id', 'derivation', 'source', 'excerpt', 'locator']) === []
+            && is_string($value['id'] ?? null) && mb_strlen($value['id']) <= 255
+            && preg_match(OpaqueIdentifier::PATTERN, $value['id']) === 1
+            && is_string($value['derivation'] ?? null) && CitationDerivation::tryFrom($value['derivation']) !== null
+            && is_array($value['source'] ?? null) && $value['source'] !== []) {
+            $strings = true;
+            foreach (['excerpt', 'locator'] as $field) {
+                if (array_key_exists($field, $value) && (! is_string($value[$field]) || trim($value[$field]) === '')) {
+                    $strings = false;
+                }
+            }
+            if ($strings) {
+                return;
+            }
+        }
+
         $validator = Validator::make($value, [
             'id' => ['bail', 'required', 'string', 'min:1', 'max:255', 'regex:'.OpaqueIdentifier::PATTERN],
             'derivation' => ['bail', 'required', 'string', Rule::enum(CitationDerivation::class)],
