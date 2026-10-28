@@ -1,5 +1,14 @@
 # Laravel AI Librarium
 
+[![Packagist version](https://img.shields.io/packagist/v/jkudish/laravel-ai-librarium)](https://packagist.org/packages/jkudish/laravel-ai-librarium)
+[![Packagist downloads](https://img.shields.io/packagist/dt/jkudish/laravel-ai-librarium)](https://packagist.org/packages/jkudish/laravel-ai-librarium)
+[![PHP version](https://img.shields.io/packagist/dependency-v/jkudish/laravel-ai-librarium/php)](composer.json)
+[![License: MIT](https://img.shields.io/packagist/l/jkudish/laravel-ai-librarium?color=blue)](LICENSE.md)
+
+<p align="center">
+  <img src=".github/librarium-banner.png" alt="librarium: Give your agent more than one source." />
+</p>
+
 Laravel AI Librarium sends one research question to the search APIs, research APIs, and AI answer engines you configure, then stores the answers, citations, and costs as a Run.
 
 It is built on the official [Laravel AI SDK](https://github.com/laravel/ai). Full documentation lives at [librarium.si/docs/php](https://librarium.si/docs/php).
@@ -75,7 +84,22 @@ A Run's status is `done` when every source succeeded, `partial` when some failed
 - [Librarium spec](https://github.com/jkudish/librarium-spec): the shared source catalog, Run schemas, and fixtures
 - [Changelog](CHANGELOG.md)
 
-Report bugs and ask questions in [GitHub issues](https://github.com/jkudish/laravel-ai-librarium/issues). See [CONTRIBUTING.md](CONTRIBUTING.md) to work on the package.
+Report bugs and ask questions in [GitHub issues](https://github.com/jkudish/laravel-ai-librarium/issues).
+
+## The Librarium family
+
+- [Librarium](https://github.com/jkudish/librarium): the JavaScript CLI, MCP server and library (`npm install -g librarium`).
+- [Laravel AI Librarium: Firecrawl](https://github.com/jkudish/laravel-ai-librarium-firecrawl): collects AI answer engine results for the Laravel package through Firecrawl browser sessions.
+- [librarium-spec](https://github.com/jkudish/librarium-spec): the shared Run schemas, source catalog and conformance fixtures.
+- [librarium.si](https://librarium.si): documentation for all of them.
+
+## Sponsoring
+
+If you find Laravel AI Librarium useful, consider becoming a [sponsor](https://github.com/sponsors/jkudish) or [donating](https://stripe.com/@jkudish).
+
+## Contributing and security
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) to work on the code. To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
 ## License
 
