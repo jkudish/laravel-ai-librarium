@@ -7,6 +7,7 @@ namespace Jkudish\LaravelAiLibrarium\Responses;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\MessageBag;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ContentFormat;
@@ -29,6 +30,8 @@ final class ResearchResult implements JsonSerializable
         'response',
         'value',
     ];
+
+    private const string TIMESTAMP_PATTERN = '/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$/';
 
     private ?string $completedAtWire = null;
 
@@ -135,6 +138,12 @@ final class ResearchResult implements JsonSerializable
     /** @param array<array-key, mixed> $value */
     private static function validate(array $value): void
     {
+        // Driver-produced results need no Validator allocation. Every other
+        // shape, including every failure, keeps Laravel's rules and error bags.
+        if (self::passesNatively($value)) {
+            return;
+        }
+
         $validationValue = $value;
         if (($validationValue['usage'] ?? null) instanceof stdClass) {
             $validationValue['usage'] = get_object_vars($validationValue['usage']);
@@ -150,7 +159,7 @@ final class ResearchResult implements JsonSerializable
             'provenance' => ['required', 'array'],
             'citations' => ['present', 'array', 'list'],
             'citations.*' => ['array'],
-            'completed_at' => ['required', 'string', 'regex:/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$/'],
+            'completed_at' => ['required', 'string', 'regex:'.self::TIMESTAMP_PATTERN],
             'model' => ['string', 'min:1'],
             'fallback_reason' => ['string', 'min:1'],
             'usage' => ['array'],
@@ -171,7 +180,7 @@ final class ResearchResult implements JsonSerializable
                 $validator->errors()->add('content', 'must be an object or array for JSON content.');
             }
             if ($format === ContentFormat::Json->value && (is_array($content) || $content instanceof stdClass)) {
-                self::validateJsonValue($content, $validator, 'content');
+                self::validateJsonValue($content, $validator->errors(), 'content');
             }
 
             if (is_string($value['completed_at'] ?? null)) {
@@ -186,11 +195,87 @@ final class ResearchResult implements JsonSerializable
             }
 
             if (array_key_exists('provider_meta', $value)) {
-                self::validateProviderMeta($value['provider_meta'], $validator);
+                self::validateProviderMeta($value['provider_meta'], $validator->errors());
             }
         });
 
         $validator->validate();
+    }
+
+    /**
+     * Accept only values that every Laravel rule and after callback below accepts.
+     *
+     * @param  array<array-key, mixed>  $value
+     */
+    private static function passesNatively(array $value): bool
+    {
+        if (array_diff(array_keys($value), ['id', 'content_format', 'content', 'requested_profile', 'provider', 'profile', 'provenance', 'citations', 'completed_at', 'model', 'fallback_reason', 'usage', 'provider_meta']) !== []
+            || ! is_string($value['id'] ?? null) || mb_strlen($value['id']) > 255
+            || preg_match(OpaqueIdentifier::PATTERN, $value['id']) !== 1
+            || ! is_string($value['content_format'] ?? null) || ($format = ContentFormat::tryFrom($value['content_format'])) === null
+            || ! array_key_exists('content', $value)
+            || ! is_array($value['provenance'] ?? null) || $value['provenance'] === []
+            || ! is_array($value['citations'] ?? null) || ! array_is_list($value['citations'])
+            || ! self::isUtcTimestamp($value['completed_at'] ?? null)) {
+            return false;
+        }
+
+        foreach ($value['citations'] as $citation) {
+            if (! is_array($citation)) {
+                return false;
+            }
+        }
+
+        foreach (['requested_profile', 'provider', 'profile'] as $field) {
+            if (! self::isNonBlankString($value[$field] ?? null)) {
+                return false;
+            }
+        }
+
+        foreach (['model', 'fallback_reason'] as $field) {
+            if (array_key_exists($field, $value) && ! self::isNonBlankString($value[$field])) {
+                return false;
+            }
+        }
+
+        if (array_key_exists('usage', $value) && ! is_array($value['usage']) && ! $value['usage'] instanceof stdClass) {
+            return false;
+        }
+
+        $errors = new MessageBag;
+        if ($format === ContentFormat::Json) {
+            if (! is_array($value['content']) && ! $value['content'] instanceof stdClass) {
+                return false;
+            }
+            self::validateJsonValue($value['content'], $errors, 'content');
+        } elseif (! is_string($value['content'])) {
+            return false;
+        }
+
+        if (array_key_exists('provider_meta', $value)) {
+            self::validateProviderMeta($value['provider_meta'], $errors);
+        }
+
+        return $errors->isEmpty();
+    }
+
+    /** Laravel skips non-implicit rules for blank strings, so blank values fall back. */
+    private static function isNonBlankString(mixed $value): bool
+    {
+        return is_string($value) && trim($value) !== '';
+    }
+
+    private static function isUtcTimestamp(mixed $value): bool
+    {
+        if (! is_string($value) || preg_match(self::TIMESTAMP_PATTERN, $value) !== 1) {
+            return false;
+        }
+
+        try {
+            return CarbonImmutable::parse($value)->format('Y-m-d\\TH:i:s') === substr($value, 0, 19);
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     /** @param array<array-key, mixed> $value */
@@ -297,38 +382,38 @@ final class ResearchResult implements JsonSerializable
         return self::normalizeJsonObject((object) $metadata);
     }
 
-    private static function validateProviderMeta(mixed $metadata, \Illuminate\Validation\Validator $validator): void
+    private static function validateProviderMeta(mixed $metadata, MessageBag $errors): void
     {
         if (! $metadata instanceof stdClass && (! is_array($metadata) || array_is_list($metadata))) {
-            $validator->errors()->add('provider_meta', 'must be an object.');
+            $errors->add('provider_meta', 'must be an object.');
 
             return;
         }
 
         foreach ($metadata instanceof stdClass ? get_object_vars($metadata) : $metadata as $key => $_value) {
             if ((string) $key === '') {
-                $validator->errors()->add('provider_meta', 'property names must not be empty.');
+                $errors->add('provider_meta', 'property names must not be empty.');
 
                 return;
             }
         }
 
-        self::validateJsonValue($metadata, $validator, 'provider_meta', true);
+        self::validateJsonValue($metadata, $errors, 'provider_meta', true);
     }
 
-    private static function validateJsonValue(mixed $value, \Illuminate\Validation\Validator $validator, string $path, bool $inspectMetadataKeys = false): void
+    private static function validateJsonValue(mixed $value, MessageBag $errors, string $path, bool $inspectMetadataKeys = false): void
     {
         try {
             json_encode($value, JSON_THROW_ON_ERROR);
         } catch (\JsonException) {
-            $validator->errors()->add($path, 'must be JSON-safe.');
+            $errors->add($path, 'must be JSON-safe.');
 
             return;
         }
 
-        $walk = static function (mixed $value, string $path) use (&$walk, $inspectMetadataKeys, $validator): void {
+        $walk = static function (mixed $value, string $path) use (&$walk, $inspectMetadataKeys, $errors): void {
             if (is_resource($value) || (is_object($value) && ! $value instanceof stdClass) || (is_float($value) && ! is_finite($value))) {
-                $validator->errors()->add($path, 'must be JSON-safe.');
+                $errors->add($path, 'must be JSON-safe.');
 
                 return;
             }
@@ -345,7 +430,7 @@ final class ResearchResult implements JsonSerializable
             foreach ($entries as $key => $nested) {
                 $keyString = (string) $key;
                 if ($inspectMetadataKeys && $isObject && (self::isForbiddenMetadataKey($keyString) || self::isRawMetadataKey($keyString) || self::isCompleteRawContainer($keyString, $nested))) {
-                    $validator->errors()->add($path.'.'.$keyString, 'must not include credentials or raw provider data.');
+                    $errors->add($path.'.'.$keyString, 'must not include credentials or raw provider data.');
 
                     return;
                 }

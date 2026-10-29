@@ -131,6 +131,84 @@ it('round trips URL citation lists with bounded validator allocations and still 
     expect(fn (): ResearchResponse => ResearchResponse::fromArray($fixture))->toThrow(ValidationException::class);
 });
 
+it('hydrates and serializes canonical driver responses without allocating a Laravel Validator', function (string $fixtureName, ?Closure $change = null): void {
+    $fixture = responseFixture("valid/{$fixtureName}");
+    if ($change !== null) {
+        $fixture = $change($fixture);
+    }
+    $allocations = 0;
+    Validator::resolver(static function ($translator, $data, $rules, $messages, $attributes) use (&$allocations): Illuminate\Validation\Validator {
+        $allocations++;
+
+        return new Illuminate\Validation\Validator($translator, $data, $rules, $messages, $attributes);
+    });
+
+    $response = ResearchResponse::fromArray($fixture);
+
+    expect(json_encode($response, JSON_THROW_ON_ERROR))->toBe(json_encode($fixture, JSON_THROW_ON_ERROR))
+        // Stored-answer reads hydrate thousands of these (Agentsy Flare 9525527).
+        ->and($allocations)->toBe(0);
+})->with([
+    'markdown result' => ['markdown-success.json'],
+    'text result' => ['php-text-success.json'],
+    'JSON object result' => ['json-object-success.json'],
+    'JSON array result' => ['json-array-success.json'],
+    'optional result values and usage' => ['optional-result-fields.json'],
+    'empty retrieval facts' => ['empty-retrieval-and-corpora.json'],
+    'closed enum coverage' => ['enum-branch-coverage.json'],
+    'provider metadata namespaces' => ['provider-meta-namespaces.json'],
+    'surface snapshot context' => ['surface-context-authentication-managed.json'],
+    'provider reference source' => ['provider-reference-source.json'],
+    'provider reference beside a URL' => ['markdown-success.json', static function (array $fixture): array {
+        $fixture['results'][0]['citations'][0]['source'] = ['kind' => 'web_page', 'url' => 'https://example.com/research', 'provider_reference' => 'pplx-1', 'title' => 'Research'];
+        $fixture['results'][0]['citations'][0]['excerpt'] = 'Quoted passage';
+        $fixture['results'][0]['citations'][0]['locator'] = '[1]';
+
+        return $fixture;
+    }],
+    'fractional timestamps' => ['markdown-success.json', static function (array $fixture): array {
+        $fixture['completed_at'] = '2026-08-09T12:00:02.1Z';
+        $fixture['results'][0]['completed_at'] = '2026-08-09T12:00:01.123456Z';
+        $fixture['results'][0]['provenance']['observed_at'] = '2026-08-09T12:00:00.123Z';
+
+        return $fixture;
+    }],
+]);
+
+it('keeps Laravel error bags at the native validation boundaries', function (string $fixtureName, Closure $change, array $errors): void {
+    $fixture = $change(responseFixture("valid/{$fixtureName}"));
+
+    try {
+        ResearchResponse::fromArray($fixture);
+    } catch (ValidationException $exception) {
+        expect($exception->errors())->toBe($errors);
+
+        return;
+    }
+
+    throw new LogicException('Expected the response to be rejected.');
+})->with([
+    'provider reference with invalid UTF-8' => ['provider-reference-source.json', static fn (array $fixture): array => data_set($fixture, 'results.0.citations.0.source.provider_reference', "ref-\xff"), ['provider_reference' => ['The provider reference field format is invalid.']]],
+    'provider reference over 255 characters' => ['provider-reference-source.json', static fn (array $fixture): array => data_set($fixture, 'results.0.citations.0.source.provider_reference', str_repeat('r', 256)), ['provider_reference' => ['The provider reference field must not be greater than 255 characters.']]],
+    'impossible observation date' => ['markdown-success.json', static fn (array $fixture): array => data_set($fixture, 'results.0.provenance.observed_at', '2026-02-30T00:00:00Z'), ['observed_at' => ['must be a valid UTC timestamp.']]],
+    'surface snapshot without surface collector retrieval' => ['surface-context-authentication-managed.json', static fn (array $fixture): array => data_set($fixture, 'results.0.provenance.retrieval_methods', ['model_search_tool']), ['retrieval_methods' => ['must include surface_collector for a surface snapshot.']]],
+    'surface snapshot without collector' => ['surface-context-authentication-managed.json', static function (array $fixture): array {
+        unset($fixture['results'][0]['provenance']['collector']);
+
+        return $fixture;
+    }, ['collector' => ['is required when a surface is present.', 'is required for a surface snapshot.']]],
+    'unknown context authentication' => ['surface-context-authentication-managed.json', static fn (array $fixture): array => data_set($fixture, 'results.0.provenance.context.authentication', 'logged_in'), ['context.authentication' => ['The selected context.authentication is invalid.']]],
+    'result completion hour 24' => ['markdown-success.json', static fn (array $fixture): array => data_set($fixture, 'results.0.completed_at', '2026-08-09T24:00:00Z'), ['completed_at' => ['must be a valid UTC timestamp.']]],
+    'result ID over 255 characters' => ['markdown-success.json', static fn (array $fixture): array => data_set($fixture, 'results.0.id', str_repeat('r', 256)), ['id' => ['The id field must not be greater than 255 characters.']]],
+    'blank result provider' => ['markdown-success.json', static fn (array $fixture): array => data_set($fixture, 'results.0.provider', ' '), ['provider' => ['The provider field is required.']]],
+    'uppercase generator' => ['markdown-success.json', static fn (array $fixture): array => data_set($fixture, 'generator', 'Jkudish/librarium'), ['generator' => ['The generator field format is invalid.']]],
+    'leading-zero generator version' => ['markdown-success.json', static fn (array $fixture): array => data_set($fixture, 'generator_version', '01.0.0'), ['generator_version' => ['The generator version field format is invalid.']]],
+    'response completion without fraction digits' => ['markdown-success.json', static fn (array $fixture): array => data_set($fixture, 'completed_at', '2026-08-09T12:00:02.Z'), ['completed_at' => ['The completed at field format is invalid.']]],
+    'numeric-string token count' => ['optional-result-fields.json', static fn (array $fixture): array => data_set($fixture, 'results.0.usage.prompt_tokens', '5'), ['prompt_tokens' => ['must be an integer.']]],
+    'token count above the JSON safe integer' => ['optional-result-fields.json', static fn (array $fixture): array => data_set($fixture, 'results.0.usage.prompt_tokens', 9007199254740992), ['prompt_tokens' => ['The prompt tokens field must not be greater than 9007199254740991.']]],
+    'cost with 19 decimal places' => ['partial-top-level-usage.json', static fn (array $fixture): array => data_set($fixture, 'usage.actual_cost', '1.0000000000000000001'), ['actual_cost' => ['The actual cost field format is invalid.']]],
+]);
+
 it('does not introduce an interchange mapper or terminal execution model', function (): void {
     $files = collect(File::allFiles(__DIR__.'/../../src/Responses'))
         ->map(static fn (SplFileInfo $file): string => $file->getFilenameWithoutExtension())

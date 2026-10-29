@@ -16,6 +16,12 @@ use stdClass;
 
 final class ResearchResponse implements JsonSerializable
 {
+    private const string GENERATOR_PATTERN = '/^(?:[a-z0-9][a-z0-9._-]*|@?[a-z0-9][a-z0-9._-]*\\/[a-z0-9][a-z0-9._-]*)$/';
+
+    private const string VERSION_PATTERN = '/^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-(?:0|[1-9]\\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9]\\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$/';
+
+    private const string TIMESTAMP_PATTERN = '/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$/';
+
     private ?string $completedAtWire = null;
 
     /**
@@ -100,17 +106,23 @@ final class ResearchResponse implements JsonSerializable
     /** @param array<array-key, mixed> $value */
     private static function validate(array $value): void
     {
+        // Driver-produced responses need no Validator allocation. Every other
+        // shape, including every failure, keeps Laravel's rules and error bags.
+        if (self::passesNatively($value)) {
+            return;
+        }
+
         $validationValue = $value;
         if (($validationValue['usage'] ?? null) instanceof stdClass) {
             $validationValue['usage'] = get_object_vars($validationValue['usage']);
         }
 
         $validator = Validator::make($validationValue, [
-            'generator' => ['bail', 'required', 'string', 'min:1', 'max:255', 'regex:/^(?:[a-z0-9][a-z0-9._-]*|@?[a-z0-9][a-z0-9._-]*\\/[a-z0-9][a-z0-9._-]*)$/'],
-            'generator_version' => ['bail', 'required', 'string', 'max:255', 'regex:/^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-(?:0|[1-9]\\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9]\\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$/'],
+            'generator' => ['bail', 'required', 'string', 'min:1', 'max:255', 'regex:'.self::GENERATOR_PATTERN],
+            'generator_version' => ['bail', 'required', 'string', 'max:255', 'regex:'.self::VERSION_PATTERN],
             'request_id' => ['bail', 'required', 'string', 'min:1', 'max:255', 'regex:'.OpaqueIdentifier::PATTERN],
             'status' => ['bail', 'required', 'string', Rule::enum(ResponseStatus::class)],
-            'completed_at' => ['required', 'string', 'regex:/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$/'],
+            'completed_at' => ['required', 'string', 'regex:'.self::TIMESTAMP_PATTERN],
             'results' => ['present', 'array', 'list'],
             'results.*' => ['array'],
             'errors' => ['present', 'array', 'list'],
@@ -150,6 +162,67 @@ final class ResearchResponse implements JsonSerializable
         });
 
         $validator->validate();
+    }
+
+    /**
+     * Accept only values that every Laravel rule and after callback below accepts.
+     *
+     * @param  array<array-key, mixed>  $value
+     */
+    private static function passesNatively(array $value): bool
+    {
+        $results = $value['results'] ?? null;
+        $errors = $value['errors'] ?? null;
+        // Laravel's regex rule also fails when preg_match() errors.
+        if (array_diff(array_keys($value), ['generator', 'generator_version', 'request_id', 'status', 'completed_at', 'results', 'errors', 'usage']) !== []
+            || ! is_string($value['generator'] ?? null) || mb_strlen($value['generator']) > 255
+            || preg_match(self::GENERATOR_PATTERN, $value['generator']) !== 1
+            || ! is_string($value['generator_version'] ?? null) || mb_strlen($value['generator_version']) > 255
+            || preg_match(self::VERSION_PATTERN, $value['generator_version']) !== 1
+            || ! is_string($value['request_id'] ?? null) || mb_strlen($value['request_id']) > 255
+            || preg_match(OpaqueIdentifier::PATTERN, $value['request_id']) !== 1
+            || ! is_string($value['status'] ?? null) || ($status = ResponseStatus::tryFrom($value['status'])) === null
+            || ! self::isUtcTimestamp($value['completed_at'] ?? null)
+            || ! self::isListOfArrays($results)
+            || ! self::isListOfArrays($errors)
+            || (array_key_exists('usage', $value) && ! is_array($value['usage']) && ! $value['usage'] instanceof stdClass)) {
+            return false;
+        }
+
+        return match ($status) {
+            ResponseStatus::Succeeded => $results !== [] && $errors === [],
+            ResponseStatus::Partial => $results !== [] && $errors !== [],
+            ResponseStatus::Failed => $results === [] && $errors !== [],
+        };
+    }
+
+    /** @phpstan-assert-if-true list<array<array-key, mixed>> $value */
+    private static function isListOfArrays(mixed $value): bool
+    {
+        if (! is_array($value) || ! array_is_list($value)) {
+            return false;
+        }
+
+        foreach ($value as $item) {
+            if (! is_array($item)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static function isUtcTimestamp(mixed $value): bool
+    {
+        if (! is_string($value) || preg_match(self::TIMESTAMP_PATTERN, $value) !== 1) {
+            return false;
+        }
+
+        try {
+            return CarbonImmutable::parse($value)->format('Y-m-d\\TH:i:s') === substr($value, 0, 19);
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     /** @param array<array-key, mixed> $value */

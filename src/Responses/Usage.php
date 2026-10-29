@@ -11,6 +11,8 @@ use stdClass;
 
 final readonly class Usage implements JsonSerializable
 {
+    private const string DECIMAL_PATTERN = '/^(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$/';
+
     /**
      * Token quantities are exclusive partitions: prompt_tokens counts only
      * uncached input, and cache_write_input_tokens / cache_read_input_tokens
@@ -115,6 +117,12 @@ final readonly class Usage implements JsonSerializable
     /** @param array<array-key, mixed> $value */
     private static function validate(array $value): void
     {
+        // Driver-produced usage needs no Validator allocation. Every other
+        // shape, including every failure, keeps Laravel's rules and error bags.
+        if (self::passesNatively($value)) {
+            return;
+        }
+
         $validator = Validator::make($value, [
             'prompt_tokens' => ['integer', 'min:0', 'max:9007199254740991'],
             'completion_tokens' => ['integer', 'min:0', 'max:9007199254740991'],
@@ -123,8 +131,8 @@ final readonly class Usage implements JsonSerializable
             'reasoning_tokens' => ['integer', 'min:0', 'max:9007199254740991'],
             'server_tool_search_requests' => ['integer', 'min:0', 'max:9007199254740991'],
             'tool_use_tokens' => ['integer', 'min:0', 'max:9007199254740991'],
-            'actual_cost' => ['string', 'regex:/^(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$/'],
-            'estimated_cost' => ['string', 'regex:/^(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$/'],
+            'actual_cost' => ['string', 'regex:'.self::DECIMAL_PATTERN],
+            'estimated_cost' => ['string', 'regex:'.self::DECIMAL_PATTERN],
             'currency' => ['string', 'min:1'],
         ]);
 
@@ -141,6 +149,39 @@ final readonly class Usage implements JsonSerializable
         });
 
         $validator->validate();
+    }
+
+    /**
+     * Accept only values that every Laravel rule and after callback below accepts.
+     *
+     * @param  array<array-key, mixed>  $value
+     */
+    private static function passesNatively(array $value): bool
+    {
+        if (array_diff(array_keys($value), ['prompt_tokens', 'completion_tokens', 'cache_write_input_tokens', 'cache_read_input_tokens', 'reasoning_tokens', 'server_tool_search_requests', 'tool_use_tokens', 'actual_cost', 'estimated_cost', 'currency']) !== []) {
+            return false;
+        }
+
+        // Laravel's integer rule also admits numeric strings and booleans; those fall back.
+        foreach (['prompt_tokens', 'completion_tokens', 'cache_write_input_tokens', 'cache_read_input_tokens', 'reasoning_tokens', 'server_tool_search_requests', 'tool_use_tokens'] as $field) {
+            if (array_key_exists($field, $value)
+                && (! is_int($value[$field]) || $value[$field] < 0 || $value[$field] > 9007199254740991)) {
+                return false;
+            }
+        }
+
+        foreach (['actual_cost', 'estimated_cost'] as $field) {
+            if (array_key_exists($field, $value)
+                && (! is_string($value[$field]) || preg_match(self::DECIMAL_PATTERN, $value[$field]) !== 1)) {
+                return false;
+            }
+        }
+
+        if (array_key_exists('currency', $value)) {
+            return is_string($value['currency']) && trim($value['currency']) !== '';
+        }
+
+        return ! array_key_exists('actual_cost', $value) && ! array_key_exists('estimated_cost', $value);
     }
 
     /** @param array<array-key, mixed> $value */
