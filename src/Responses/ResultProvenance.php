@@ -20,6 +20,8 @@ use stdClass;
 
 final class ResultProvenance implements JsonSerializable
 {
+    private const string TIMESTAMP_PATTERN = '/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$/';
+
     private ?string $observedAtWire = null;
 
     /**
@@ -100,6 +102,12 @@ final class ResultProvenance implements JsonSerializable
     /** @param array<array-key, mixed> $value */
     private static function validate(array $value): void
     {
+        // Driver-produced provenance needs no Validator allocation. Every other
+        // shape, including every failure, keeps Laravel's rules and error bags.
+        if (self::passesNatively($value)) {
+            return;
+        }
+
         $validationValue = $value;
         if (($validationValue['context'] ?? null) instanceof stdClass) {
             $validationValue['context'] = get_object_vars($validationValue['context']);
@@ -112,7 +120,7 @@ final class ResultProvenance implements JsonSerializable
             'corpora' => ['present', 'array', 'list'],
             'corpora.*' => ['bail', 'string', Rule::enum(Corpus::class)],
             'observation_mode' => ['string', Rule::enum(ObservationMode::class)],
-            'observed_at' => ['required', 'string', 'regex:/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$/'],
+            'observed_at' => ['required', 'string', 'regex:'.self::TIMESTAMP_PATTERN],
             'collector' => ['string', 'min:1'],
             'surface' => ['string', 'min:1'],
             'context' => ['array:locale,country,device,authentication,personalization'],
@@ -169,6 +177,112 @@ final class ResultProvenance implements JsonSerializable
         });
 
         $validator->validate();
+    }
+
+    /**
+     * Accept only values that every Laravel rule and after callback below accepts.
+     *
+     * @param  array<array-key, mixed>  $value
+     */
+    private static function passesNatively(array $value): bool
+    {
+        $retrievalMethods = $value['retrieval_methods'] ?? null;
+        if (array_diff(array_keys($value), ['result_kind', 'retrieval_methods', 'corpora', 'observation_mode', 'observed_at', 'collector', 'surface', 'context']) !== []
+            || ! is_string($value['result_kind'] ?? null) || ResultKind::tryFrom($value['result_kind']) === null
+            || ! self::isEnumList($retrievalMethods, RetrievalMethod::class)
+            || ! self::isEnumList($value['corpora'] ?? null, Corpus::class)
+            || ! self::isUtcTimestamp($value['observed_at'] ?? null)) {
+            return false;
+        }
+
+        if (array_key_exists('observation_mode', $value)
+            && (! is_string($value['observation_mode']) || ObservationMode::tryFrom($value['observation_mode']) === null)) {
+            return false;
+        }
+
+        foreach (['collector', 'surface'] as $field) {
+            if (array_key_exists($field, $value) && ! self::isNonBlankString($value[$field])) {
+                return false;
+            }
+        }
+
+        if (array_key_exists('context', $value) && ! self::isCanonicalContext($value['context'])) {
+            return false;
+        }
+
+        // Present collector and surface values are nonblank strings here, and a
+        // surface observation has passed both the surface and collector checks.
+        $hasSurface = array_key_exists('surface', $value);
+        $isSurfaceObservation = $value['result_kind'] === ResultKind::SurfaceObservation->value;
+        if (($hasSurface && ! array_key_exists('collector', $value)) || ($isSurfaceObservation && ! $hasSurface)) {
+            return false;
+        }
+
+        return ($value['observation_mode'] ?? null) !== ObservationMode::SurfaceSnapshot->value
+            || ($isSurfaceObservation && in_array(RetrievalMethod::SurfaceCollector->value, $retrievalMethods, true));
+    }
+
+    /**
+     * @param  class-string<RetrievalMethod|Corpus>  $enum
+     *
+     * @phpstan-assert-if-true list<string> $value
+     */
+    private static function isEnumList(mixed $value, string $enum): bool
+    {
+        if (! is_array($value) || ! array_is_list($value)) {
+            return false;
+        }
+
+        foreach ($value as $item) {
+            if (! is_string($item) || $enum::tryFrom($item) === null) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static function isCanonicalContext(mixed $context): bool
+    {
+        if ($context instanceof stdClass) {
+            $context = get_object_vars($context);
+        } elseif (! is_array($context) || array_is_list($context)) {
+            return false;
+        }
+
+        if (array_diff(array_keys($context), ['locale', 'country', 'device', 'authentication', 'personalization']) !== []) {
+            return false;
+        }
+
+        foreach (['locale', 'country', 'device'] as $field) {
+            if (array_key_exists($field, $context) && ! self::isNonBlankString($context[$field])) {
+                return false;
+            }
+        }
+
+        return (! array_key_exists('authentication', $context)
+                || (is_string($context['authentication']) && Authentication::tryFrom($context['authentication']) !== null))
+            && (! array_key_exists('personalization', $context)
+                || (is_string($context['personalization']) && Personalization::tryFrom($context['personalization']) !== null));
+    }
+
+    /** Laravel skips non-implicit rules for blank strings, so blank values fall back. */
+    private static function isNonBlankString(mixed $value): bool
+    {
+        return is_string($value) && trim($value) !== '';
+    }
+
+    private static function isUtcTimestamp(mixed $value): bool
+    {
+        if (! is_string($value) || preg_match(self::TIMESTAMP_PATTERN, $value) !== 1) {
+            return false;
+        }
+
+        try {
+            return CarbonImmutable::parse($value)->format('Y-m-d\\TH:i:s') === substr($value, 0, 19);
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     /** @param array<array-key, mixed> $value */

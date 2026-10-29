@@ -68,16 +68,23 @@ final class Source implements JsonSerializable
     /** @param array<array-key, mixed> $value */
     private static function validate(array $value): void
     {
-        // Validate the common URL-only shape natively. Other shapes and failures
-        // retain Laravel's existing rules, timestamp checks and error bags.
-        if (array_diff(array_keys($value), ['kind', 'url', 'title', 'publisher']) === []
+        // Validate the common URL and provider-reference shapes natively. Other
+        // shapes and failures retain Laravel's existing rules, timestamp checks
+        // and error bags.
+        if (array_diff(array_keys($value), ['kind', 'url', 'provider_reference', 'title', 'publisher']) === []
             && is_string($value['kind'] ?? null) && SourceKind::tryFrom($value['kind']) !== null
-            && is_string($value['url'] ?? null) && trim($value['url']) !== '') {
+            && (array_key_exists('url', $value) || array_key_exists('provider_reference', $value))) {
             $strings = true;
-            foreach (['title', 'publisher'] as $field) {
+            foreach (['url', 'title', 'publisher'] as $field) {
                 if (array_key_exists($field, $value) && (! is_string($value[$field]) || trim($value[$field]) === '')) {
                     $strings = false;
                 }
+            }
+            // Laravel's regex rule also fails when preg_match() errors, such as for invalid UTF-8.
+            if (array_key_exists('provider_reference', $value)
+                && (! is_string($value['provider_reference']) || mb_strlen($value['provider_reference']) > 255
+                    || preg_match(OpaqueIdentifier::PATTERN, $value['provider_reference']) !== 1)) {
+                $strings = false;
             }
             if ($strings) {
                 return;
