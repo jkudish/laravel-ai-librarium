@@ -68,6 +68,22 @@ final class Source implements JsonSerializable
     /** @param array<array-key, mixed> $value */
     private static function validate(array $value): void
     {
+        // Validate the common URL-only shape natively. Other shapes and failures
+        // retain Laravel's existing rules, timestamp checks and error bags.
+        if (array_diff(array_keys($value), ['kind', 'url', 'title', 'publisher']) === []
+            && is_string($value['kind'] ?? null) && SourceKind::tryFrom($value['kind']) !== null
+            && is_string($value['url'] ?? null) && trim($value['url']) !== '') {
+            $strings = true;
+            foreach (['title', 'publisher'] as $field) {
+                if (array_key_exists($field, $value) && (! is_string($value[$field]) || trim($value[$field]) === '')) {
+                    $strings = false;
+                }
+            }
+            if ($strings) {
+                return;
+            }
+        }
+
         $validator = Validator::make($value, [
             'kind' => ['bail', 'required', 'string', Rule::enum(SourceKind::class)],
             'url' => ['string', 'min:1'],

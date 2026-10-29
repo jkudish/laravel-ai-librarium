@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Responses\Citation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
@@ -104,6 +105,31 @@ it('rejects every invalid terminal response fixture through Laravel validation',
     'partial terminal shape' => ['partial-shape.json'],
     'failed terminal shape' => ['failed-shape.json'],
 ]);
+
+it('round trips URL citation lists with bounded validator allocations and still rejects a malformed later source', function (): void {
+    $fixture = responseFixture('valid/markdown-success.json');
+    $fixture['results'][0]['citations'] = array_map(static fn (int $index): array => [
+        'id' => 'citation-'.$index,
+        'derivation' => 'provider_reported',
+        'source' => ['kind' => 'web_page', 'url' => 'https://example.com/page-'.$index, 'title' => 'Source '.$index],
+        'excerpt' => 'Quoted passage '.$index,
+        'locator' => 'paragraph '.$index,
+    ], range(1, 12));
+    $allocations = 0;
+    Validator::resolver(static function ($translator, $data, $rules, $messages, $attributes) use (&$allocations): Illuminate\Validation\Validator {
+        $allocations++;
+
+        return new Illuminate\Validation\Validator($translator, $data, $rules, $messages, $attributes);
+    });
+
+    expect(ResearchResponse::fromArray($fixture)->toArray())->toBe($fixture)
+        // The response/result/provenance may use Laravel; adding citations must
+        // not add two expensive Validator instances per leaf in each direction.
+        ->and($allocations)->toBeLessThanOrEqual(8);
+
+    $fixture['results'][0]['citations'][11]['source']['unknown'] = 'invalid';
+    expect(fn (): ResearchResponse => ResearchResponse::fromArray($fixture))->toThrow(ValidationException::class);
+});
 
 it('does not introduce an interchange mapper or terminal execution model', function (): void {
     $files = collect(File::allFiles(__DIR__.'/../../src/Responses'))
