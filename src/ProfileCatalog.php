@@ -34,6 +34,16 @@ final class ProfileCatalog
         'searchapi-perplexity' => 'Profile is retired: SearchAPI deprecated its perplexity engine (observed 2026-10-09) and offers no replacement.',
     ];
 
+    /**
+     * The last validated catalog and the Librarium configuration it was built
+     * from. Validation is a pure function of that configuration, and the
+     * catalog is a container singleton, so lookups reuse it until the
+     * configuration changes.
+     *
+     * @var array{configuration: mixed, items: array<string, ProfileAvailability>}|null
+     */
+    private ?array $validated = null;
+
     public function __construct(
         private readonly ConfigRepository $config,
         private readonly ValidationFactory $validator,
@@ -42,6 +52,17 @@ final class ProfileCatalog
 
     /** @return Collection<string, ProfileAvailability> */
     public function all(): Collection
+    {
+        $configuration = $this->config->get('librarium');
+        if ($this->validated === null || $this->validated['configuration'] !== $configuration) {
+            $this->validated = ['configuration' => $configuration, 'items' => $this->validate()];
+        }
+
+        return collect($this->validated['items']);
+    }
+
+    /** @return array<string, ProfileAvailability> */
+    private function validate(): array
     {
         /** @var array{profiles: array<string, array<string, mixed>>} $bindings */
         $bindings = require __DIR__.'/Profiles/bindings.php';
@@ -72,7 +93,7 @@ final class ProfileCatalog
             );
         }
 
-        return collect($items);
+        return $items;
     }
 
     public function find(string $id): ?ProfileAvailability

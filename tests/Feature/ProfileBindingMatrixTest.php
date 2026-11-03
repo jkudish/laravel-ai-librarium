@@ -2,8 +2,34 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\Validator;
+use Jkudish\LaravelAiLibrarium\ProfileCatalog;
 use Jkudish\LaravelAiLibrarium\SourceCatalog;
 use Jkudish\LaravelAiLibrarium\Spec;
+
+it('validates the configured Profiles once until the Librarium configuration changes', function (): void {
+    $catalog = app(ProfileCatalog::class);
+    $allocations = 0;
+    Validator::resolver(static function ($translator, $data, $rules, $messages, $attributes) use (&$allocations): Illuminate\Validation\Validator {
+        $allocations++;
+
+        return new Illuminate\Validation\Validator($translator, $data, $rules, $messages, $attributes);
+    });
+
+    expect($catalog->find('searchapi-chatgpt')?->reasons)->not->toContain('Profile is disabled.')
+        ->and($allocations)->toBeGreaterThan(0);
+    $allocations = 0;
+    $catalog->find('searchapi-gemini');
+    $catalog->all();
+    // Callers look a Profile up once per collected prompt (Agentsy Flare 9555301).
+    expect($allocations)->toBe(0);
+
+    config(['librarium.profiles.searchapi-chatgpt.enabled' => false]);
+    expect($catalog->find('searchapi-chatgpt')?->reasons)->toContain('Profile is disabled.')
+        ->and($allocations)->toBeGreaterThan(0);
+    config(['librarium.profile_options_max_bytes' => 1]);
+    expect($catalog->find('serpapi')?->reasons)->toContain('Profile options must be valid JSON and no larger than 1 bytes.');
+});
 
 it('resolves every shared PHP variant and collector mapping through the source catalog', function (): void {
     config(['services.firecrawl.key' => 'placeholder', 'services.dataforseo.login' => 'placeholder-login', 'services.dataforseo.password' => 'placeholder-password']);
