@@ -47,6 +47,37 @@ afterEach(function (): void {
     CarbonImmutable::setTestNow();
 });
 
+it('separates Claude text citations from retrieved and fetched pages through the real SDK', function (bool $cited, string $listKey): void {
+    app()->forgetInstance(AiManager::class);
+    Ai::clearResolvedInstance(AiManager::class);
+    Http::fake(['https://api.anthropic.com/v1/messages' => Http::response([
+        'id' => 'msg_retrieval', 'type' => 'message', 'role' => 'assistant', 'model' => 'claude-sonnet-5-5',
+        'content' => [
+            ['type' => 'web_search_tool_result', 'tool_use_id' => 'srvtoolu_search', $listKey => [
+                ['type' => 'web_search_result', 'url' => 'https://example.com/uncited', 'title' => 'Unused'],
+                ['type' => 'web_search_result', 'url' => 'https://example.com/cited', 'title' => 'Used'],
+            ]],
+            ['type' => 'web_fetch_tool_result', 'tool_use_id' => 'srvtoolu_fetch', 'content' => [
+                'type' => 'web_fetch_result', 'url' => 'https://example.com/fetched', 'content' => ['title' => 'Fetched'],
+            ]],
+            ['type' => 'text', 'text' => 'Answer.', 'citations' => $cited ? [[
+                'type' => 'web_search_result_location', 'url' => 'https://example.com/cited', 'title' => 'Used', 'cited_text' => 'Evidence',
+            ]] : []],
+        ],
+        'stop_reason' => 'end_turn', 'usage' => ['input_tokens' => 10, 'output_tokens' => 6],
+    ])]);
+    $result = variantRun('claude-chat', 'Research');
+    expect($result->searchResults->pluck('url')->all())->toBe(['https://example.com/uncited', 'https://example.com/cited', 'https://example.com/fetched'])
+        ->and($result->citations->pluck('source.url')->all())->toBe($cited ? ['https://example.com/cited'] : [])
+        ->and($result->provenance->resultKind)->toBe($cited ? ResultKind::GroundedAnswer : ResultKind::ModelAnswer);
+    config(['librarium.profiles.claude-chat.grounding' => 'required']);
+    if ($cited) {
+        expect(variantRun('claude-chat', 'Research')->citations)->toHaveCount(1);
+    } else {
+        expect(fn () => variantRun('claude-chat', 'Research'))->toThrow(DriverException::class, 'ground');
+    }
+})->with([true, false])->with(['search_results', 'content']);
+
 it('runs each configured Laravel AI Profile through one exact SDK provider and model', function (string $profile, string $provider, string $model): void {
     ResearchAgent::fake([
         new TextResponse(
@@ -80,7 +111,8 @@ it('runs each configured Laravel AI Profile through one exact SDK provider and m
     expect($response->provider)->toBe($provider)
         ->and($response->profile)->toBe($profile)
         ->and($response->model)->toBe($model)
-        ->and($response->citations)->toHaveCount(1);
+        // SDK meta alone is not evidence of a Claude text citation.
+        ->and($response->citations)->toHaveCount($provider === 'anthropic' ? 0 : 1);
 })->with([
     'Gemini grounded' => ['gemini-grounded', 'gemini', 'gemini-3.8-flash'],
     'OpenRouter grounded' => ['openrouter-grounded', 'openrouter', 'openai/gpt-6-luna'],

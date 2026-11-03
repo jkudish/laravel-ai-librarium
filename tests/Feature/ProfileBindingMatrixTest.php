@@ -43,5 +43,5 @@ it('resolves every shared PHP variant and collector mapping through the source c
             }
         }
     }
-    expect(array_unique($resolved))->toHaveCount(47); // All 46 retained bindings plus new core Firecrawl.
+    expect(array_unique($resolved))->toHaveCount(51); // Retained bindings, core Firecrawl and four LLM Responses collectors.
 });

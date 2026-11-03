@@ -27,8 +27,10 @@ function releaseReadinessManifestFixture(): array
     return $manifest;
 }
 
-it('has no release blockers on the shipped metadata', function (): void {
-    expect((new ReleaseReadiness)->blockers())->toBe([]);
+it('keeps unreleased development blocked by the first-release gate', function (): void {
+    expect((new ReleaseReadiness)->blockers())->toBe([
+        'CHANGELOG.md retains an Unreleased heading after the 1.0.0 release.',
+    ]);
 });
 
 it('passes stable metadata only after all canonical release gates have evidence', function (): void {

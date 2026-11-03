@@ -44,7 +44,7 @@ afterEach(function (): void {
 
 it('registers six opt-in surface Profiles with exact pricing identities and no curated roster changes', function (): void {
     $profiles = app(ProfileCatalog::class)->all()
-        ->filter(fn ($item): bool => is_a($item->profile->driver, DataForSeoDriver::class, true));
+        ->filter(fn ($item): bool => is_a($item->profile->driver, DataForSeoDriver::class, true) && $item->profile->resultKind === ResultKind::SurfaceObservation);
 
     expect($profiles->keys()->all())->toBe([
         'dataforseo-chatgpt',
@@ -79,7 +79,7 @@ it('ships all DataForSEO Profiles disabled and unavailable until explicit contro
 
     $items = app(ProfileCatalog::class)->all()->filter(fn ($item): bool => is_a($item->profile->driver, DataForSeoDriver::class, true));
 
-    expect($items)->toHaveCount(6);
+    expect($items)->toHaveCount(10);
     $items->each(function ($item): void {
         expect($item->profile->enabled)->toBeFalse()
             ->and($item->isEligible())->toBeFalse()
@@ -97,6 +97,21 @@ it('resolves one provider login and password into every DataForSEO Profile witho
                 ->and(json_encode($profile, JSON_THROW_ON_ERROR))->not->toContain('provider-login', 'provider-password', (string) $encoded);
         }
     }
+});
+
+it('keeps the scraper retrieval set separate from citations and deduplicates exact URLs in provider order', function (): void {
+    $payload = dataForSeoEnvelope('dataforseo-chatgpt-live', 'ai_optimization/chat_gpt/llm_scraper', 'live/advanced', 'chatgpt', 'Retrieval', 20000, true, '0.004');
+    data_set($payload, 'tasks.0.result.0.search_results', [
+        ['type' => 'chatgpt_search_result', 'url' => 'https://example.test/uncited', 'title' => 'First', 'description' => 'Unused'],
+        ['type' => 'chatgpt_search_result', 'url' => 'https://example.test/source', 'title' => 'Cited'],
+        ['type' => 'chatgpt_search_result', 'url' => 'https://example.test/uncited', 'title' => 'Duplicate'],
+    ]);
+    Http::fake(fn () => Http::response($payload));
+    $result = variantRun('dataforseo-chatgpt-live', 'Retrieval');
+    expect($result->searchResults->pluck('url')->all())->toBe(['https://example.test/uncited', 'https://example.test/source'])
+        ->and($result->searchResults->first()->title)->toBe('First')
+        ->and($result->searchResults->first()->snippet)->toBe('Unused')
+        ->and($result->citations->pluck('source.url')->all())->toBe(['https://example.test/source']);
 });
 
 it('runs each Standard and Live Profile through the real Librarium runtime on one fixed endpoint', function (string $profile, string $family, string $surface, bool $live): void {
@@ -131,6 +146,7 @@ it('runs each Standard and Live Profile through the real Librarium runtime on on
         ->and($result->citations)->toHaveCount(1)
         ->and($result->citations->sole()->derivation)->toBe(CitationDerivation::CollectorExtracted)
         ->and($result->citations->sole()->source->url)->toBe('https://example.test/source')
+        ->and($result->searchResults)->toBeNull()
         ->and($result->usage?->actualCost)->toBe($live ? '0.004000' : '0.001200')
         ->and($result->usage?->currency)->toBe('USD')
         ->and((array) $result->providerMeta)->toMatchArray([

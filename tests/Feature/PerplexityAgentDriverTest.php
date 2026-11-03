@@ -137,6 +137,7 @@ it('runs the low preset inline with one exact POST and strictly normalizes repor
         ->and($result->provenance->resultKind)->toBe(ResultKind::GroundedAnswer)
         ->and($result->provenance->retrievalMethods->all())->toBe([RetrievalMethod::ModelSearchTool])
         ->and($result->citations)->toHaveCount(2)
+        ->and($result->searchResults->pluck('url')->all())->toBe(['https://example.com/first', 'https://news.example.com/story', 'https://uncited.example.com/private'])
         ->and($result->citations->first()->derivation)->toBe(CitationDerivation::ProviderReported)
         ->and($result->citations->first()->source->kind)->toBe(SourceKind::WebPage)
         ->and($result->citations->first()->source->providerReference)->toBe('1')
@@ -168,7 +169,7 @@ it('runs the low preset inline with one exact POST and strictly normalizes repor
     expect($wire)->not->toContain('resp_private_1')
         ->not->toContain('testing-perplexity-key')
         ->not->toContain('raw-provider-secret')
-        ->not->toContain('uncited.example.com');
+        ->toContain('uncited.example.com');
 });
 
 it('runs the frozen low configuration separately without sending a managed preset', function (): void {

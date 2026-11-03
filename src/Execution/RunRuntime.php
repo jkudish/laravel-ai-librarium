@@ -26,6 +26,7 @@ use Jkudish\LaravelAiLibrarium\Recovery\ResearchHandleSigner;
 use Jkudish\LaravelAiLibrarium\ResearchHandle;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
+use Jkudish\LaravelAiLibrarium\Responses\SearchResult;
 use Jkudish\LaravelAiLibrarium\Run;
 use Jkudish\LaravelAiLibrarium\SourceCatalog;
 use Jkudish\LaravelAiLibrarium\StoredRun;
@@ -327,12 +328,16 @@ final readonly class RunRuntime
         $result['status'] = 'done';
         $result['provenance']['provider'] = $terminal->provider;
         $result['provenance']['model'] = $terminal->model ?? $result['provenance']['model'];
+        $result['provenance']['collector'] = $terminal->provenance->collector ?? $result['provenance']['collector'];
         $result['answer'] = ! $searchOnly && is_string($terminal->content) ? $terminal->content : null;
         $result['citations'] = [];
         foreach ($terminal->citations as $citation) {
             if ($citation->source->url !== null) {
                 $result['citations'][] = ['url' => $citation->source->url, 'title' => $citation->source->title];
             }
+        }
+        if (! $searchOnly && $terminal->searchResults !== null) {
+            $result['search_results'] = array_values($terminal->searchResults->uniqueStrict('url')->map(static fn (SearchResult $item): array => $item->toArray())->all());
         }
         $result['cost']['reported'] = $terminal->usage?->currency === 'USD' ? $terminal->usage->actualCost : null;
         $result['duration_ms'] = $result['started_at'] === null ? null : max(0, (int) CarbonImmutable::parse($result['started_at'])->diffInMilliseconds($terminal->completedAt));

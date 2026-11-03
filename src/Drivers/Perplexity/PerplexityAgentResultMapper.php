@@ -17,6 +17,7 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\ContentFormat;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\SourceKind;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 use Jkudish\LaravelAiLibrarium\Responses\ResultProvenance;
+use Jkudish\LaravelAiLibrarium\Responses\SearchResult;
 use Jkudish\LaravelAiLibrarium\Responses\Source;
 use Jkudish\LaravelAiLibrarium\Responses\Usage;
 
@@ -81,6 +82,9 @@ final readonly class PerplexityAgentResultMapper
             completedAt: $completedAt,
             model: $model,
             usage: $this->usage(data_get($response, 'usage')),
+            searchResults: collect(array_values($results))->map(static fn (array $item): SearchResult => new SearchResult(
+                url: $item['url'], title: $item['title'], snippet: $item['snippet'],
+            )),
         ), [
             (string) $request->profile->credential,
             $this->optionalBoundedString(data_get($response, 'id')) ?? '',

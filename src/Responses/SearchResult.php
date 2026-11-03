@@ -1,0 +1,86 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Jkudish\LaravelAiLibrarium\Responses;
+
+use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Validator;
+use JsonSerializable;
+use Opis\JsonSchema\Formats\UriFormats;
+
+/** A page retrieved by the provider, not necessarily cited or read. */
+final readonly class SearchResult implements JsonSerializable
+{
+    public function __construct(
+        public string $url,
+        public ?string $title = null,
+        public ?string $snippet = null,
+        public ?CarbonImmutable $publishedAt = null,
+    ) {}
+
+    /** @param array<array-key, mixed> $value */
+    public static function fromArray(array $value): self
+    {
+        self::validate($value);
+
+        /** @var array{url: string, title?: ?string, snippet?: ?string, published_at?: ?string} $value */
+        return new self(
+            url: $value['url'],
+            title: $value['title'] ?? null,
+            snippet: $value['snippet'] ?? null,
+            publishedAt: isset($value['published_at']) ? CarbonImmutable::parse($value['published_at']) : null,
+        );
+    }
+
+    /** @return array{url: string, title: ?string, snippet: ?string, published_at: ?string} */
+    public function toArray(): array
+    {
+        $date = $this->publishedAt?->utc();
+        $fraction = $date === null ? '' : rtrim($date->format('u'), '0');
+        $value = [
+            'url' => $this->url,
+            'title' => $this->title,
+            'snippet' => $this->snippet,
+            'published_at' => $date === null ? null : $date->format('Y-m-d\TH:i:s').($fraction === '' ? '' : '.'.$fraction).'Z',
+        ];
+        self::validate($value);
+
+        return $value;
+    }
+
+    /** @return array{url: string, title: ?string, snippet: ?string, published_at: ?string} */
+    public function jsonSerialize(): array
+    {
+        return $this->toArray();
+    }
+
+    /** @param array<array-key, mixed> $value */
+    private static function validate(array $value): void
+    {
+        $validator = Validator::make($value, [
+            'url' => ['required', 'string'],
+            'title' => ['nullable', 'string'],
+            'snippet' => ['nullable', 'string'],
+            'published_at' => ['nullable', 'string', 'regex:/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/D'],
+        ]);
+        $validator->after(static function (\Illuminate\Validation\Validator $validator) use ($value): void {
+            if (is_string($value['url'] ?? null) && ! UriFormats::uri($value['url'])) {
+                $validator->errors()->add('url', 'must be a valid absolute URI.');
+            }
+            if (array_diff(array_keys($value), ['url', 'title', 'snippet', 'published_at']) !== []) {
+                $validator->errors()->add('search_result', 'contains an unknown field.');
+            }
+            if (is_string($value['published_at'] ?? null)) {
+                try {
+                    if (CarbonImmutable::parse($value['published_at'])->format('Y-m-d\TH:i:s') !== substr($value['published_at'], 0, 19)) {
+                        $validator->errors()->add('published_at', 'must be a valid UTC timestamp.');
+                    }
+                } catch (\Throwable) {
+                    $validator->errors()->add('published_at', 'must be a valid UTC timestamp.');
+                }
+            }
+        });
+        $validator->validate();
+    }
+}

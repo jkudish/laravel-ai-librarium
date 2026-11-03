@@ -14,9 +14,12 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\Authentication;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ContentFormat;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\Personalization;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
+use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\SourceKind;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 use Jkudish\LaravelAiLibrarium\Responses\ResultProvenance;
+use Jkudish\LaravelAiLibrarium\Responses\SearchResult;
 use Jkudish\LaravelAiLibrarium\Responses\Source;
 use Jkudish\LaravelAiLibrarium\Responses\Usage;
 
@@ -37,9 +40,10 @@ final readonly class DataForSeoResultMapper
         ?string $actualCost,
     ): ResearchResult {
         $observedAt = $this->observedAt($result['datetime'] ?? null);
-        $normalized = $surface === 'google_ai_mode'
+        $llm = str_ends_with($family, '/llm_responses');
+        $normalized = $llm ? $this->normalizeResponses($result) : ($surface === 'google_ai_mode'
             ? $this->normalizeAiMode($result)
-            : $this->normalizeScraper($result, $surface);
+            : $this->normalizeScraper($result, $surface));
 
         if ($normalized['content'] === '') {
             throw DataForSeoDriver::invalidResponse('DataForSEO returned no supported answer content.');
@@ -54,21 +58,21 @@ final readonly class DataForSeoResultMapper
             provider: $request->profile->provider,
             profile: $request->profile->id,
             provenance: new ResultProvenance(
-                resultKind: $request->profile->resultKind,
-                retrievalMethods: $request->profile->retrievalMethods,
-                corpora: $request->profile->corpora,
+                resultKind: $llm && $normalized['citations']->isEmpty() ? ResultKind::ModelAnswer : $request->profile->resultKind,
+                retrievalMethods: $llm && $normalized['citations']->isEmpty() ? $this->modelOnlyRetrievalMethods() : $request->profile->retrievalMethods,
+                corpora: $llm && $normalized['citations']->isEmpty() ? $request->profile->corpora->take(0) : $request->profile->corpora,
                 observedAt: $observedAt,
                 collector: 'dataforseo',
-                surface: $surface,
-                context: [
+                surface: $llm ? null : $surface,
+                context: $llm ? null : [
                     'authentication' => Authentication::Unknown,
                     'personalization' => Personalization::Unknown,
                 ],
-                observationMode: ObservationMode::SurfaceSnapshot,
+                observationMode: $llm ? ObservationMode::ApiOutput : ObservationMode::SurfaceSnapshot,
             ),
             citations: $normalized['citations'],
             completedAt: $completedAt,
-            model: $this->str($result['model'] ?? null),
+            model: $this->str($result[$llm ? 'model_name' : 'model'] ?? null),
             usage: $actualCost === null ? null : new Usage(actualCost: $actualCost, currency: 'USD'),
             providerMeta: (object) array_filter([
                 'task_id' => $request instanceof DriverRequest ? $this->str($receipt['id'] ?? null) : null,
@@ -82,7 +86,70 @@ final readonly class DataForSeoResultMapper
                 'fan_out_queries' => $this->strings($result['fan_out_queries'] ?? null),
                 'omitted_item_types' => $normalized['omitted_item_types'],
             ], static fn (mixed $value): bool => $value !== null && $value !== []),
+            searchResults: $llm || $surface === 'chatgpt' ? $this->searchResults($result, $llm) : null,
         );
+    }
+
+    /** @return Collection<int, RetrievalMethod> */
+    private function modelOnlyRetrievalMethods(): Collection
+    {
+        return collect(['model_only'])->map(static fn (string $method): RetrievalMethod => RetrievalMethod::from($method));
+    }
+
+    /**
+     * @param  array<string, mixed>  $result
+     * @return Collection<int, SearchResult>|null
+     */
+    private function searchResults(array $result, bool $llm): ?Collection
+    {
+        if (! is_array($result['search_results'] ?? null) || ! array_is_list($result['search_results'])) {
+            return null;
+        }
+        $results = [];
+        foreach ($this->records($result['search_results']) as $item) {
+            if (! $llm && ($item['type'] ?? null) !== 'chatgpt_search_result') {
+                continue;
+            }
+            $url = $this->evidenceUrl($item['url'] ?? null);
+            if ($url !== null) {
+                $results[] = new SearchResult(
+                    url: $url,
+                    title: $this->str($item['title'] ?? null),
+                    snippet: $this->str($item[$llm ? 'snippet' : 'description'] ?? null),
+                    publishedAt: $this->optionalDate($item['date'] ?? null),
+                );
+            }
+        }
+
+        return collect($results);
+    }
+
+    /**
+     * @param  array<string, mixed>  $result
+     * @return array{content: string, citations: Collection<int, Citation>, omitted_item_types: list<string>}
+     */
+    private function normalizeResponses(array $result): array
+    {
+        $text = [];
+        $annotations = [];
+        foreach ($this->records($result['items'] ?? null) as $item) {
+            if (($item['type'] ?? null) !== 'message') {
+                continue;
+            }
+            foreach ($this->records($item['sections'] ?? null) as $section) {
+                if (($section['type'] ?? null) !== 'text') {
+                    continue;
+                }
+                $text[] = $this->str($section['text'] ?? null) ?? '';
+                $annotations = [...$annotations, ...$this->records($section['annotations'] ?? null)];
+            }
+        }
+
+        return [
+            'content' => implode("\n\n", $text),
+            'citations' => $this->citations($annotations, null, CitationDerivation::ProviderReported),
+            'omitted_item_types' => [],
+        ];
     }
 
     /**
@@ -160,12 +227,12 @@ final readonly class DataForSeoResultMapper
      * @param  list<array<string, mixed>>  $candidates
      * @return Collection<int, Citation>
      */
-    private function citations(array $candidates, string $expectedType): Collection
+    private function citations(array $candidates, ?string $expectedType, CitationDerivation $derivation = CitationDerivation::CollectorExtracted): Collection
     {
         $seen = [];
         $citations = [];
         foreach ($candidates as $candidate) {
-            if (($candidate['type'] ?? null) !== $expectedType) {
+            if ($expectedType !== null && ($candidate['type'] ?? null) !== $expectedType) {
                 continue;
             }
 
@@ -176,7 +243,7 @@ final readonly class DataForSeoResultMapper
             $seen[$url] = true;
             $publishedAt = $this->optionalDate($candidate['publication_date'] ?? null);
             $citations[] = Citation::make(
-                derivation: CitationDerivation::CollectorExtracted,
+                derivation: $derivation,
                 source: new Source(
                     kind: SourceKind::WebPage,
                     url: $url,
@@ -185,6 +252,8 @@ final readonly class DataForSeoResultMapper
                     publishedAt: $publishedAt,
                 ),
                 excerpt: $this->str($candidate['snippet'] ?? $candidate['text'] ?? null),
+                locator: is_int($candidate['start_index'] ?? null) && is_int($candidate['end_index'] ?? null)
+                    ? 'characters:'.$candidate['start_index'].'-'.$candidate['end_index'] : null,
             );
         }
 
@@ -200,6 +269,10 @@ final readonly class DataForSeoResultMapper
             'force_web_search' => data_get($request->profile->options, 'force_web_search'),
             'device' => data_get($request->profile->options, 'device'),
             'os' => data_get($request->profile->options, 'os'),
+            'model_name' => str_starts_with($request->profile->id, 'dataforseo-llm-') ? ($request->profile->model ?? data_get($request->profile->options, 'model_name')) : null,
+            'max_output_tokens' => data_get($request->profile->options, 'max_output_tokens'),
+            'web_search_country_iso_code' => data_get($request->profile->options, 'web_search_country_iso_code'),
+            'web_search_city' => data_get($request->profile->options, 'web_search_city'),
         ], static fn (mixed $value): bool => is_int($value) || is_string($value) || is_bool($value));
     }
 

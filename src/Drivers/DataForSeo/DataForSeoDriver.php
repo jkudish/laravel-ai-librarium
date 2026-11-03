@@ -43,6 +43,10 @@ readonly class DataForSeoDriver implements DefinesSpendingBound, Driver
      * @var array<string, array{family: string, surface: string, mode: 'standard'|'live', api: string, se: string, se_aliases?: list<string>, se_type?: string, max_chars: int}>
      */
     private const array PROFILES = [
+        'dataforseo-llm-chatgpt' => ['family' => 'ai_optimization/chat_gpt/llm_responses', 'surface' => 'chatgpt', 'mode' => 'live', 'api' => 'ai_optimization', 'se' => 'chat_gpt', 'se_type' => 'llm_responses', 'max_chars' => 500],
+        'dataforseo-llm-claude' => ['family' => 'ai_optimization/claude/llm_responses', 'surface' => 'claude', 'mode' => 'live', 'api' => 'ai_optimization', 'se' => 'claude', 'se_type' => 'llm_responses', 'max_chars' => 500],
+        'dataforseo-llm-perplexity' => ['family' => 'ai_optimization/perplexity/llm_responses', 'surface' => 'perplexity', 'mode' => 'live', 'api' => 'ai_optimization', 'se' => 'perplexity', 'se_type' => 'llm_responses', 'max_chars' => 500],
+        'dataforseo-llm-gemini' => ['family' => 'ai_optimization/gemini/llm_responses', 'surface' => 'gemini', 'mode' => 'live', 'api' => 'ai_optimization', 'se' => 'gemini', 'se_type' => 'llm_responses', 'max_chars' => 500],
         'dataforseo-chatgpt' => ['family' => 'ai_optimization/chat_gpt/llm_scraper', 'surface' => 'chatgpt', 'mode' => 'standard', 'api' => 'ai_optimization', 'se' => 'chat_gpt', 'se_aliases' => ['chatgpt'], 'se_type' => 'llm_scraper', 'max_chars' => 2000],
         'dataforseo-chatgpt-live' => ['family' => 'ai_optimization/chat_gpt/llm_scraper', 'surface' => 'chatgpt', 'mode' => 'live', 'api' => 'ai_optimization', 'se' => 'chat_gpt', 'se_aliases' => ['chatgpt'], 'se_type' => 'llm_scraper', 'max_chars' => 2000],
         'dataforseo-gemini' => ['family' => 'ai_optimization/gemini/llm_scraper', 'surface' => 'gemini', 'mode' => 'standard', 'api' => 'ai_optimization', 'se' => 'gemini', 'se_type' => 'llm_scraper', 'max_chars' => 2000],
@@ -57,11 +61,15 @@ readonly class DataForSeoDriver implements DefinesSpendingBound, Driver
     public static function profileOptionRules(): array
     {
         return [
-            'location_code' => ['required', 'integer', 'min:1'],
-            'language_code' => ['required', 'string', 'min:1', 'max:32', 'regex:/^[a-z][a-z0-9_-]*$/i'],
+            'location_code' => ['required_without:options.model_name', 'integer', 'min:1'],
+            'language_code' => ['required_without:options.model_name', 'string', 'min:1', 'max:32', 'regex:/^[a-z][a-z0-9_-]*$/i'],
             'force_web_search' => ['sometimes', 'boolean'],
             'device' => ['sometimes', 'string', 'in:desktop,mobile'],
             'os' => ['sometimes', 'string', 'in:windows,macos,android,ios'],
+            'model_name' => ['sometimes', 'string', 'min:1', 'max:255'],
+            'max_output_tokens' => ['sometimes', 'integer', 'min:1', 'max:4096'],
+            'web_search_country_iso_code' => ['sometimes', 'string', 'regex:/^[A-Z]{2}$/D'],
+            'web_search_city' => ['sometimes', 'string', 'min:1', 'max:255'],
         ];
     }
 
@@ -178,7 +186,7 @@ readonly class DataForSeoDriver implements DefinesSpendingBound, Driver
      */
     private function runLive(DriverRequest $request, array $descriptor, array $credentials, array $task): ResearchResult
     {
-        $operation = 'live/advanced';
+        $operation = ($descriptor['se_type'] ?? null) === 'llm_responses' ? 'live' : 'live/advanced';
         $response = $this->post($request, $descriptor['family'], $operation, $credentials, $task);
         $receipt = $this->receipt($response, $descriptor, $operation, $request, 20000);
         $result = $this->completedResult($receipt, $request);
@@ -255,10 +263,50 @@ readonly class DataForSeoDriver implements DefinesSpendingBound, Driver
             throw new DriverException('dataforseo.invalid_query', "The DataForSEO query must contain 1 to {$descriptor['max_chars']} characters.", false);
         }
 
+        if (($descriptor['se_type'] ?? null) === 'llm_responses') {
+            return ['user_prompt' => $request->prompt, ...$this->llmControls($request->profile, $descriptor['surface'])];
+        }
+
         return [
             'keyword' => rawurlencode($request->prompt),
             ...$this->controls($request->profile, $descriptor),
         ];
+    }
+
+    /** @return array<string, int|string|bool> */
+    private function llmControls(Profile $profile, string $surface): array
+    {
+        $options = $profile->options;
+        $model = $profile->model ?? $options['model_name'] ?? null;
+        $tokens = $options['max_output_tokens'] ?? 2048;
+        $allowed = ['model_name', 'max_output_tokens'];
+        if (in_array($surface, ['chatgpt', 'claude'], true)) {
+            $allowed = [...$allowed, 'force_web_search', 'web_search_country_iso_code', 'web_search_city'];
+        } elseif ($surface === 'perplexity') {
+            $allowed[] = 'web_search_country_iso_code';
+        }
+        if (array_diff(array_keys($options), $allowed) !== [] || ! is_string($model) || trim($model) === ''
+            || ! is_int($tokens) || $tokens < ($surface === 'chatgpt' ? 16 : 1) || $tokens > 4096) {
+            throw new DriverException('dataforseo.invalid_options', 'LLM Responses requires a model_name and supported platform controls.', false);
+        }
+        $task = ['model_name' => $model, 'web_search' => true, 'max_output_tokens' => $tokens];
+        foreach (['force_web_search', 'web_search_country_iso_code', 'web_search_city'] as $key) {
+            if (array_key_exists($key, $options)) {
+                $value = $options[$key];
+                $valid = match ($key) {
+                    'force_web_search' => is_bool($value),
+                    'web_search_country_iso_code' => is_string($value) && preg_match('/^[A-Z]{2}$/D', $value) === 1,
+                    default => is_string($value) && trim($value) !== '' && mb_strlen($value) <= 255,
+                };
+                if (! $valid) {
+                    throw new DriverException('dataforseo.invalid_options', 'LLM Responses received an invalid web-search control.', false);
+                }
+                /** @var string|bool $value */
+                $task[$key] = $value;
+            }
+        }
+
+        return $task;
     }
 
     /**
@@ -519,6 +567,9 @@ readonly class DataForSeoDriver implements DefinesSpendingBound, Driver
 
         /** @var array<string, mixed> $result */
         $result = $results[0];
+        if (str_starts_with($request->profile->id, 'dataforseo-llm-')) {
+            return $result;
+        }
         $expectedKeyword = $request instanceof DriverRequest
             ? $request->prompt
             : data_get($receipt, 'data.keyword');
@@ -550,6 +601,21 @@ readonly class DataForSeoDriver implements DefinesSpendingBound, Driver
         string $operation,
         DriverRequest|RecoveryRequest $request,
     ): void {
+        if (($descriptor['se_type'] ?? null) === 'llm_responses') {
+            $controls = $this->llmControls($request->profile, $descriptor['surface']);
+            if (! is_array($data) || ($data['api'] ?? null) !== 'ai_optimization'
+                || ($data['function'] ?? null) !== 'llm_responses' || ($data['se'] ?? null) !== $descriptor['se']
+                || ! $request instanceof DriverRequest || ($data['user_prompt'] ?? null) !== $request->prompt) {
+                throw self::invalidResponse('DataForSEO returned a receipt for a different LLM Responses task.');
+            }
+            foreach ($controls as $key => $value) {
+                if (array_key_exists($key, $data) && $data[$key] !== $value) {
+                    throw self::invalidResponse('DataForSEO returned mismatched LLM Responses controls.');
+                }
+            }
+
+            return;
+        }
         $functions = match (true) {
             $descriptor['api'] === 'ai_optimization'
                 && $descriptor['surface'] === 'chatgpt'

@@ -37,6 +37,7 @@ final class ResearchResult implements JsonSerializable
 
     /**
      * @param  Collection<int, Citation>  $citations
+     * @param  Collection<int, SearchResult>|null  $searchResults
      * @param  array<array-key, mixed>|stdClass  $content
      */
     public function __construct(
@@ -53,10 +54,12 @@ final class ResearchResult implements JsonSerializable
         public readonly ?string $fallbackReason = null,
         public readonly ?Usage $usage = null,
         public readonly ?stdClass $providerMeta = null,
+        public readonly ?Collection $searchResults = null,
     ) {}
 
     /**
      * @param  Collection<int, Citation>  $citations
+     * @param  Collection<int, SearchResult>|null  $searchResults
      * @param  array<array-key, mixed>|stdClass  $content
      */
     public static function make(
@@ -72,8 +75,9 @@ final class ResearchResult implements JsonSerializable
         ?string $fallbackReason = null,
         ?Usage $usage = null,
         ?stdClass $providerMeta = null,
+        ?Collection $searchResults = null,
     ): self {
-        return new self(Str::ulid()->toString(), $contentFormat, $content, $requestedProfile, $provider, $profile, $provenance, $citations, $completedAt, $model, $fallbackReason, $usage, $providerMeta);
+        return new self(Str::ulid()->toString(), $contentFormat, $content, $requestedProfile, $provider, $profile, $provenance, $citations, $completedAt, $model, $fallbackReason, $usage, $providerMeta, $searchResults?->uniqueStrict('url')->values());
     }
 
     /** @param array<array-key, mixed> $value */
@@ -99,6 +103,8 @@ final class ResearchResult implements JsonSerializable
             fallbackReason: self::nullableString($value, 'fallback_reason'),
             usage: $usage === null ? null : Usage::fromArray($usage),
             providerMeta: $providerMeta,
+            searchResults: ($value['search_results'] ?? null) === null ? null : collect(self::listOfArrays($value, 'search_results'))
+                ->map(static fn (array $item): SearchResult => SearchResult::fromArray($item))->uniqueStrict('url')->values(),
         );
         $result->completedAtWire = $completedAt;
 
@@ -122,6 +128,7 @@ final class ResearchResult implements JsonSerializable
             'fallback_reason' => $this->fallbackReason,
             'usage' => $this->usage?->jsonSerialize(),
             'provider_meta' => $this->providerMeta,
+            'search_results' => $this->searchResults?->uniqueStrict('url')->map(static fn (SearchResult $item): array => $item->toArray())->values()->all(),
         ], static fn (mixed $item): bool => $item !== null);
 
         self::validate($value);
@@ -159,6 +166,8 @@ final class ResearchResult implements JsonSerializable
             'provenance' => ['required', 'array'],
             'citations' => ['present', 'array', 'list'],
             'citations.*' => ['array'],
+            'search_results' => ['nullable', 'array', 'list'],
+            'search_results.*' => ['array'],
             'completed_at' => ['required', 'string', 'regex:'.self::TIMESTAMP_PATTERN],
             'model' => ['string', 'min:1'],
             'fallback_reason' => ['string', 'min:1'],
@@ -166,7 +175,7 @@ final class ResearchResult implements JsonSerializable
         ]);
 
         $validator->after(static function (\Illuminate\Validation\Validator $validator) use ($value): void {
-            $allowed = ['id', 'content_format', 'content', 'requested_profile', 'provider', 'profile', 'provenance', 'citations', 'completed_at', 'model', 'fallback_reason', 'usage', 'provider_meta'];
+            $allowed = ['id', 'content_format', 'content', 'requested_profile', 'provider', 'profile', 'provenance', 'citations', 'completed_at', 'model', 'fallback_reason', 'usage', 'provider_meta', 'search_results'];
             if (array_diff(array_keys($value), $allowed) !== []) {
                 $validator->errors()->add('result', 'contains an unknown field.');
             }
@@ -209,6 +218,9 @@ final class ResearchResult implements JsonSerializable
      */
     private static function passesNatively(array $value): bool
     {
+        if (array_key_exists('search_results', $value)) {
+            return false;
+        }
         if (array_diff(array_keys($value), ['id', 'content_format', 'content', 'requested_profile', 'provider', 'profile', 'provenance', 'citations', 'completed_at', 'model', 'fallback_reason', 'usage', 'provider_meta']) !== []
             || ! is_string($value['id'] ?? null) || mb_strlen($value['id']) > 255
             || preg_match(OpaqueIdentifier::PATTERN, $value['id']) !== 1

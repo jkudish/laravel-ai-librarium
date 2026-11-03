@@ -18,6 +18,7 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\SourceKind;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResponse;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 use Jkudish\LaravelAiLibrarium\Responses\ResultProvenance;
+use Jkudish\LaravelAiLibrarium\Responses\SearchResult;
 use Jkudish\LaravelAiLibrarium\Responses\Source;
 use Jkudish\LaravelAiLibrarium\Responses\Usage;
 
@@ -31,6 +32,46 @@ function responseFixture(string $path): array
 
     return $fixture;
 }
+
+it('preserves old immutable response bytes and distinguishes unknown from empty retrieval', function (): void {
+    $old = responseFixture('valid/markdown-success.json');
+    $bytes = json_encode($old, JSON_THROW_ON_ERROR);
+    $response = ResearchResponse::fromArray($old);
+    expect($response->results->first()->searchResults)->toBeNull()
+        ->and(json_encode($response->toArray(), JSON_THROW_ON_ERROR))->toBe($bytes);
+
+    $old['results'][0]['search_results'] = null;
+    expect(json_encode(ResearchResponse::fromArray($old)->toArray(), JSON_THROW_ON_ERROR))->toBe($bytes);
+    $old['results'][0]['search_results'] = [];
+    expect(ResearchResponse::fromArray($old)->toArray()['results'][0]['search_results'])->toBe([]);
+});
+
+it('serializes typed retrieval entries in exact URL first occurrence order with UTC dates', function (): void {
+    $value = responseFixture('valid/markdown-success.json');
+    $value['results'][0]['search_results'] = [
+        ['url' => 'https://example.com/b', 'title' => 'First', 'snippet' => 'B', 'published_at' => '2026-10-01T00:00:00Z'],
+        ['url' => 'https://example.com/a', 'title' => null, 'snippet' => null, 'published_at' => null],
+        ['url' => 'https://example.com/b', 'title' => 'Duplicate'],
+        ['url' => 'https://example.com/b/', 'title' => 'Distinct'],
+    ];
+    $response = ResearchResponse::fromArray($value);
+    expect($response->results->first()->searchResults->first())->toBeInstanceOf(SearchResult::class)
+        ->and($response->toArray()['results'][0]['search_results'])->toBe([
+            $value['results'][0]['search_results'][0], $value['results'][0]['search_results'][1],
+            ['url' => 'https://example.com/b/', 'title' => 'Distinct', 'snippet' => null, 'published_at' => null],
+        ]);
+    $entry = new SearchResult('https://example.com/date', publishedAt: CarbonImmutable::parse('2026-10-01T02:00:00.1234+02:00'));
+    expect($entry->toArray()['published_at'])->toBe('2026-10-01T00:00:00.1234Z');
+});
+
+it('rejects malformed retrieval entries rather than silently accepting invalid stored arrays', function (array $entry): void {
+    $value = responseFixture('valid/markdown-success.json');
+    $value['results'][0]['search_results'] = [$entry];
+    expect(fn () => ResearchResponse::fromArray($value))->toThrow(ValidationException::class);
+})->with([
+    [['title' => 'Missing URL']], [['url' => 'not a URI']], [['url' => 'https://example.com', 'rank' => 1]],
+    [['url' => 'https://example.com', 'published_at' => '2026-02-30T00:00:00Z']],
+]);
 
 it('round trips every accepted terminal response fixture without a mapper', function (string $fixture): void {
     $value = responseFixture("valid/{$fixture}");
@@ -231,6 +272,7 @@ it('does not introduce an interchange mapper or terminal execution model', funct
         'ResultKind',
         'ResultProvenance',
         'RetrievalMethod',
+        'SearchResult',
         'Source',
         'SourceKind',
         'Usage',
