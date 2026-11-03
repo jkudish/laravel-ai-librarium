@@ -71,6 +71,19 @@ it('rejects malformed retrieval entries rather than silently accepting invalid s
 })->with([
     [['title' => 'Missing URL']], [['url' => 'not a URI']], [['url' => 'https://example.com', 'rank' => 1]],
     [['url' => 'https://example.com', 'published_at' => '2026-02-30T00:00:00Z']],
+    [['url' => '']], [['url' => '   ']], [['url' => 123]], [['url' => 'https://example.com', 'title' => 123]],
+    [['url' => 'https://example.com', 'snippet' => ['x']]], [['url' => 'https://example.com', 'published_at' => '2026-10-01T00:00:00']],
+    [['url' => 'https://example.com', 'published_at' => '2026-10-01T00:00:00+00:00']],
+]);
+
+it('rejects a retrieval set that is not a list of entries', function (mixed $set): void {
+    $value = responseFixture('valid/markdown-success.json');
+    $value['results'][0]['search_results'] = $set;
+    expect(fn () => ResearchResponse::fromArray($value))->toThrow(ValidationException::class);
+})->with([
+    'string' => ['https://example.com'],
+    'keyed map' => [['first' => ['url' => 'https://example.com']]],
+    'scalar entry' => [['https://example.com']],
 ]);
 
 it('round trips every accepted terminal response fixture without a mapper', function (string $fixture): void {
@@ -214,6 +227,16 @@ it('hydrates and serializes canonical driver responses without allocating a Lara
 
         return $fixture;
     }],
+    'retrieved search results' => ['markdown-success.json', static function (array $fixture): array {
+        $fixture['results'][0]['search_results'] = [
+            ['url' => 'https://example.com/a', 'title' => 'A', 'snippet' => 'Excerpt', 'published_at' => '2026-10-01T00:00:00.5Z'],
+            ['url' => 'https://example.com/b', 'title' => null, 'snippet' => null, 'published_at' => null],
+            ['url' => 'https://example.com/c', 'title' => '', 'snippet' => 'C', 'published_at' => '2026-10-02T03:04:05Z'],
+        ];
+
+        return $fixture;
+    }],
+    'empty retrieved search results' => ['markdown-success.json', static fn (array $fixture): array => data_set($fixture, 'results.0.search_results', [])],
 ]);
 
 it('keeps Laravel error bags at the native validation boundaries', function (string $fixtureName, Closure $change, array $errors): void {
@@ -247,6 +270,8 @@ it('keeps Laravel error bags at the native validation boundaries', function (str
     'response completion without fraction digits' => ['markdown-success.json', static fn (array $fixture): array => data_set($fixture, 'completed_at', '2026-08-09T12:00:02.Z'), ['completed_at' => ['The completed at field format is invalid.']]],
     'numeric-string token count' => ['optional-result-fields.json', static fn (array $fixture): array => data_set($fixture, 'results.0.usage.prompt_tokens', '5'), ['prompt_tokens' => ['must be an integer.']]],
     'token count above the JSON safe integer' => ['optional-result-fields.json', static fn (array $fixture): array => data_set($fixture, 'results.0.usage.prompt_tokens', 9007199254740992), ['prompt_tokens' => ['The prompt tokens field must not be greater than 9007199254740991.']]],
+    'retrieval entry with a non-string title' => ['markdown-success.json', static fn (array $fixture): array => data_set($fixture, 'results.0.search_results', [['url' => 'https://example.com', 'title' => 7]]), ['title' => ['The title field must be a string.']]],
+    'retrieval entry with a relative URL' => ['markdown-success.json', static fn (array $fixture): array => data_set($fixture, 'results.0.search_results', [['url' => 'example.com/page']]), ['url' => ['must be a valid absolute URI.']]],
     'cost with 19 decimal places' => ['partial-top-level-usage.json', static fn (array $fixture): array => data_set($fixture, 'usage.actual_cost', '1.0000000000000000001'), ['actual_cost' => ['The actual cost field format is invalid.']]],
 ]);
 

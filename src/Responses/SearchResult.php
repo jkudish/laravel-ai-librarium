@@ -55,9 +55,19 @@ final readonly class SearchResult implements JsonSerializable
         return $this->toArray();
     }
 
-    /** @param array<array-key, mixed> $value */
+    /**
+     * Validates natively, and only builds a Laravel validator for its error
+     * messages when the native check fails: a stored answer can carry dozens
+     * of retrieved pages, and a validator per page dominates decoding.
+     *
+     * @param  array<array-key, mixed>  $value
+     */
     private static function validate(array $value): void
     {
+        if (self::passesNatively($value)) {
+            return;
+        }
+
         $validator = Validator::make($value, [
             'url' => ['required', 'string'],
             'title' => ['nullable', 'string'],
@@ -82,5 +92,35 @@ final readonly class SearchResult implements JsonSerializable
             }
         });
         $validator->validate();
+    }
+
+    /**
+     * Accept only values that every Laravel rule and after callback above accepts.
+     *
+     * @param  array<array-key, mixed>  $value
+     */
+    private static function passesNatively(array $value): bool
+    {
+        if (array_diff(array_keys($value), ['url', 'title', 'snippet', 'published_at']) !== []
+            || ! is_string($value['url'] ?? null) || $value['url'] === '' || ! UriFormats::uri($value['url'])) {
+            return false;
+        }
+        foreach (['title', 'snippet'] as $field) {
+            if (($value[$field] ?? null) !== null && ! is_string($value[$field])) {
+                return false;
+            }
+        }
+        $date = $value['published_at'] ?? null;
+        if ($date === null) {
+            return true;
+        }
+        if (! is_string($date) || preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/D', $date) !== 1) {
+            return false;
+        }
+        try {
+            return CarbonImmutable::parse($date)->format('Y-m-d\TH:i:s') === substr($date, 0, 19);
+        } catch (\Throwable) {
+            return false;
+        }
     }
 }
