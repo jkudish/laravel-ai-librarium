@@ -35,12 +35,13 @@ final class ProfileCatalog
     ];
 
     /**
-     * The last validated catalog and the Librarium configuration it was built
-     * from. Validation is a pure function of that configuration, and the
-     * catalog is a container singleton, so lookups reuse it until the
-     * configuration changes.
+     * The last validated catalog and the configuration it was built from: the
+     * Librarium configuration and the Profiles it resolves to, which come from
+     * the bundled bindings (and their `services` credentials) when no Profiles
+     * are configured. Validation is a pure function of both, and the catalog
+     * is a container singleton, so lookups reuse it until either changes.
      *
-     * @var array{configuration: mixed, items: array<string, ProfileAvailability>}|null
+     * @var array{configuration: array{mixed, mixed}, items: array<string, ProfileAvailability>}|null
      */
     private ?array $validated = null;
 
@@ -53,20 +54,24 @@ final class ProfileCatalog
     /** @return Collection<string, ProfileAvailability> */
     public function all(): Collection
     {
-        $configuration = $this->config->get('librarium');
+        if ($this->config->has('librarium.profiles')) {
+            $configured = $this->config->get('librarium.profiles');
+        } else {
+            /** @var array{profiles: array<string, array<string, mixed>>} $bindings */
+            $bindings = require __DIR__.'/Profiles/bindings.php';
+            $configured = $bindings['profiles'];
+        }
+        $configuration = [$this->config->get('librarium'), $configured];
         if ($this->validated === null || $this->validated['configuration'] !== $configuration) {
-            $this->validated = ['configuration' => $configuration, 'items' => $this->validate()];
+            $this->validated = ['configuration' => $configuration, 'items' => $this->validate($configured)];
         }
 
         return collect($this->validated['items']);
     }
 
     /** @return array<string, ProfileAvailability> */
-    private function validate(): array
+    private function validate(mixed $configured): array
     {
-        /** @var array{profiles: array<string, array<string, mixed>>} $bindings */
-        $bindings = require __DIR__.'/Profiles/bindings.php';
-        $configured = $this->config->get('librarium.profiles', $bindings['profiles']);
         if (! is_array($configured)) {
             throw ValidationException::withMessages(['profiles' => 'The profiles configuration must be an array.']);
         }

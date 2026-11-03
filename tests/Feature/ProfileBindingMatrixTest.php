@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Validator;
 use Jkudish\LaravelAiLibrarium\ProfileCatalog;
 use Jkudish\LaravelAiLibrarium\SourceCatalog;
@@ -29,6 +30,15 @@ it('validates the configured Profiles once until the Librarium configuration cha
         ->and($allocations)->toBeGreaterThan(0);
     config(['librarium.profile_options_max_bytes' => 1]);
     expect($catalog->find('serpapi')?->reasons)->toContain('Profile options must be valid JSON and no larger than 1 bytes.');
+});
+
+it('rebuilds the bundled Profiles when their service credentials change', function (): void {
+    config(['librarium' => Arr::except(config()->array('librarium'), 'profiles'), 'services.searchapi.key' => null]);
+    $catalog = app(ProfileCatalog::class);
+
+    expect($catalog->find('searchapi-chatgpt')?->reasons)->toContain('Credential is not configured.');
+    config(['services.searchapi.key' => 'rotated-searchapi-key']);
+    expect($catalog->find('searchapi-chatgpt'))->reasons->toBe([])->profile->credential->toBe('rotated-searchapi-key');
 });
 
 it('resolves every shared PHP variant and collector mapping through the source catalog', function (): void {
