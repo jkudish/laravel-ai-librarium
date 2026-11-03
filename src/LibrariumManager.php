@@ -174,6 +174,10 @@ final class LibrariumManager implements Librarium
             $profile = $profiles[$id];
             $settings = $this->catalog->settings($id);
             $collector = $settings['collector'] ?? null;
+            $collectorVariant = $this->catalog->entries()[$id]['options']['collector']['variants']['dataforseo']['php'] ?? null;
+            if (is_string($collectorVariant)) {
+                $collector = $profile->id === $collectorVariant ? 'dataforseo' : null;
+            }
             $providerDeadline = is_a($profile->driver, Contracts\DeclaresDeadline::class, true) ? $profile->driver::deadlineSeconds($profile) : null;
             if ($providerDeadline !== null && $providerDeadline > $this->timeout()) {
                 $notices[] = ['code' => 'wait_timeout', 'message' => "Source [{$id}] may run for {$providerDeadline} seconds, beyond librarium.timeout ({$this->timeout()}). Its saved handle remains recoverable with find()->refresh(); the provider may still finish and bill the task."];

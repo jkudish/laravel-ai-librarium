@@ -109,6 +109,19 @@ it('preserves deep variants and enforces collector quick prerequisites', functio
     }
 });
 
+it('plans provenance from the effective collector rather than source configuration', function (string $depth, ?string $configured, array $options, string $variant, ?string $collector): void {
+    Http::fake();
+    config(['librarium.sources.openai.collector' => $configured]);
+    $pending = Librarium::research('Research')->only(['openai'])->options(['openai' => $options]);
+    $run = ($depth === 'deep' ? $pending->deep() : $pending)->dryRun();
+    expect($run->result('openai')['provenance'])->toMatchArray(['variant' => $variant, 'collector' => $collector]);
+    Http::assertNothingSent();
+})->with([
+    ['deep', 'dataforseo', [], 'openai-research', null],
+    ['quick', 'dataforseo', ['collector' => 'direct'], 'openai-chat', null],
+    ['quick', null, ['collector' => 'dataforseo'], 'dataforseo-llm-chatgpt', 'dataforseo'],
+]);
+
 it('forwards model overrides and supported web search controls without a second client', function (): void {
     config(['librarium.sources.openai.options' => ['max_output_tokens' => 1024, 'force_web_search' => true, 'web_search_country_iso_code' => 'FR', 'web_search_city' => 'Paris']]);
     Http::fake(fn (Request $request) => Http::response(llmResponsesEnvelope($request, 'chat_gpt')));
