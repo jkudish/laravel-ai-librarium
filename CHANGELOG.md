@@ -1,8 +1,8 @@
 # Changelog
 
-## 1.1.0 - 2026-11-03
+## Unreleased
 
-- Require `jkudish/librarium-spec` `^1.1`.
+- Require `jkudish/librarium-spec` `^1.1` (release 1.1.0 must be published first).
 - Add nullable typed `ResearchResult::$searchResults` with `SearchResult` value
   objects and spec-shaped `search_results` serialization/Run projection. Omit
   unknown retrieval sets, preserve empty lists and deduplicate exact URLs in
