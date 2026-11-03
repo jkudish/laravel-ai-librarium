@@ -66,12 +66,13 @@ final readonly class ResearchResultMapper
             model: is_string($model) && $model !== '' ? $model : $request->profile->model,
             usage: $usage ?? $this->usage($response, $request->profile->provider ?? ''),
             providerMeta: $this->providerMeta($response),
-            searchResults: $anthropic ? $this->anthropicSearchResults($response) : null,
+            searchResults: $anthropic ? $this->anthropicSearchResults($response)
+                : ($usesWebSearch && $request->profile->provider === 'openai' ? $this->openAiSearchResults($this->replayBlocks($response)->all()) : null),
         );
     }
 
     /** @return Collection<int, array<string, mixed>> */
-    private function anthropicBlocks(AgentResponse $response): Collection
+    private function replayBlocks(AgentResponse $response): Collection
     {
         return $response->steps->flatMap(static fn (Step $step): array => $step->replayBlocks)->values();
     }
@@ -80,7 +81,7 @@ final readonly class ResearchResultMapper
     private function anthropicCitations(AgentResponse $response): Collection
     {
         $citations = [];
-        foreach ($this->anthropicBlocks($response) as $block) {
+        foreach ($this->replayBlocks($response) as $block) {
             if (($block['type'] ?? null) !== 'text' || ! is_array($block['citations'] ?? null)) {
                 continue;
             }
@@ -104,7 +105,7 @@ final readonly class ResearchResultMapper
     {
         $results = [];
         $reported = false;
-        foreach ($this->anthropicBlocks($response) as $block) {
+        foreach ($this->replayBlocks($response) as $block) {
             $items = null;
             if (($block['type'] ?? null) === 'web_search_tool_result') {
                 // The SDK exposes search_results; Anthropic also uses content
@@ -128,6 +129,30 @@ final readonly class ResearchResultMapper
         }
 
         return $reported ? collect($results) : null;
+    }
+
+    /**
+     * @param  array<int, array<array-key, mixed>>  $output  SDK replay blocks or raw Responses output records.
+     * @return Collection<int, SearchResult>|null
+     */
+    public function openAiSearchResults(array $output): ?Collection
+    {
+        $results = [];
+        $reported = false;
+        foreach ($output as $item) {
+            $sources = data_get($item, 'action.sources');
+            if (($item['type'] ?? null) !== 'web_search_call' || ! is_array($sources) || ! array_is_list($sources)) {
+                continue;
+            }
+            $reported = true;
+            foreach ($sources as $source) {
+                if (is_array($source) && is_string($source['url'] ?? null) && $source['url'] !== '') {
+                    $results[] = new SearchResult(url: $source['url'], title: is_string($source['title'] ?? null) ? $source['title'] : null);
+                }
+            }
+        }
+
+        return $reported ? collect($results)->uniqueStrict('url')->values() : null;
     }
 
     /** @return array<int, Corpus> */

@@ -55,6 +55,7 @@ final readonly class OpenAiResearchResultMapper
             fallbackReason: $result->fallbackReason,
             usage: $this->researchUsage($reported),
             providerMeta: $result->providerMeta,
+            searchResults: $this->results->openAiSearchResults($this->records(data_get($response, 'output'))),
         );
     }
 

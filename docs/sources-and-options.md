@@ -73,6 +73,15 @@ as citations; web-search tool results and fetched pages form `search_results`.
 Claude grounding (including required-grounding validation) now depends on real
 citations, not the SDK's conflated retrieval/citation metadata.
 
+OpenAI Responses web-search profiles request
+`include: ['web_search_call.action.sources']`. Quick OpenAI uses the SDK's
+provider options and raw step replay blocks; background OpenAI research already
+requests the same expansion and maps its raw output. All web-search call source
+lists contribute retrieval, while `url_citation` annotations remain citations.
+Absent `action.sources` means unknown, not empty. Disabling web search adds no
+source-expansion include and leaves retrieval null (the SDK may independently
+include encrypted reasoning for reasoning models). No SDK patch is needed.
+
 ## Optional DataForSEO LLM Responses
 
 Requires `jkudish/librarium-spec` 1.1.0 or later and

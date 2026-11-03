@@ -10,6 +10,9 @@
 - Retain ChatGPT scraper and Perplexity agent retrieval sets separately from
   citations. Fix Claude citations to use only text-block citation locations;
   retrieved/fetched pages no longer satisfy grounding by themselves.
+- Retain OpenAI Responses web-search call sources for quick and background
+  research, separate from URL-citation annotations, using native SDK provider
+  options/replay blocks without patching the SDK. Missing sources stay unknown.
 - Add opt-in, Live-only DataForSEO LLM Responses collectors for quick OpenAI,
   Claude, Perplexity Sonar Pro and grounded Gemini. Reuse the DataForSEO client,
   report total task charges once, and keep spending bounds unknown. Nothing

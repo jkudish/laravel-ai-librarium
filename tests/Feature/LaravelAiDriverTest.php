@@ -47,6 +47,45 @@ afterEach(function (): void {
     CarbonImmutable::setTestNow();
 });
 
+it('requests and separates OpenAI retrieval through the real SDK without inventing empty retrieval', function (bool $webSearch, string $retrieval): void {
+    app()->forgetInstance(AiManager::class);
+    Ai::clearResolvedInstance(AiManager::class);
+    config(['librarium.profiles.openai-chat.options.web_search' => $webSearch, 'librarium.profiles.openai-chat.model' => 'gpt-4.1']);
+    $action = ['type' => 'search'];
+    if ($retrieval !== 'absent') {
+        $action['sources'] = $retrieval === 'empty' ? [] : [
+            ['type' => 'url', 'url' => 'https://example.com/uncited', 'title' => 'First'],
+            ['type' => 'url', 'url' => 'https://example.com/cited', 'title' => 'Cited'],
+            ['type' => 'url', 'url' => 'https://example.com/uncited', 'title' => 'Duplicate'],
+        ];
+    }
+    Http::fake(['https://api.openai.com/v1/responses' => Http::response([
+        'id' => 'resp_search', 'status' => 'completed', 'model' => 'gpt-4.1',
+        'output' => [
+            ['type' => 'web_search_call', 'status' => 'completed', 'action' => $action],
+            ['type' => 'web_search_call', 'status' => 'completed', 'action' => $retrieval === 'reported'
+                ? ['type' => 'search', 'sources' => [['url' => 'https://example.com/later']]] : $action],
+            ['type' => 'message', 'content' => [['type' => 'output_text', 'text' => 'Answer.', 'annotations' => [
+                ['type' => 'url_citation', 'url' => 'https://example.com/cited', 'title' => 'Cited'],
+            ]]]],
+        ],
+        'usage' => ['input_tokens' => 10, 'output_tokens' => 6],
+    ])]);
+    $result = variantRun('openai-chat', 'Research');
+    expect($result->citations->pluck('source.url')->all())->toBe(['https://example.com/cited']);
+    if (! $webSearch || $retrieval === 'absent') {
+        expect($result->searchResults)->toBeNull()->and($result->toArray())->not->toHaveKey('search_results');
+    } else {
+        expect($result->searchResults->pluck('url')->all())->toBe($retrieval === 'empty' ? [] : ['https://example.com/uncited', 'https://example.com/cited', 'https://example.com/later']);
+        if ($retrieval !== 'empty') {
+            expect($result->searchResults->first()->title)->toBe('First');
+        }
+    }
+    Http::assertSent(fn (Request $request): bool => $webSearch
+        ? in_array('web_search_call.action.sources', $request->data()['include'] ?? [], true)
+        : ! array_key_exists('include', $request->data()) && ! array_key_exists('tools', $request->data()));
+})->with([[true, 'reported'], [true, 'absent'], [true, 'empty'], [false, 'reported']]);
+
 it('separates Claude text citations from retrieved and fetched pages through the real SDK', function (bool $cited, string $listKey): void {
     app()->forgetInstance(AiManager::class);
     Ai::clearResolvedInstance(AiManager::class);

@@ -53,6 +53,8 @@ it('submits, polls, and normalizes one grounded background research response', f
         ->and($result->citations)->toHaveCount(1)
         ->and($result->citations->first()->derivation)->toBe(CitationDerivation::ProviderReported)
         ->and($result->citations->first()->source->url)->toBe('https://example.com/source')
+        ->and($result->searchResults->pluck('url')->all())->toBe(['https://example.com/uncited', 'https://example.com/source'])
+        ->and($result->searchResults->first()->title)->toBe('Unused')
         ->and($result->usage?->promptTokens)->toBe(100)
         ->and($result->usage?->completionTokens)->toBe(80)
         ->and($result->usage?->cacheReadInputTokens)->toBe(20)
@@ -88,8 +90,7 @@ it('submits, polls, and normalizes one grounded background research response', f
 
     $wire = json_encode($result->toArray(), JSON_THROW_ON_ERROR);
     expect($wire)->not->toContain('resp_research_1')
-        ->not->toContain('provider-secret')
-        ->not->toContain('raw-secret.example.com');
+        ->not->toContain('provider-secret');
 });
 
 it('normalizes completed research into a Laravel AI AgentResponse before interchange mapping', function (): void {
@@ -123,6 +124,7 @@ it('accepts completed web search calls when optional source expansion is absent'
 
     expect($response->text)->toBe('A researched report with a cited claim.')
         ->and($response->meta->citations)->toHaveCount(1);
+    expect(app(OpenAiResearchResultMapper::class)->map($completed, openAiResearchRequest())->searchResults)->toBeNull();
 });
 
 it('uses a verified webhook signal as a wake hint and still retrieves the canonical response', function (): void {
@@ -560,7 +562,9 @@ function openAiCompletedResponse(): array
                 'action' => [
                     'type' => 'search',
                     'sources' => [
-                        ['type' => 'url', 'url' => 'https://raw-secret.example.com/provider-secret'],
+                        ['type' => 'url', 'url' => 'https://example.com/uncited', 'title' => 'Unused'],
+                        ['type' => 'url', 'url' => 'https://example.com/source'],
+                        ['type' => 'url', 'url' => 'https://example.com/uncited', 'title' => 'Duplicate'],
                     ],
                 ],
             ],
