@@ -24,8 +24,7 @@ composer update --prefer-stable --no-interaction --prefer-dist
 Retain PHP/Composer versions and resolved package inventory with the candidate
 evidence. Do not commit the library's lock file. Tests must prevent provider
 traffic. Shared selection, valid/invalid Runs, and run-store contract fixtures
-come from `jkudish/librarium-spec` `^1.1`. Release 1.1.0 of the shared spec must
-be published before releasing this package. Read the shared unencrypted folder
+come from `jkudish/librarium-spec` `^1.1` (released 2026-11-03). Read the shared unencrypted folder
 fixture and prove quick/queued-deep/find/refresh smoke tests through all stores.
 
 Redis proof is required separately and must not be reported as passed when
