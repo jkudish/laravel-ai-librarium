@@ -218,10 +218,17 @@ final class ResearchResult implements JsonSerializable
      */
     private static function passesNatively(array $value): bool
     {
-        if (array_key_exists('search_results', $value)) {
-            return false;
+        if (array_key_exists('search_results', $value) && $value['search_results'] !== null) {
+            if (! is_array($value['search_results']) || ! array_is_list($value['search_results'])) {
+                return false;
+            }
+            foreach ($value['search_results'] as $item) {
+                if (! is_array($item)) {
+                    return false;
+                }
+            }
         }
-        if (array_diff(array_keys($value), ['id', 'content_format', 'content', 'requested_profile', 'provider', 'profile', 'provenance', 'citations', 'completed_at', 'model', 'fallback_reason', 'usage', 'provider_meta']) !== []
+        if (array_diff(array_keys($value), ['id', 'content_format', 'content', 'requested_profile', 'provider', 'profile', 'provenance', 'citations', 'completed_at', 'model', 'fallback_reason', 'usage', 'provider_meta', 'search_results']) !== []
             || ! is_string($value['id'] ?? null) || mb_strlen($value['id']) > 255
             || preg_match(OpaqueIdentifier::PATTERN, $value['id']) !== 1
             || ! is_string($value['content_format'] ?? null) || ($format = ContentFormat::tryFrom($value['content_format'])) === null
