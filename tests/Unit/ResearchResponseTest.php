@@ -227,6 +227,16 @@ it('hydrates and serializes canonical driver responses without allocating a Lara
 
         return $fixture;
     }],
+    'retrieved search results' => ['markdown-success.json', static function (array $fixture): array {
+        $fixture['results'][0]['search_results'] = [
+            ['url' => 'https://example.com/a', 'title' => 'A', 'snippet' => 'Excerpt', 'published_at' => '2026-10-01T00:00:00.5Z'],
+            ['url' => 'https://example.com/b', 'title' => null, 'snippet' => null, 'published_at' => null],
+            ['url' => 'https://example.com/c', 'title' => '', 'snippet' => 'C', 'published_at' => '2026-10-02T03:04:05Z'],
+        ];
+
+        return $fixture;
+    }],
+    'empty retrieved search results' => ['markdown-success.json', static fn (array $fixture): array => data_set($fixture, 'results.0.search_results', [])],
 ]);
 
 it('keeps Laravel error bags at the native validation boundaries', function (string $fixtureName, Closure $change, array $errors): void {
