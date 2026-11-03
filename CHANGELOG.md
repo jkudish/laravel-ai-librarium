@@ -17,6 +17,8 @@
   Claude, Perplexity Sonar Pro and grounded Gemini. Reuse the DataForSEO client,
   report total task charges once, and keep spending bounds unknown. Nothing
   enables these collectors by default.
+- Accept the `live` function that DataForSEO LLM Scraper Live receipts have
+  echoed since API 0.1.20261022; other task families are still rejected.
 
 ## 1.0.0 - 2026-10-27
 

@@ -620,6 +620,8 @@ readonly class DataForSeoDriver implements DefinesSpendingBound, Driver
             $descriptor['api'] === 'ai_optimization'
                 && $descriptor['surface'] === 'chatgpt'
                 && $operation === 'task_post' => ['task_post', 'llm_scraper'],
+            // Live receipts have echoed `live` since API 0.1.20261022.
+            $descriptor['api'] === 'ai_optimization' && str_starts_with($operation, 'live') => ['llm_scraper', 'live'],
             $descriptor['api'] === 'ai_optimization' => ['llm_scraper'],
             $operation === 'task_post' => ['task_post'],
             str_starts_with($operation, 'task_get/') => ['task_get'],

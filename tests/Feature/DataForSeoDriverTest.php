@@ -114,6 +114,21 @@ it('keeps the scraper retrieval set separate from citations and deduplicates exa
         ->and($result->citations->pluck('source.url')->all())->toBe(['https://example.test/source']);
 });
 
+it('accepts the live function a current ChatGPT scraper Live receipt echoes, and still rejects another task family', function (): void {
+    // API 0.1.20261022 echoes data.function "live" and a URL-encoded keyword.
+    $payload = dataForSeoEnvelope('dataforseo-chatgpt-live', 'ai_optimization/chat_gpt/llm_scraper', 'live/advanced', 'chatgpt', 'Best virtual numbers?', 20000, true, '0.004');
+    data_set($payload, 'tasks.0.data.function', 'live');
+    data_set($payload, 'tasks.0.data.keyword', rawurlencode('Best virtual numbers?'));
+    Http::fake(function () use (&$payload) {
+        return Http::response($payload);
+    });
+
+    expect(variantRun('dataforseo-chatgpt-live', 'Best virtual numbers?')->content)->not->toBe('');
+
+    data_set($payload, 'tasks.0.data.function', 'task_get');
+    expect(variantFailure('dataforseo-chatgpt-live', 'Best virtual numbers?')->getMessage())->toContain('different task family');
+});
+
 it('runs each Standard and Live Profile through the real Librarium runtime on one fixed endpoint', function (string $profile, string $family, string $surface, bool $live): void {
     $query = 'literal + %20 % café';
     Http::fake(function (Request $request) use ($profile, $family, $surface, $live, $query) {
