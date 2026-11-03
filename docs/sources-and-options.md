@@ -16,18 +16,18 @@ name or a group/source collision is an error.
 | Source | Quick | Deep | Public options |
 | --- | --- | --- | --- |
 | brave | Answers | None | results: answer/search |
-| claude | Web-search chat | None | model |
+| claude | Web-search chat | None | model, collector: direct/dataforseo |
 | exa | Search | Research | None |
 | firecrawl | Search | None | sources: web/news, limit |
-| gemini | Grounded | Deep Research | quick: grounded/chat |
+| gemini | Grounded | Deep Research | quick: grounded/chat, collector: direct/dataforseo |
 | google | SERP search | None | collector: searchapi/serpapi/serpbase, vertical: web/news (news requires serpbase) |
 | grok | Web search | None | search: web/x/both |
 | jina | Search | None | None |
 | kagi | FastGPT | None | None |
-| openai | Web-search chat | Research | model, effort |
+| openai | Web-search chat | Research | model, effort, collector: direct/dataforseo |
 | openrouter | Grounded | None | quick: grounded/chat, model |
 | parallel | Turbo | Research | quick: turbo/search, processor (pro default) |
-| perplexity | Sonar Pro | Research | quick: sonar-pro/search/agent, deep_effort: medium/high |
+| perplexity | Sonar Pro | Research | quick: sonar-pro/search/agent, deep_effort: medium/high, collector: direct/dataforseo |
 | tavily | Search | None | None |
 | valyu | Search | Research | mode (standard default), output |
 | you | Answer | Research | quick: answer/research |
@@ -46,6 +46,102 @@ arbitrary transport, credentials or provider routing controls.
 Firecrawl makes one POST to `https://api.firecrawl.dev/v2/search` and normalizes
 web/news citations; credits are not invented USD charges. Search-only answers
 are `null`; their citations and stored evidence carry findings.
+
+## Retrieved pages versus citations (spec 1.1)
+
+`citations` contains pages the answer cites. Optional `search_results` contains
+the provider's retrieval set, including uncited pages, in provider order with
+exact-URL duplicates removed (first occurrence kept). A retrieved page was not
+necessarily read or rejected. Missing/null means retrieval is unavailable;
+`[]` means the provider reported an empty set. Search-only sources omit it.
+
+The PHP API is `ResearchResult::$searchResults`, a nullable
+`Collection<int, Responses\SearchResult>`. Each readonly `SearchResult` has
+`url`, `title`, `snippet` and `publishedAt` (`?CarbonImmutable`), with
+`fromArray()`/`toArray()`/JSON support. `ResearchResult::toArray()` and Run results
+use `search_results: [{url, title, snippet, published_at}]`; all four entry keys
+are emitted, with `published_at` in RFC 3339 UTC or null. When the collection is
+null the key is omitted, so pre-1.1 serialized responses round-trip unchanged.
+Strict 1.0 Run readers must upgrade before reading 1.1 retrieval fields.
+
+ChatGPT's DataForSEO scraper maps `chatgpt_search_result` entries from
+`search_results` (`description` becomes `snippet`), while its `sources` remain
+citations. Gemini scraper and Google AI Mode do not report a retrieval list.
+The Perplexity agent retains every `search_results` entry, not just cited ones.
+For direct Claude, only text-block `web_search_result_location` citations count
+as citations; web-search tool results and fetched pages form `search_results`.
+Claude grounding (including required-grounding validation) now depends on real
+citations, not the SDK's conflated retrieval/citation metadata.
+
+OpenAI Responses web-search profiles request
+`include: ['web_search_call.action.sources']`. Quick OpenAI uses the SDK's
+provider options and raw step replay blocks; background OpenAI research already
+requests the same expansion and maps its raw output. All web-search call source
+lists contribute retrieval, while `url_citation` annotations remain citations.
+Absent `action.sources` means unknown, not empty. Disabling web search adds no
+source-expansion include and leaves retrieval null (the SDK may independently
+include encrypted reasoning for reasoning models). No SDK patch is needed.
+
+## Optional DataForSEO LLM Responses
+
+Requires `jkudish/librarium-spec` 1.1.0 or later and
+`services.dataforseo.login` / `services.dataforseo.password`. This collector is
+PHP-only, Live-only and never selected by default. It calls the provider's model
+API through DataForSEO; it is not a consumer-surface snapshot. Deep variants
+are unchanged and still require their direct credentials.
+
+```php
+$run = Librarium::research('Compare current analytics options')
+    ->only(['openai'])
+    ->options(['openai' => ['collector' => 'dataforseo', 'model' => 'gpt-4.1-mini']])
+    ->run();
+```
+
+| Source | Internal profile | Platform path | Default model_name |
+| --- | --- | --- | --- |
+| openai | dataforseo-llm-chatgpt | chat_gpt | gpt-4.1-mini |
+| claude | dataforseo-llm-claude | claude | claude-opus-5 |
+| perplexity (quick: sonar-pro) | dataforseo-llm-perplexity | perplexity | sonar-pro |
+| gemini (quick: grounded) | dataforseo-llm-gemini | gemini | gemini-2.5-flash |
+
+Requests POST once to `/v3/ai_optimization/{platform}/llm_responses/live`,
+without retries. `user_prompt` is the literal question (1–500 Unicode characters;
+longer questions fail before HTTP). `model_name` is required; the public `model`
+option on openai/claude overrides it. Configure other driver options under
+`librarium.sources.<source>.options`:
+
+- `model_name`: model supported by that platform (defaults above).
+- `max_output_tokens`: default 2048, maximum 4096; minimum 16 for ChatGPT,
+  1 for the others. Reasoning-model minimums can be higher; use a model-supported
+  value. With web search, output can exceed this limit, so it is not a cost cap.
+- `force_web_search`: optional bool, ChatGPT/Claude only. ChatGPT reasoning
+  models do not support it. Even true does not guarantee citations.
+- `web_search_country_iso_code`: optional two-letter uppercase country,
+  ChatGPT/Claude/Perplexity only (Perplexity Sonar models).
+- `web_search_city`: optional city, ChatGPT/Claude only. Some ChatGPT models do
+  not support location controls; consult the model endpoint before overriding.
+
+Web search is always enabled. Answer text comes from message text sections,
+citations from `annotations`, retrieval from `search_results` (including dates),
+and `fan_out_queries` is retained in `providerMeta`. Provenance separates the
+model provider from `collector: dataforseo`.
+
+DataForSEO limits Live work to 30 concurrent tasks per account **per platform**;
+applications sharing credentials must coordinate that limit across workers.
+The provider execution limit is 120 seconds; the shared HTTP client allows up
+to 125 seconds for transport, bounded further by the research deadline.
+[Live pricing](https://dataforseo.com/pricing/ai-optimization/llm-responses) is
+$0.0006 per task plus model charges. The reported task `cost` already includes
+`money_spent` and is used once as actual USD cost. No honest hard spending bound
+is known: these profiles are `unpriced` and skipped when `max_cost` is set.
+
+Request/response fields were checked against the current Live references on
+2026-11-03: [ChatGPT](https://docs.dataforseo.com/v3/ai_optimization/chat_gpt/llm_responses/live/),
+[Claude](https://docs.dataforseo.com/v3/ai_optimization/claude/llm_responses/live/),
+[Perplexity](https://docs.dataforseo.com/v3/ai_optimization/perplexity/llm_responses/live/),
+[Gemini](https://docs.dataforseo.com/v3/ai_optimization/gemini/llm_responses/live/).
+Tests use shortened documented examples and faked HTTP; no live compatibility
+or provider-account/model entitlement is claimed.
 
 ## Anthropic prompt caching
 

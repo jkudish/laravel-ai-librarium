@@ -56,14 +56,21 @@ final class SourceCatalog
         return $entries;
     }
 
-    /** @return array<string, array{configured: bool, deep: bool, collector: bool, engine: bool}> */
-    public function selectionCatalog(): array
+    /**
+     * @param  array<string, array<string, mixed>>  $options
+     * @return array<string, array{configured: bool, deep: bool, collector: bool, engine: bool}>
+     */
+    public function selectionCatalog(array $options = [], string $depth = 'quick'): array
     {
         $items = [];
         foreach ($this->entries() as $id => $entry) {
             $settings = $this->settings($id);
             $collector = $settings['collector'] ?? null;
             $engine = $entry['kind'] === 'engine';
+            if (! $engine && $depth === 'quick' && isset($entry['options']['collector']['variants']['dataforseo'])
+                && ($options[$id]['collector'] ?? $collector) === 'dataforseo') {
+                $settings['key'] = DataForSeoCredential::encode($this->config->get('services.dataforseo.login'), $this->config->get('services.dataforseo.password'));
+            }
             $available = ! $engine || (is_string($collector) && (isset($this->collectors[$collector]) || in_array($collector, ['searchapi', 'dataforseo'], true) && isset($entry['collectors'][$collector])));
             $items[$id] = [
                 'configured' => ($settings['enabled'] ?? true) !== false && filled($settings['key'] ?? null) && (! $engine || is_string($collector) && $available),
@@ -124,6 +131,11 @@ final class SourceCatalog
     {
         $entry = $this->entries()[$id];
         $settings = $this->settings($id);
+        $dataforseo = $depth === 'quick' && isset($entry['options']['collector']['variants']['dataforseo'])
+            && ($overrides['collector'] ?? $settings['collector'] ?? 'direct') === 'dataforseo';
+        if ($dataforseo) {
+            $settings['key'] = DataForSeoCredential::encode($this->config->get('services.dataforseo.login'), $this->config->get('services.dataforseo.password'));
+        }
         if ($validateOnly) {
             $settings['enabled'] = true;
             $settings['key'] = null;
@@ -149,7 +161,7 @@ final class SourceCatalog
             if (! $valid) {
                 throw ValidationException::withMessages(['options.'.$id.'.'.$name => 'Unsupported source option.']);
             }
-            if (is_string($value) && isset($rule['variants'][$value]) && ! ($name === 'quick' && $depth !== 'quick') && ! ($name === 'deep_effort' && $depth !== 'deep')) {
+            if (is_string($value) && isset($rule['variants'][$value]) && ! (in_array($name, ['quick', 'collector'], true) && $depth !== 'quick') && ! ($name === 'deep_effort' && $depth !== 'deep')) {
                 $mapping = $rule['variants'][$value];
                 foreach ($mapping['requires'] ?? [] as $required => $expected) {
                     if (($overrides[$required] ?? $settings[$required] ?? $entry['options'][$required]['default'] ?? null) !== $expected) {
@@ -206,6 +218,9 @@ final class SourceCatalog
         $binding['credential'] = $settings['key'] ?? null;
         $binding['enabled'] = ($settings['enabled'] ?? true) !== false;
         $driverOptions = is_array($binding['options'] ?? null) ? $binding['options'] : [];
+        if ($dataforseo && is_array($settings['options'] ?? null)) {
+            $driverOptions = array_replace($driverOptions, $settings['options']);
+        }
         if ($entry['kind'] === 'engine' || is_array($custom)) {
             $configuredOptions = $settings['options'] ?? [];
             $driverOptions = array_replace($driverOptions, is_array($configuredOptions) ? $configuredOptions : [], $overrides);
@@ -231,7 +246,9 @@ final class SourceCatalog
                     $binding['pricing'] = array_replace(is_array($binding['pricing'] ?? null) ? $binding['pricing'] : [], ['model' => 'research-'.(is_string($value) ? $value : '')]);
                 }
             } elseif ($name === 'effort') {
-                $driverOptions['reasoning_effort'] = $value;
+                if (! $dataforseo) {
+                    $driverOptions['reasoning_effort'] = $value;
+                }
             } elseif ($name === 'output') {
                 if ($depth === 'deep') {
                     $driverOptions['output_formats'] = $value;

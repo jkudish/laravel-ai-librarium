@@ -8,7 +8,7 @@ use Illuminate\Contracts\Support\Arrayable;
 use JsonSerializable;
 
 /**
- * @phpstan-type RunResult array{source: string, status: string, observation: string, answer: ?string, citations: list<array{url: string, title?: ?string}>, cost: array{estimated: ?string, reported: ?string}, started_at: ?string, duration_ms: ?int, provenance: array{provider: string, variant: string, model: ?string, collector: ?string}, error: ?array{code: string, message: string, retryable: bool}}
+ * @phpstan-type RunResult array{source: string, status: string, observation: string, answer: ?string, citations: list<array{url: string, title?: ?string}>, search_results?: list<array{url: string, title: ?string, snippet: ?string, published_at: ?string}>|null, cost: array{estimated: ?string, reported: ?string}, started_at: ?string, duration_ms: ?int, provenance: array{provider: string, variant: string, model: ?string, collector: ?string}, error: ?array{code: string, message: string, retryable: bool}}
  * @phpstan-type RunDocument array{spec: string, id: string, question: string, depth: string, status: string, created_at: string, finished_at: ?string, cost: array{estimated: ?string, reported: ?string, complete: bool, max: ?string}, results: list<RunResult>, skipped: list<array{source: string, reason: string}>, notices: list<array{code: string, message: string}>, summary_of?: string}
  *
  * @implements Arrayable<string, mixed>

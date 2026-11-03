@@ -58,10 +58,12 @@ final class LibrariumManager implements Librarium
         $sources = [];
         $engines = [];
         $selection = $this->catalog->selectionCatalog();
+        $deepSelection = $this->catalog->selectionCatalog(depth: 'deep');
         foreach ($this->catalog->entries() as $id => $entry) {
             $item = ['id' => $id, 'name' => $entry['name'], 'configured' => $selection[$id]['configured'], 'variants' => $entry['variants'] ?? [], 'options' => $entry['options'] ?? [], 'prices' => []];
             foreach (['quick', 'deep'] as $depth) {
-                if (! $item['configured'] || ($depth === 'deep' && ! $selection[$id]['deep']) || ! $selection[$id]['collector']) {
+                $depthSelection = $depth === 'quick' ? $selection : $deepSelection;
+                if (! $depthSelection[$id]['configured'] || ($depth === 'deep' && ! $selection[$id]['deep']) || ! $selection[$id]['collector']) {
                     continue;
                 }
                 $profile = $this->catalog->profile($id, $depth);
@@ -156,7 +158,7 @@ final class LibrariumManager implements Librarium
         if ($maximum !== null && (! is_string($maximum) || preg_match('/^(0|[1-9][0-9]*)(\.[0-9]+)?$/D', $maximum) !== 1)) {
             throw new LogicException('max_cost must be a non-negative USD decimal string.');
         }
-        $catalog = $this->catalog->selectionCatalog();
+        $catalog = $this->catalog->selectionCatalog($request['options'], $request['depth']);
         $groups = $this->groups();
         $preselection = SourceSelection::select($catalog, $groups, $request['depth'], $request['only'] ?? null, $request['skip']);
         $profiles = [];
@@ -172,6 +174,10 @@ final class LibrariumManager implements Librarium
             $profile = $profiles[$id];
             $settings = $this->catalog->settings($id);
             $collector = $settings['collector'] ?? null;
+            $collectorVariant = $this->catalog->entries()[$id]['options']['collector']['variants']['dataforseo']['php'] ?? null;
+            if (is_string($collectorVariant)) {
+                $collector = $profile->id === $collectorVariant ? 'dataforseo' : null;
+            }
             $providerDeadline = is_a($profile->driver, Contracts\DeclaresDeadline::class, true) ? $profile->driver::deadlineSeconds($profile) : null;
             if ($providerDeadline !== null && $providerDeadline > $this->timeout()) {
                 $notices[] = ['code' => 'wait_timeout', 'message' => "Source [{$id}] may run for {$providerDeadline} seconds, beyond librarium.timeout ({$this->timeout()}). Its saved handle remains recoverable with find()->refresh(); the provider may still finish and bill the task."];

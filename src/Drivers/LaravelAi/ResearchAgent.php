@@ -141,6 +141,10 @@ final class ResearchAgent implements Agent, HasProviderOptions, HasTools
             $options['reasoning'] = ['effort' => $this->openAiEffort];
         }
 
+        if ($driver === Lab::OpenAI->value && $this->usesWebSearch) {
+            $options['include'] = ['web_search_call.action.sources'];
+        }
+
         if ($this->exactOpenRouterRouting && $driver === Lab::OpenRouter->value) {
             $routing = [];
 

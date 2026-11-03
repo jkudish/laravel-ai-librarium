@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+- Require `jkudish/librarium-spec` `^1.1`.
+- Add nullable typed `ResearchResult::$searchResults` with `SearchResult` value
+  objects and spec-shaped `search_results` serialization/Run projection. Omit
+  unknown retrieval sets, preserve empty lists and deduplicate exact URLs in
+  provider order. Old serialized responses without the key remain unchanged.
+- Retain ChatGPT scraper and Perplexity agent retrieval sets separately from
+  citations. Fix Claude citations to use only text-block citation locations;
+  retrieved/fetched pages no longer satisfy grounding by themselves.
+- Retain OpenAI Responses web-search call sources for quick and background
+  research, separate from URL-citation annotations, using native SDK provider
+  options/replay blocks without patching the SDK. Missing sources stay unknown.
+- Add opt-in, Live-only DataForSEO LLM Responses collectors for quick OpenAI,
+  Claude, Perplexity Sonar Pro and grounded Gemini. Reuse the DataForSEO client,
+  report total task charges once, and keep spending bounds unknown. Nothing
+  enables these collectors by default.
+- Accept the `live` function that DataForSEO LLM Scraper Live receipts have
+  echoed since API 0.1.20261022; other task families are still rejected.
+
 ## 1.0.0 - 2026-10-27
 
 First stable release.

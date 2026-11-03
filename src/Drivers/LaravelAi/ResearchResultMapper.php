@@ -18,6 +18,7 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\SourceKind;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
 use Jkudish\LaravelAiLibrarium\Responses\ResultProvenance;
+use Jkudish\LaravelAiLibrarium\Responses\SearchResult;
 use Jkudish\LaravelAiLibrarium\Responses\Source;
 use Jkudish\LaravelAiLibrarium\Responses\Usage;
 use Jkudish\LaravelAiPricing\Adapters\LaravelAiProviderCostExtractor;
@@ -43,7 +44,8 @@ final readonly class ResearchResultMapper
         $text = data_get($response, 'text');
         $provider = data_get($response, 'meta.provider');
         $model = data_get($response, 'meta.model');
-        $citations = $this->citations($response, $citationByteOffsets);
+        $anthropic = $request->profile->provider === 'anthropic';
+        $citations = $anthropic ? $this->anthropicCitations($response) : $this->citations($response, $citationByteOffsets);
         $isGrounded = $usesWebSearch && $citations->isNotEmpty();
         $completedAt ??= CarbonImmutable::now();
 
@@ -64,7 +66,93 @@ final readonly class ResearchResultMapper
             model: is_string($model) && $model !== '' ? $model : $request->profile->model,
             usage: $usage ?? $this->usage($response, $request->profile->provider ?? ''),
             providerMeta: $this->providerMeta($response),
+            searchResults: $anthropic ? $this->anthropicSearchResults($response)
+                : ($usesWebSearch && $request->profile->provider === 'openai' ? $this->openAiSearchResults($this->replayBlocks($response)->all()) : null),
         );
+    }
+
+    /** @return Collection<int, array<string, mixed>> */
+    private function replayBlocks(AgentResponse $response): Collection
+    {
+        return $response->steps->flatMap(static fn (Step $step): array => $step->replayBlocks)->values();
+    }
+
+    /** @return Collection<int, Citation> */
+    private function anthropicCitations(AgentResponse $response): Collection
+    {
+        $citations = [];
+        foreach ($this->replayBlocks($response) as $block) {
+            if (($block['type'] ?? null) !== 'text' || ! is_array($block['citations'] ?? null)) {
+                continue;
+            }
+            foreach ($block['citations'] as $item) {
+                if (! is_array($item) || ($item['type'] ?? null) !== 'web_search_result_location'
+                    || ! is_string($item['url'] ?? null) || $item['url'] === '') {
+                    continue;
+                }
+                $citations[] = Citation::make(
+                    derivation: CitationDerivation::ProviderReported,
+                    source: new Source(kind: SourceKind::WebPage, url: $item['url'], title: is_string($item['title'] ?? null) ? $item['title'] : null),
+                );
+            }
+        }
+
+        return collect($citations)->uniqueStrict(static fn (Citation $item): ?string => $item->source->url)->values();
+    }
+
+    /** @return Collection<int, SearchResult>|null */
+    private function anthropicSearchResults(AgentResponse $response): ?Collection
+    {
+        $results = [];
+        $reported = false;
+        foreach ($this->replayBlocks($response) as $block) {
+            $items = null;
+            if (($block['type'] ?? null) === 'web_search_tool_result') {
+                // The SDK exposes search_results; Anthropic also uses content
+                // for the result list. Error objects are not an empty search.
+                $items = $block['search_results'] ?? $block['content'] ?? null;
+            } elseif (($block['type'] ?? null) === 'web_fetch_tool_result'
+                && data_get($block, 'content.type') === 'web_fetch_result') {
+                $items = [$block['content']];
+            }
+            if (! is_array($items) || ! array_is_list($items)) {
+                continue;
+            }
+            $reported = true;
+            foreach ($items as $item) {
+                if (! is_array($item) || ! is_string($item['url'] ?? null) || $item['url'] === '') {
+                    continue;
+                }
+                $title = $item['title'] ?? data_get($item, 'content.title');
+                $results[] = new SearchResult(url: $item['url'], title: is_string($title) ? $title : null);
+            }
+        }
+
+        return $reported ? collect($results) : null;
+    }
+
+    /**
+     * @param  array<int, array<array-key, mixed>>  $output  SDK replay blocks or raw Responses output records.
+     * @return Collection<int, SearchResult>|null
+     */
+    public function openAiSearchResults(array $output): ?Collection
+    {
+        $results = [];
+        $reported = false;
+        foreach ($output as $item) {
+            $sources = data_get($item, 'action.sources');
+            if (($item['type'] ?? null) !== 'web_search_call' || ! is_array($sources) || ! array_is_list($sources)) {
+                continue;
+            }
+            $reported = true;
+            foreach ($sources as $source) {
+                if (is_array($source) && is_string($source['url'] ?? null) && $source['url'] !== '') {
+                    $results[] = new SearchResult(url: $source['url'], title: is_string($source['title'] ?? null) ? $source['title'] : null);
+                }
+            }
+        }
+
+        return $reported ? collect($results)->uniqueStrict('url')->values() : null;
     }
 
     /** @return array<int, Corpus> */
