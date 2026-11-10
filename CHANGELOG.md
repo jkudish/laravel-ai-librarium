@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Drop the repeated lead that SearchAPI writes into Bing Copilot list items
+  ("A. A [1](url)", "A A" or "A. A" plus more detail) in both `markdown` and
+  `text_blocks`, so surface answers no longer double each bullet. A repeat
+  must be at least two words and outside table cells; other text is
+  unchanged.
 - Require `jkudish/librarium-spec` `^1.1`.
 - Add nullable typed `ResearchResult::$searchResults` with `SearchResult` value
   objects and spec-shaped `search_results` serialization/Run projection. Omit

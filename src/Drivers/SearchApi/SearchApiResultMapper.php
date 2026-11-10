@@ -80,7 +80,7 @@ final readonly class SearchApiResultMapper
     public function normalizeSurface(array $data): array
     {
         $markdown = $this->usableMarkdown(data_get($data, 'markdown'));
-        $content = $markdown ?? $this->renderSurfaceBlocks(data_get($data, 'text_blocks'));
+        $content = $this->withoutRepeatedLeads($markdown ?? $this->renderSurfaceBlocks(data_get($data, 'text_blocks')));
 
         return [
             'content' => $content,
@@ -378,6 +378,39 @@ final readonly class SearchApiResultMapper
         }
 
         return $markdown;
+    }
+
+    /**
+     * SearchAPI's Bing Copilot parse repeats the lead of a list item, in both
+     * `markdown` and `text_blocks`: "A. A [1](url)", "A A [1](url)" or
+     * "A. A More detail [1](url)" (observed 2026-11-10 in 156 of 179 retained
+     * Copilot answers, never in another surface). Drop the first copy of a
+     * line's lead when the same text follows it at once. The lead must hold
+     * at least two words and no table cell separator, so repeated words,
+     * table rules and repeated table cells stay as they are. Everything else
+     * is returned verbatim.
+     */
+    private function withoutRepeatedLeads(string $content): string
+    {
+        $lines = explode("\n", $content);
+        foreach ($lines as $index => $line) {
+            preg_match('/^(?:\s*(?:[-*+]|\d+[.)])\s+|\s*#{1,6}\s+)?/', $line, $marker);
+            $prefix = $marker[0] ?? '';
+            $body = substr($line, strlen($prefix));
+            for ($space = strpos($body, ' '); $space !== false; $space = strpos($body, ' ', $space + 1)) {
+                $lead = substr($body, 0, $space);
+                $lead = str_ends_with($lead, '.') ? substr($lead, 0, -1) : $lead;
+                $rest = substr($body, $space + 1);
+                if (! str_starts_with($rest, $lead) || preg_match('/^[\p{L}\p{N}]/u', substr($rest, strlen($lead))) === 1
+                    || str_contains($lead, '|') || str_contains($lead, '│') || preg_match_all('/[^\W\d_]{2,}/u', $lead) < 2) {
+                    continue;
+                }
+                $lines[$index] = $prefix.$rest;
+                break;
+            }
+        }
+
+        return implode("\n", $lines);
     }
 
     private function hasControlCharacter(string $value): bool

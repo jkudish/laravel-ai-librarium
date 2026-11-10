@@ -223,6 +223,44 @@ it('falls back to typed text blocks when the surface Markdown is incomplete and 
         ->and($result->provenance->surface)->toBe('gemini');
 });
 
+it('drops the repeated lead SearchAPI writes into Bing Copilot list items and leaves other text verbatim', function (): void {
+    $fixture = searchApiFixture('bing-copilot-repeated-list-items');
+    // The second answer's Markdown is unusable, so the text blocks render it.
+    Http::fake(['https://www.searchapi.io/*' => Http::sequence()->push($fixture)->push([...$fixture, 'markdown' => 'See [broken](https://example.com/x'])]);
+
+    $result = searchApiDriver()->run(searchApiRequest('searchapi-bing-copilot'));
+
+    expect($result->content)->toBe(implode("\n", [
+        '## Acme Relay and Orbit Cam lead live onboard video for motorsport.',
+        '',
+        '## 🥇 Top systems',
+        '',
+        '- Full HD 1080p at 60 fps with a global shutter [0](https://cameras.example.com/best)',
+        '- Live streaming straight to the pit wall [1](https://pitwall.example.org/streaming-(2026-guide))',
+        '- Acme Relay supplies multi‑camera RF kits used in rally and endurance racing Supports up to nine cameras per car Uses aircraft relays where terrain blocks the signal [2](https://relay.example.net/motorsport/)',
+        '1. Bonded 5G uplink [9]()',
+        '- Multi‑destination streaming [3](https://streams.example.com/)',
+        '',
+        'Prices vary very very widely between series.',
+        '',
+        '- No. No contract is needed for a single event [4](https://rental.example.com/)',
+        '',
+        '| Kit | Kit | Latency |',
+        '| :--- | :--- | :--- |',
+        '| Orbit Cam | Orbit Cam | 0.5 s |',
+    ]))
+        ->and($result->citations)->toHaveCount(5)
+        ->and($result->provenance->surface)->toBe('bing_copilot');
+
+    // The text-block fallback carries the same repeat.
+    expect(searchApiDriver()->run(searchApiRequest('searchapi-bing-copilot'))->content)->toBe(implode("\n", [
+        '### Top systems',
+        '',
+        '- Full HD 1080p at 60 fps with a global shutter',
+        '- Live streaming straight to the pit wall',
+    ]));
+});
+
 it('fails an AI Mode answer with no AI content and never uses organic or local results', function (): void {
     Http::fake(['https://www.searchapi.io/*' => Http::response([
         'local_results' => [['title' => 'Local', 'link' => 'https://maps.example.com']],
