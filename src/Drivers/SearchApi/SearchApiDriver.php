@@ -201,7 +201,7 @@ final readonly class SearchApiDriver implements DefinesSpendingBound, Driver
      */
     private function surfaceResult(DriverRequest $request, array $json, string $surface, bool $zeroRetention): ResearchResult
     {
-        $normalized = $this->mapper->normalizeSurface($json);
+        $normalized = $this->mapper->normalizeSurface($json, $surface);
         if ($normalized['content'] === '') {
             throw $this->fail('searchapi.invalid_response', 'SearchAPI returned no answer for this surface.', $zeroRetention);
         }

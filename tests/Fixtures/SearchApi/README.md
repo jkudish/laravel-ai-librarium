@@ -25,4 +25,6 @@ repeated each list item's lead in both `markdown` and `text_blocks`: as
 Citations follow the item, including an empty `[9]()` link and a URL with
 parentheses. The fixture also keeps text that must not change: a repeated
 single word, a one-word "No. No" lead, a table rule and a table row with
-repeated cells. All text, titles and sites are synthetic.
+repeated cells, a prose line that opens by repeating a phrase, a lead followed
+by a longer word, a single hyphenated word, a possessive, and a list item in
+fenced code. All text, titles and sites are synthetic.

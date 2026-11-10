@@ -29,6 +29,9 @@ use stdClass;
  */
 final readonly class SearchApiResultMapper
 {
+    /** The longest Copilot list item checked for a repeated lead. */
+    private const int MAX_REPEATED_LEAD_LINE_BYTES = 4096;
+
     /**
      * Normalize the one-call Google search response into Markdown plus
      * provider-reported citations.
@@ -75,12 +78,14 @@ final readonly class SearchApiResultMapper
      * local SERP sections are never consulted.
      *
      * @param  array<array-key, mixed>  $data
+     * @param  string|null  $surface  the SearchAPI engine, such as `bing_copilot`
      * @return array{content: string, citations: Collection<int, Citation>, model: ?string}
      */
-    public function normalizeSurface(array $data): array
+    public function normalizeSurface(array $data, ?string $surface = null): array
     {
         $markdown = $this->usableMarkdown(data_get($data, 'markdown'));
-        $content = $this->withoutRepeatedLeads($markdown ?? $this->renderSurfaceBlocks(data_get($data, 'text_blocks')));
+        $content = $markdown ?? $this->renderSurfaceBlocks(data_get($data, 'text_blocks'));
+        $content = $surface === 'bing_copilot' ? $this->withoutRepeatedListLeads($content) : $content;
 
         return [
             'content' => $content,
@@ -384,28 +389,44 @@ final readonly class SearchApiResultMapper
      * SearchAPI's Bing Copilot parse repeats the lead of a list item, in both
      * `markdown` and `text_blocks`: "A. A [1](url)", "A A [1](url)" or
      * "A. A More detail [1](url)" (observed 2026-11-10 in 156 of 179 retained
-     * Copilot answers, never in another surface). Drop the first copy of a
-     * line's lead when the same text follows it at once. The lead must hold
-     * at least two words and no table cell separator, so repeated words,
-     * table rules and repeated table cells stay as they are. Everything else
-     * is returned verbatim.
+     * Copilot answers, always in list items, never in another surface). Drop
+     * the first copy of a Copilot list item's lead when the same text follows
+     * it at once. The lead must hold a space and two words, contain no table
+     * cell separator, and end where a word ends. Prose, headings, fenced code,
+     * items over 4 KiB and every other line are returned verbatim.
      */
-    private function withoutRepeatedLeads(string $content): string
+    private function withoutRepeatedListLeads(string $content): string
     {
         $lines = explode("\n", $content);
+        $fenced = false;
         foreach ($lines as $index => $line) {
-            preg_match('/^(?:\s*(?:[-*+]|\d+[.)])\s+|\s*#{1,6}\s+)?/', $line, $marker);
-            $prefix = $marker[0] ?? '';
-            $body = substr($line, strlen($prefix));
-            for ($space = strpos($body, ' '); $space !== false; $space = strpos($body, ' ', $space + 1)) {
+            if (preg_match('/^\s*(?:```|~~~)/', $line) === 1) {
+                $fenced = ! $fenced;
+
+                continue;
+            }
+            if ($fenced || preg_match('/^\s*(?:[-*+]|\d+[.)])\s+/', $line, $marker) !== 1) {
+                continue;
+            }
+            $body = substr($line, strlen($marker[0]));
+            $length = strlen($body);
+            // Observed items are under 800 bytes; the scan is quadratic in a line's spaces.
+            if ($length > self::MAX_REPEATED_LEAD_LINE_BYTES) {
+                continue;
+            }
+            for ($space = strpos($body, ' '); $space !== false && 2 * $space <= $length; $space = strpos($body, ' ', $space + 1)) {
                 $lead = substr($body, 0, $space);
                 $lead = str_ends_with($lead, '.') ? substr($lead, 0, -1) : $lead;
-                $rest = substr($body, $space + 1);
-                if (! str_starts_with($rest, $lead) || preg_match('/^[\p{L}\p{N}]/u', substr($rest, strlen($lead))) === 1
-                    || str_contains($lead, '|') || str_contains($lead, '│') || preg_match_all('/[^\W\d_]{2,}/u', $lead) < 2) {
+                if ($lead === '' || substr_compare($body, $lead, $space + 1, strlen($lead)) !== 0) {
                     continue;
                 }
-                $lines[$index] = $prefix.$rest;
+                $rest = substr($body, $space + 1);
+                if (preg_match('/^[\p{L}\p{M}\p{N}_\'’\-‑]/u', substr($rest, strlen($lead))) === 1
+                    || ! str_contains($lead, ' ') || str_contains($lead, '|') || str_contains($lead, '│')
+                    || preg_match_all('/[^\W\d_]{2,}/u', $lead) < 2) {
+                    continue;
+                }
+                $lines[$index] = $marker[0].$rest;
                 break;
             }
         }

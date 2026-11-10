@@ -226,7 +226,7 @@ it('falls back to typed text blocks when the surface Markdown is incomplete and 
 it('drops the repeated lead SearchAPI writes into Bing Copilot list items and leaves other text verbatim', function (): void {
     $fixture = searchApiFixture('bing-copilot-repeated-list-items');
     // The second answer's Markdown is unusable, so the text blocks render it.
-    Http::fake(['https://www.searchapi.io/*' => Http::sequence()->push($fixture)->push([...$fixture, 'markdown' => 'See [broken](https://example.com/x'])]);
+    Http::fake(['https://www.searchapi.io/*' => Http::sequence()->push($fixture)->push([...$fixture, 'markdown' => 'See [broken](https://example.com/x'])->push($fixture)]);
 
     $result = searchApiDriver()->run(searchApiRequest('searchapi-bing-copilot'));
 
@@ -248,6 +248,16 @@ it('drops the repeated lead SearchAPI writes into Bing Copilot list items and le
         '| Kit | Kit | Latency |',
         '| :--- | :--- | :--- |',
         '| Orbit Cam | Orbit Cam | 0.5 s |',
+        '',
+        'We tried. We tried again the next day.',
+        '',
+        '- Foo bar Foo barn [5](https://barn.example.com/)',
+        '- Wi-Fi Wi-Fi [5](https://barn.example.com/)',
+        '- Tom and Jerry. Tom and Jerry’s creators [5](https://barn.example.com/)',
+        '',
+        '```',
+        '- echo hello world echo hello world',
+        '```',
     ]))
         ->and($result->citations)->toHaveCount(5)
         ->and($result->provenance->surface)->toBe('bing_copilot');
@@ -259,6 +269,9 @@ it('drops the repeated lead SearchAPI writes into Bing Copilot list items and le
         '- Full HD 1080p at 60 fps with a global shutter',
         '- Live streaming straight to the pit wall',
     ]));
+
+    // Only Copilot is rewritten: another surface keeps the same Markdown verbatim.
+    expect(searchApiDriver()->run(searchApiRequest('searchapi-chatgpt'))->content)->toBe($fixture['markdown']);
 });
 
 it('fails an AI Mode answer with no AI content and never uses organic or local results', function (): void {
