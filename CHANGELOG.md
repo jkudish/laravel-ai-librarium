@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Stamp a Perplexity Agent result's `provenance.observed_at` when the
+  response is read. Perplexity's whole-second `completed_at` can equal
+  `created_at`, the moment the request arrived, so a consumer that compares
+  the observation with its own dispatch time saw answers observed before they
+  were requested. `completed_at` on the result still carries the provider's
+  value.
 - Drop the repeated lead that SearchAPI writes into Bing Copilot list items
   ("A. A [1](url)", "A A" or "A. A" plus more detail) in both `markdown` and
   `text_blocks`, so Copilot answers no longer double each bullet. Only

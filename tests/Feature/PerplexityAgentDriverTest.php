@@ -581,6 +581,20 @@ it('accepts the maximum supported completion timestamp', function (): void {
     expect($result->completedAt->getTimestamp())->toBe(253_402_300_799);
 });
 
+it('stamps the observation when the response is read, not at Perplexity\'s request-arrival second', function (): void {
+    CarbonImmutable::setTestNow('2026-08-20T12:00:03.400000Z');
+    $response = perplexityCompletedResponse();
+    // Perplexity reports completed_at equal to created_at: the request left at
+    // 12:00:00.7 and the answer arrived 2.7 seconds later.
+    $response['completed_at'] = CarbonImmutable::parse('2026-08-20T12:00:00Z')->getTimestamp();
+    Http::fake(['https://api.perplexity.ai/v1/agent' => Http::response($response)]);
+
+    $result = perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-sonar-pro'));
+
+    expect($result->provenance->observedAt->equalTo(CarbonImmutable::parse('2026-08-20T12:00:03.400000Z')))->toBeTrue()
+        ->and($result->completedAt->equalTo(CarbonImmutable::parse('2026-08-20T12:00:00Z')))->toBeTrue();
+});
+
 it('strictly validates referenced search evidence and keeps only cited results', function (string $path, mixed $value): void {
     $response = perplexityCompletedResponse();
     data_set($response, $path, $value);

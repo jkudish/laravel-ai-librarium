@@ -76,7 +76,10 @@ final readonly class PerplexityAgentResultMapper
                 resultKind: $request->profile->resultKind,
                 retrievalMethods: $request->profile->retrievalMethods,
                 corpora: $request->profile->corpora,
-                observedAt: $completedAt,
+                // Perplexity's whole-second completed_at can equal created_at, the
+                // moment the request arrived, so it can precede the dispatch.
+                // The answer was observed when this response was read.
+                observedAt: CarbonImmutable::now(),
             ),
             citations: $citations,
             completedAt: $completedAt,
