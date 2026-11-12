@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Stop discarding grounded Perplexity Agent answers over `search_results`
+  metadata. Trim whitespace around result titles and snippets, which are page
+  excerpts and often end mid-whitespace, and drop an uncited result whose URL
+  fails evidence screening instead of failing the whole response. The dropped
+  URL is never retained, and an answer that cites such a result still fails
+  as `perplexity.invalid_response`.
 - Stamp a Perplexity Agent result's `provenance.observed_at` when the
   response is read. Perplexity's whole-second `completed_at` can equal
   `created_at`, the moment the request arrived, so a consumer that compares
