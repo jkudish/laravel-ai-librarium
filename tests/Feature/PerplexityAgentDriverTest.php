@@ -616,6 +616,48 @@ it('strictly validates referenced search evidence and keeps only cited results',
     'no cited evidence' => ['output.1.content.0.text', 'An answer without markers.'],
 ]);
 
+it('rejects an answer that cites a result whose URL fails evidence screening', function (): void {
+    $response = perplexityCompletedResponse();
+    data_set($response, 'output.0.results.0.url', 'https://example.com/first?sig=abc');
+    Http::fake(['https://api.perplexity.ai/v1/agent' => Http::response($response)]);
+
+    expect(fn () => perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-sonar-pro')))
+        ->toThrow(fn (DriverException $exception) => expect($exception->errorCode)->toBe('perplexity.invalid_response'));
+});
+
+it('keeps a grounded answer when an uncited search result fails URL screening, without retaining that URL', function (): void {
+    // Production 2026-11-12: one uncited result among 30 carried a
+    // credential-like query parameter and the whole answer was discarded.
+    $response = perplexityCompletedResponse();
+    data_set($response, 'output.0.results.2.url', 'https://uncited.example.com/share?session_token=abc');
+    Http::fake(['https://api.perplexity.ai/v1/agent' => Http::response($response)]);
+
+    $result = perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-sonar-pro'));
+
+    expect($result->citations->map(fn ($citation) => $citation->source->url)->all())
+        ->toBe(['https://example.com/first', 'https://news.example.com/story'])
+        ->and($result->searchResults->map(fn ($item) => $item->url)->all())
+        ->toBe(['https://example.com/first', 'https://news.example.com/story'])
+        ->and(json_encode($result->toArray(), JSON_THROW_ON_ERROR))->not->toContain('session_token');
+});
+
+it('trims provider whitespace around search result titles and snippets', function (): void {
+    // Production 2026-11-12: page excerpts ending in spaces made the whole
+    // answer a malformed response.
+    $response = perplexityCompletedResponse();
+    data_set($response, 'output.0.results.0.title', "  First source\n");
+    data_set($response, 'output.0.results.0.snippet', 'First snippet   ');
+    data_set($response, 'output.0.results.1.snippet', "\nNews snippet");
+    Http::fake(['https://api.perplexity.ai/v1/agent' => Http::response($response)]);
+
+    $result = perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-sonar-pro'));
+
+    expect($result->citations->first()->source->title)->toBe('First source')
+        ->and($result->citations->first()->excerpt)->toBe('First snippet')
+        ->and($result->citations->last()->excerpt)->toBe('News snippet')
+        ->and($result->searchResults->first()->snippet)->toBe('First snippet');
+});
+
 it('normalizes empty optional search result text to absent citation fields', function (): void {
     $response = perplexityCompletedResponse();
     data_set($response, 'output.0.results.0.title', '');

@@ -85,9 +85,12 @@ final readonly class PerplexityAgentResultMapper
             completedAt: $completedAt,
             model: $model,
             usage: $this->usage(data_get($response, 'usage')),
-            searchResults: collect(array_values($results))->map(static fn (array $item): SearchResult => new SearchResult(
-                url: $item['url'], title: $item['title'], snippet: $item['snippet'],
-            )),
+            searchResults: collect(array_values($results))
+                ->filter(static fn (array $item): bool => $item['url'] !== null)
+                ->map(static fn (array $item): SearchResult => new SearchResult(
+                    url: (string) $item['url'], title: $item['title'], snippet: $item['snippet'],
+                ))
+                ->values(),
         ), [
             (string) $request->profile->credential,
             $this->optionalBoundedString(data_get($response, 'id')) ?? '',
@@ -96,7 +99,7 @@ final readonly class PerplexityAgentResultMapper
 
     /**
      * @param  array<array-key, mixed>  $response
-     * @return array{string, array<string, array{id: string, url: string, title: ?string, snippet: ?string, source: ?string}>}
+     * @return array{string, array<string, array{id: string, url: ?string, title: ?string, snippet: ?string, source: ?string}>}
      */
     private function output(array $response): array
     {
@@ -172,7 +175,9 @@ final readonly class PerplexityAgentResultMapper
 
     /**
      * @param  array<array-key, mixed>  $item
-     * @return array<string, array{id: string, url: string, title: ?string, snippet: ?string, source: ?string}>
+     *                                         A result whose URL fails evidence screening keeps its id with a null
+     *                                         url: it is never retained, and an answer that cites it still fails.
+     * @return array<string, array{id: string, url: ?string, title: ?string, snippet: ?string, source: ?string}>
      */
     private function searchResults(array $item): array
     {
@@ -191,11 +196,11 @@ final readonly class PerplexityAgentResultMapper
 
             $id = $this->sourceId(data_get($value, 'id'));
             $url = $this->evidenceUrl(data_get($value, 'url'));
-            $title = $this->optionalBoundedString(data_get($value, 'title'));
-            $snippet = $this->optionalBoundedString(data_get($value, 'snippet'));
+            $title = $this->optionalResultText(data_get($value, 'title'));
+            $snippet = $this->optionalResultText(data_get($value, 'snippet'));
             $source = $this->optionalSource(data_get($value, 'source'));
 
-            if ($id === null || $url === null || isset($results[$id])) {
+            if ($id === null || isset($results[$id])) {
                 throw $this->invalidResponse();
             }
 
@@ -206,7 +211,7 @@ final readonly class PerplexityAgentResultMapper
     }
 
     /**
-     * @param  array<string, array{id: string, url: string, title: ?string, snippet: ?string, source: ?string}>  $results
+     * @param  array<string, array{id: string, url: ?string, title: ?string, snippet: ?string, source: ?string}>  $results
      * @return Collection<int, Citation>
      */
     private function citations(string $content, array $results): Collection
@@ -234,6 +239,7 @@ final readonly class PerplexityAgentResultMapper
             if (
                 ($source !== null && ! array_key_exists($source, self::SOURCE_KINDS))
                 || $result === null
+                || $result['url'] === null
                 || ($source !== null && $result['source'] !== null && $source !== $result['source'])
             ) {
                 throw $this->invalidGroundedResponse();
@@ -433,6 +439,12 @@ final readonly class PerplexityAgentResultMapper
         }
 
         return $value === '' ? null : $value;
+    }
+
+    /** Search result text is the page's own excerpt, often cut mid-whitespace. */
+    private function optionalResultText(mixed $value): ?string
+    {
+        return $this->optionalBoundedString(is_string($value) ? trim($value) : $value);
     }
 
     private function evidenceUrl(mixed $value): ?string
