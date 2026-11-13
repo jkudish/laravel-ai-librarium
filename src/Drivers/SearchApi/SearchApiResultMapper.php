@@ -89,7 +89,7 @@ final readonly class SearchApiResultMapper
 
         return [
             'content' => $content,
-            'citations' => $this->citations($this->referenceCandidates(data_get($data, 'reference_links')), CitationDerivation::CollectorExtracted),
+            'citations' => $this->citations($this->referenceCandidates(data_get($data, 'reference_links'), $surface === 'google_ai_mode'), CitationDerivation::CollectorExtracted),
             'model' => $this->str(data_get($data, 'response_metadata.model')),
         ];
     }
@@ -100,16 +100,44 @@ final readonly class SearchApiResultMapper
      * {@see self::overviewCandidates()}.
      *
      * @param  array<array-key, mixed>  $data
+     * @param  array<string, string>  $resolved  destination URLs by link_token, from the Google Resolve API
      * @return array{content: string, citations: Collection<int, Citation>}
      */
-    public function normalizeOverview(array $data): array
+    public function normalizeOverview(array $data, array $resolved = []): array
     {
         $content = $this->usableMarkdown(data_get($data, 'markdown')) ?? $this->renderSurfaceBlocks(data_get($data, 'text_blocks'));
 
         return [
             'content' => $content,
-            'citations' => $this->citations($this->overviewCandidates(data_get($data, 'reference_links')), CitationDerivation::CollectorExtracted),
+            'citations' => $this->citations($this->overviewCandidates(data_get($data, 'reference_links'), $resolved), CitationDerivation::CollectorExtracted),
         ];
+    }
+
+    /**
+     * The link_tokens of an overview's reference links that pure URL parsing
+     * cannot turn into a page, in reference order.
+     *
+     * @param  array<array-key, mixed>  $data
+     * @return list<string>
+     */
+    public function overviewLinkTokens(array $data): array
+    {
+        $tokens = [];
+        foreach ($this->records(data_get($data, 'reference_links')) as $link) {
+            $token = $this->str(data_get($link, 'link_token'));
+            $raw = $this->str(data_get($link, 'link')) ?? $this->str(data_get($link, 'url'));
+            if ($token !== null && $this->pageTarget(data_get($link, 'url'), $raw) === null) {
+                $tokens[] = $token;
+            }
+        }
+
+        return array_values(array_unique($tokens));
+    }
+
+    /** A resolved destination accepted as citation evidence, or null. */
+    public function destinationUrl(mixed $value): ?string
+    {
+        return $this->evidenceUrl($value);
     }
 
     /**
@@ -277,17 +305,29 @@ final readonly class SearchApiResultMapper
     }
 
     /**
+     * Surface reference links. With $redirectFallback (Google AI Mode), a
+     * Google redirect is read like an AI Overview link instead of being
+     * dropped: its url or q target, else the favicon's publisher origin.
+     *
      * @return list<CitationCandidate>
      */
-    private function referenceCandidates(mixed $links): array
+    private function referenceCandidates(mixed $links, bool $redirectFallback = false): array
     {
         $candidates = [];
         foreach ($this->records($links) as $link) {
-            $candidates[] = [
-                'url' => data_get($link, 'url') ?? data_get($link, 'link') ?? data_get($link, 'href'),
+            $url = data_get($link, 'url') ?? data_get($link, 'link') ?? data_get($link, 'href');
+            $candidate = [
+                'url' => $url,
                 'title' => data_get($link, 'title') ?? data_get($link, 'name'),
                 'snippet' => data_get($link, 'snippet') ?? data_get($link, 'description'),
             ];
+            $raw = $this->str($url);
+            if ($redirectFallback && $raw !== null && $this->evidenceUrl($raw) === null && $this->isNavigationHost((string) parse_url($raw, PHP_URL_HOST))) {
+                $target = $this->redirectTarget($raw) ?? $this->faviconOrigin(data_get($link, 'favicon'));
+                $candidate['url'] = $target;
+                $candidate['reference'] = $this->providerReference($raw, $target);
+            }
+            $candidates[] = $candidate;
         }
 
         return $candidates;
@@ -301,34 +341,48 @@ final readonly class SearchApiResultMapper
      * 1. a non-Google url or link is the page itself;
      * 2. a redirect whose url or q parameter is a non-Google http(s) URL
      *    resolves to that target;
-     * 3. otherwise (observed 2026-10: every goto url parameter is an opaque
+     * 3. a redirect whose link_token the Google Resolve API resolved (see
+     *    SearchApiLinkResolver) is that destination;
+     * 4. otherwise (observed 2026-10: every goto url parameter is an opaque
      *    encrypted token) the publisher origin is read from the favicon URL's
      *    url parameter, a page-less origin citation.
      *
      * The raw Google link is kept as the Source provider reference when it
      * fits the interchange contract's 255 characters.
      *
+     * @param  array<string, string>  $resolved  destination URLs by link_token
      * @return list<CitationCandidate>
      */
-    private function overviewCandidates(mixed $links): array
+    private function overviewCandidates(mixed $links, array $resolved = []): array
     {
         $candidates = [];
         foreach ($this->records($links) as $link) {
             $raw = $this->str(data_get($link, 'link')) ?? $this->str(data_get($link, 'url'));
-            $target = $this->evidenceUrl(data_get($link, 'url'))
-                ?? $this->evidenceUrl($raw)
-                ?? $this->redirectTarget($raw)
+            $token = $this->str(data_get($link, 'link_token'));
+            $target = $this->pageTarget(data_get($link, 'url'), $raw)
+                ?? ($token === null ? null : $this->evidenceUrl($resolved[$token] ?? null))
                 ?? $this->faviconOrigin(data_get($link, 'favicon'));
             $candidates[] = [
                 'url' => $target,
                 'title' => data_get($link, 'title'),
                 'snippet' => data_get($link, 'snippet'),
                 'publisher' => data_get($link, 'source'),
-                'reference' => $raw !== null && $raw !== $target && strlen($raw) <= 255 && preg_match('/[\x00-\x1f\x7f\s]/', $raw) !== 1 ? $raw : null,
+                'reference' => $this->providerReference($raw, $target),
             ];
         }
 
         return $candidates;
+    }
+
+    /** The page a reference link names without resolving: its own URL, or a readable redirect target. */
+    private function pageTarget(mixed $url, ?string $raw): ?string
+    {
+        return $this->evidenceUrl($url) ?? $this->evidenceUrl($raw) ?? $this->redirectTarget($raw);
+    }
+
+    private function providerReference(?string $raw, ?string $target): ?string
+    {
+        return $raw !== null && $raw !== $target && strlen($raw) <= 255 && preg_match('/[\x00-\x1f\x7f\s]/', $raw) !== 1 ? $raw : null;
     }
 
     private function redirectTarget(?string $link): ?string

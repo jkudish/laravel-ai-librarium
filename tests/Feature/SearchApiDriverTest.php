@@ -5,7 +5,11 @@ declare(strict_types=1);
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Sleep;
+use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
 use Jkudish\LaravelAiLibrarium\Drivers\SearchApi\SearchApiDriver;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Exceptions\SelectionException;
@@ -591,4 +595,209 @@ it('keeps a retired SearchAPI Perplexity Profile from a published configuration 
 
     expect($availability?->isEligible())->toBeFalse()
         ->and($availability?->reasons)->toContain('Profile is retired: SearchAPI deprecated its perplexity engine (observed 2026-10-09) and offers no replacement.');
+});
+
+/** An AI Overview page whose redirect links carry link_tokens, as SearchAPI returns them since 2026-11-06. */
+function tokenizedOverview(): array
+{
+    $favicon = static fn (string $site): string => "https://encrypted-tbn1.gstatic.com/faviconV2?url={$site}&client=AIM";
+
+    return [
+        'markdown' => 'Synthetic overview with sources.',
+        'reference_links' => [
+            ['title' => 'Brand pricing', 'link' => 'https://www.google.com/goto?url=CAESopaque-one', 'link_token' => 'tok-one', 'source' => 'Example Brand', 'favicon' => $favicon('https://example.com')],
+            ['title' => 'Plain page', 'link' => 'https://www.example.net/guide', 'source' => 'Example Net'],
+            ['title' => 'Review', 'link' => 'https://www.google.com/goto?url=CAESopaque-two', 'link_token' => 'tok-two', 'source' => 'Reviews', 'favicon' => $favicon('https://reviews.example.org')],
+            ['title' => 'Brand pricing again', 'link' => 'https://www.google.com/goto?url=CAESopaque-one', 'link_token' => 'tok-one', 'source' => 'Example Brand', 'favicon' => $favicon('https://example.com')],
+            ['title' => 'Forum', 'link' => 'https://www.google.com/goto?url=CAESopaque-three', 'link_token' => 'tok-three', 'source' => 'Forum', 'favicon' => $favicon('https://forum.example.com')],
+        ],
+    ];
+}
+
+/**
+ * A DriverRequest for the AI Overview profile that records each capture's operation.
+ *
+ * @param  list<string>  $captured
+ */
+function capturingOverviewRequest(array &$captured, ?CarbonImmutable $deadline = null): DriverRequest
+{
+    $profile = app(ProfileCatalog::class)->find('searchapi-google-ai-overview')?->profile ?? throw new RuntimeException('Missing profile.');
+
+    return new DriverRequest(
+        requestId: 'request-1',
+        requestedProfile: $profile,
+        profile: $profile,
+        prompt: 'best pizza in Rome',
+        deadline: $deadline ?? CarbonImmutable::now()->addSeconds(30),
+        progressCallback: static fn (): null => null,
+        responseCallback: function ($response, Operation $operation) use (&$captured): void {
+            $captured[] = $operation->value.':'.$response->status();
+        },
+        noResponseCallback: function (Operation $operation) use (&$captured): void {
+            $captured[] = $operation->value.':none';
+        },
+    );
+}
+
+/** @return list<string>|null the tokens a resolve request sent, or null for a search request */
+function resolveTokens(Request $request): ?array
+{
+    return $request->method() === 'POST' && ($request->data()['engine'] ?? null) === 'google_resolve'
+        ? array_column($request->data()['results'], 'link_token')
+        : null;
+}
+
+it('resolves AI Overview link_tokens to page URLs and keeps the publisher origin for links that will not resolve', function (): void {
+    config()->set('librarium.profiles.searchapi-google-ai-overview.options.resolve_links', true);
+    Http::fake(fn (Request $request) => resolveTokens($request) === null
+        ? Http::response(['ai_overview' => tokenizedOverview()])
+        : Http::response(['search_parameters' => ['engine' => 'google_resolve'], 'results' => [
+            ['link' => 'https://example.com/pricing'],
+            ['link_token' => 'tok-two', 'error' => 'Google did not return a destination for this link.'],
+            ['link' => 'https://www.google.com/sorry'],
+        ]]));
+    $captured = [];
+
+    $result = searchApiDriver()->run(capturingOverviewRequest($captured));
+
+    // tok-one is sent once though cited twice; a resolved Google URL is not a page.
+    expect($result->citations->map(fn ($citation): array => [$citation->source->url, $citation->source->publisher])->all())->toBe([
+        ['https://example.com/pricing', 'Example Brand'],
+        ['https://www.example.net/guide', 'Example Net'],
+        ['https://reviews.example.org', 'Reviews'],
+        ['https://forum.example.com', 'Forum'],
+    ])
+        ->and($captured)->toBe(['inline:200', 'retrieve:200']);
+    Http::assertSentCount(2);
+    Http::assertSent(fn (Request $request): bool => resolveTokens($request) === ['tok-one', 'tok-two', 'tok-three']
+        && $request->hasHeader('Authorization', 'Bearer testing-searchapi-key')
+        && ! str_contains($request->url(), 'testing-searchapi-key'));
+});
+
+it('resends only not-ready tokens after retry_after and stops when a resend resolves nothing new', function (): void {
+    config()->set('librarium.profiles.searchapi-google-ai-overview.options.resolve_links', true);
+    Sleep::fake();
+    $sent = [];
+    Http::fake(function (Request $request) use (&$sent) {
+        $tokens = resolveTokens($request);
+        if ($tokens === null) {
+            return Http::response(['ai_overview' => tokenizedOverview()]);
+        }
+        $sent[] = $tokens;
+
+        return Http::response(['retry_after' => 1, 'results' => match (count($sent)) {
+            1 => [['link_token' => 'tok-one'], ['link' => 'https://reviews.example.org/best'], ['link_token' => 'tok-three']],
+            2 => [['link' => 'https://example.com/pricing'], ['link_token' => 'tok-three']],
+            default => [['link_token' => 'tok-three']],
+        }]);
+    });
+
+    $result = searchApiDriver()->run(searchApiRequest('searchapi-google-ai-overview'));
+
+    expect($sent)->toBe([['tok-one', 'tok-two', 'tok-three'], ['tok-one', 'tok-three'], ['tok-three']])
+        ->and($result->citations->pluck('source.url')->all())->toBe([
+            'https://example.com/pricing', 'https://www.example.net/guide', 'https://reviews.example.org/best', 'https://forum.example.com',
+        ]);
+    Sleep::assertSleptTimes(2);
+});
+
+it('does not resend when SearchAPI asks for a wait longer than the driver allows', function (): void {
+    config()->set('librarium.profiles.searchapi-google-ai-overview.options.resolve_links', true);
+    Sleep::fake();
+    Http::fake(fn (Request $request) => resolveTokens($request) === null
+        ? Http::response(['ai_overview' => tokenizedOverview()])
+        : Http::response(['retry_after' => 7, 'results' => [['link_token' => 'tok-one'], ['link_token' => 'tok-two'], ['link_token' => 'tok-three']]]));
+
+    $result = searchApiDriver()->run(searchApiRequest('searchapi-google-ai-overview'));
+
+    expect($result->citations->pluck('source.url')->first())->toBe('https://example.com');
+    Http::assertSentCount(2);
+    Sleep::assertNeverSlept();
+});
+
+it('keeps the overview and its origin citations when resolving fails', function (Closure $resolve, string $capture): void {
+    config()->set('librarium.profiles.searchapi-google-ai-overview.options.resolve_links', true);
+    Http::fake(fn (Request $request) => resolveTokens($request) === null
+        ? Http::response(['ai_overview' => tokenizedOverview()])
+        : $resolve());
+    $captured = [];
+
+    $result = searchApiDriver()->run(capturingOverviewRequest($captured));
+
+    expect($result->content)->toBe('Synthetic overview with sources.')
+        ->and($result->citations->pluck('source.url')->all())->toBe([
+            'https://example.com', 'https://www.example.net/guide', 'https://reviews.example.org', 'https://forum.example.com',
+        ])
+        ->and($captured)->toBe(['inline:200', $capture]);
+})->with([
+    'rate limited' => [fn () => Http::response(['error' => 'Too many requests.'], 429), 'retrieve:429'],
+    'server error' => [fn () => Http::response(['error' => 'Server Error.'], 500), 'retrieve:500'],
+    'rows that do not match the request' => [fn () => Http::response(['results' => [['link' => 'https://example.com/a']]]), 'retrieve:200'],
+    'connection failure' => [fn () => throw new ConnectionException('timed out'), 'retrieve:none'],
+]);
+
+it('sends no resolve request unless the profile opts in, and never under zero retention', function (array $options): void {
+    foreach ($options as $key => $value) {
+        config()->set("librarium.profiles.searchapi-google-ai-overview.options.{$key}", $value);
+    }
+    Http::fake(['https://www.searchapi.io/*' => Http::response(['ai_overview' => tokenizedOverview()])]);
+
+    $result = searchApiDriver()->run(searchApiRequest('searchapi-google-ai-overview'));
+
+    expect($result->citations->pluck('source.url')->first())->toBe('https://example.com');
+    Http::assertSentCount(1);
+})->with([
+    'default' => [[]],
+    'zero retention' => [['resolve_links' => true, 'zero_retention' => true]],
+]);
+
+it('holds resolve requests to five at a time and 120 a minute per SearchAPI account', function (string $exhausted): void {
+    config()->set('librarium.profiles.searchapi-google-ai-overview.options.resolve_links', true);
+    Sleep::fake();
+    $key = 'librarium:searchapi-resolve:'.substr(hash('sha256', 'testing-searchapi-key'), 0, 32);
+    if ($exhausted === 'slots') {
+        foreach (range(0, 4) as $slot) {
+            Cache::lock("{$key}:slot:{$slot}", 60)->get();
+        }
+    } else {
+        foreach (range(1, 120) as $attempt) {
+            RateLimiter::hit("{$key}:minute", 60);
+        }
+    }
+    Http::fake(fn (Request $request) => Http::response(resolveTokens($request) === null
+        ? ['ai_overview' => tokenizedOverview()]
+        : ['results' => [['link' => 'https://example.com/a'], ['link' => 'https://example.com/b'], ['link' => 'https://example.com/c']]]));
+
+    $result = searchApiDriver()->run(searchApiRequest('searchapi-google-ai-overview'));
+
+    expect($result->citations->pluck('source.url')->first())->toBe('https://example.com');
+    Http::assertSentCount(1);
+
+    // Another credential is another account with its own limits.
+    config()->set('librarium.profiles.searchapi-google-ai-overview.credential', 'another-searchapi-key');
+    searchApiDriver()->run(searchApiRequest('searchapi-google-ai-overview'));
+    Http::assertSentCount(3);
+})->with(['slots', 'minute']);
+
+it('keeps Google AI Mode redirect links as their publisher origin instead of dropping them', function (): void {
+    Http::fake(['https://www.searchapi.io/*' => Http::response([
+        'markdown' => 'Synthetic AI Mode answer.',
+        'reference_links' => [
+            ['title' => 'Direct', 'link' => 'https://www.example.com/page', 'source' => 'Example'],
+            ['title' => 'Listing', 'link' => 'https://www.google.com/goto?url=CAESopaque', 'source' => 'thumbtack.com', 'favicon' => 'https://encrypted-tbn1.gstatic.com/faviconV2?url=https://www.thumbtack.com&client=AIM'],
+            ['title' => 'Place', 'link' => 'https://www.google.com/searchviewer/10?svid=CCYS', 'source' => 'Google', 'favicon' => 'https://encrypted-tbn1.gstatic.com/faviconV2?url=https://www.google.com&client=AIM'],
+            ['title' => 'Legacy', 'link' => 'https://www.google.com/url?q=https://www.example.org/legacy&sa=U'],
+        ],
+    ])]);
+
+    $mode = searchApiDriver()->run(searchApiRequest('searchapi-google-ai-mode'));
+    $gemini = searchApiDriver()->run(searchApiRequest('searchapi-gemini'));
+
+    expect($mode->citations->map(fn ($citation): array => [$citation->source->url, $citation->source->providerReference])->all())->toBe([
+        ['https://www.example.com/page', null],
+        ['https://www.thumbtack.com', 'https://www.google.com/goto?url=CAESopaque'],
+        ['https://www.example.org/legacy', 'https://www.google.com/url?q=https://www.example.org/legacy&sa=U'],
+    ])
+        // Other surfaces keep dropping Google links.
+        ->and($gemini->citations->pluck('source.url')->all())->toBe(['https://www.example.com/page']);
 });

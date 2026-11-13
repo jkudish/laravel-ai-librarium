@@ -203,6 +203,22 @@ an inline overview if present, otherwise its page-token GET. Organic results
 never substitute for a missing overview. Zero-retention and timeout controls
 belong in the configured collector `options` and are validated by its driver.
 
+AI Overview reference links are Google redirects. Without resolution, a
+citation is the page a redirect's `url` or `q` parameter names, else the
+publisher origin from its favicon. Set `resolve_links: true` on the AI
+Overview profile to send its `link_token`s to SearchAPI's free
+[Google Resolve API](https://www.searchapi.io/docs/google-resolve-api) after
+the answer arrives: at most 25 distinct tokens in one POST, up to two resends
+of not-ready tokens when SearchAPI asks for a wait of three seconds or less,
+and never under zero retention. Requests honour SearchAPI's limits of 120 a
+minute and 5 at a time per credential through the default cache store, which
+must support locks. A link that does not resolve, a refused slot or any
+resolve failure keeps the origin citation and never fails the answer. Resolve
+exchanges are captured with operation `retrieve`, so they can be told apart
+from the billed `inline` searches. Google AI Mode redirect links, which
+SearchAPI returns without a token, fall back to their publisher origin instead
+of being dropped.
+
 SerpBase uses `services.serpbase.key`. The Google source's `vertical: news`
 selects its news endpoint. Locale/page/device controls are driver-level rather
 than shared source options. It makes one POST without retries or pagination;
