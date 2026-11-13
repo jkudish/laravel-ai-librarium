@@ -593,6 +593,23 @@ it('rejects credentials and private handles reflected into retained terminal fie
     'private handle in citation title' => [exaResearchRunId(), 'citation'],
 ]);
 
+it('records a completed report that cites nothing as an uncited model answer at its reported cost', function (): void {
+    Http::fake(['https://api.exa.ai/agent/runs*' => Http::response(exaResearchRun(
+        'completed',
+        output: ['text' => 'A report that cites nothing.', 'structured' => null, 'grounding' => []],
+        completedAt: '2026-09-10T12:03:04Z',
+    ))]);
+
+    $result = exaResearchDriver()->run(exaResearchRequest());
+
+    expect($result->content)->toBe('A report that cites nothing.')
+        ->and($result->citations)->toBeEmpty()
+        ->and($result->provenance->resultKind)->toBe(ResultKind::ModelAnswer)
+        ->and($result->provenance->retrievalMethods->all())->toBe([RetrievalMethod::ModelOnly])
+        ->and($result->provenance->corpora)->toBeEmpty()
+        ->and($result->usage?->actualCost)->toBe('0.11');
+});
+
 function exaResearchDriver(): ExaResearchDriver
 {
     return app(ExaResearchDriver::class);

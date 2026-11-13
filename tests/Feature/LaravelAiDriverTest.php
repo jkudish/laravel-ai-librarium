@@ -109,12 +109,9 @@ it('separates Claude text citations from retrieved and fetched pages through the
     expect($result->searchResults->pluck('url')->all())->toBe(['https://example.com/uncited', 'https://example.com/cited', 'https://example.com/fetched'])
         ->and($result->citations->pluck('source.url')->all())->toBe($cited ? ['https://example.com/cited'] : [])
         ->and($result->provenance->resultKind)->toBe($cited ? ResultKind::GroundedAnswer : ResultKind::ModelAnswer);
+    // Required grounding maps an uncited answer the same way.
     config(['librarium.profiles.claude-chat.grounding' => 'required']);
-    if ($cited) {
-        expect(variantRun('claude-chat', 'Research')->citations)->toHaveCount(1);
-    } else {
-        expect(fn () => variantRun('claude-chat', 'Research'))->toThrow(DriverException::class, 'ground');
-    }
+    expect(variantRun('claude-chat', 'Research')->provenance->resultKind)->toBe($cited ? ResultKind::GroundedAnswer : ResultKind::ModelAnswer);
 })->with([true, false])->with(['search_results', 'content']);
 
 it('runs each configured Laravel AI Profile through one exact SDK provider and model', function (string $profile, string $provider, string $model): void {
@@ -683,23 +680,22 @@ it('rejects missing or unsupported search engines before prompting', function (s
     'OpenRouter rejects an unknown engine' => ['openrouter', ['search_engine' => 'unknown'], 'laravel_ai.search_engine_required'],
 ]);
 
-it('rejects a required-grounding response without provider-reported evidence', function (): void {
+it('returns a required-grounding response without provider-reported evidence as an ungrounded model answer', function (): void {
     ResearchAgent::fake([
         new TextResponse(
-            'An unsupported answer.',
+            'An answer without evidence.',
             new AiUsage(inputTokens: 5, outputTokens: 3),
             new Meta('gemini', 'gemini-2.5-pro'),
         ),
     ])->preventStrayPrompts();
 
-    try {
-        groundedDriver()->run(groundedDriverRequest());
-        $this->fail('A required-grounding response without evidence should be rejected.');
-    } catch (DriverException $exception) {
-        expect($exception->errorCode)->toBe('laravel_ai.ungrounded_response')
-            ->and($exception->fallbackAllowed)->toBeTrue()
-            ->and($exception->getMessage())->toBe('The AI provider returned no evidence for the grounded response.');
-    }
+    $result = groundedDriver()->run(groundedDriverRequest());
+
+    expect($result->content)->toBe('An answer without evidence.')
+        ->and($result->citations)->toBeEmpty()
+        ->and($result->provenance->resultKind)->toBe(ResultKind::ModelAnswer)
+        ->and($result->provenance->retrievalMethods->all())->toBe([RetrievalMethod::ModelOnly])
+        ->and($result->provenance->corpora)->toBeEmpty();
 });
 
 it('rejects an expired deadline before prompting the SDK', function (): void {

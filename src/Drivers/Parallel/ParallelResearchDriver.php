@@ -14,6 +14,7 @@ use Jkudish\LaravelAiLibrarium\Contracts\DefinesSpendingBound;
 use Jkudish\LaravelAiLibrarium\Contracts\DurableDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
 use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
+use Jkudish\LaravelAiLibrarium\Drivers\UncitedAnswer;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profile;
@@ -395,12 +396,14 @@ final readonly class ParallelResearchDriver implements DeclaresDeadline, Defines
             requestedProfile: $request->requestedProfile->id,
             provider: 'parallel',
             profile: 'parallel-research',
-            provenance: new ResultProvenance(
-                resultKind: ResultKind::ResearchReport,
-                retrievalMethods: $request->profile->retrievalMethods,
-                corpora: $request->profile->corpora,
-                observedAt: $now,
-            ),
+            provenance: $citations->isEmpty()
+                ? UncitedAnswer::provenance($request->profile, false, $now)
+                : new ResultProvenance(
+                    resultKind: ResultKind::ResearchReport,
+                    retrievalMethods: $request->profile->retrievalMethods,
+                    corpora: $request->profile->corpora,
+                    observedAt: $now,
+                ),
             citations: $citations,
             completedAt: $now,
             model: $processor,

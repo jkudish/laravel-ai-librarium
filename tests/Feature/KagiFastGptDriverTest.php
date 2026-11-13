@@ -101,7 +101,19 @@ it('omits usage when Kagi does not report tokens', function (): void {
     expect(kagiDriver()->run(kagiRequest())->usage)->toBeNull();
 });
 
-it('rejects empty, malformed, or ungrounded success payloads safely', function (mixed $payload): void {
+it('returns an answer without references as an ungrounded model answer', function (): void {
+    Http::fake(['https://kagi.com/api/v0/fastgpt' => Http::response(['data' => ['output' => 'An answer from memory.', 'tokens' => 12, 'references' => []]])]);
+
+    $result = kagiDriver()->run(kagiRequest());
+
+    expect($result->content)->toBe('An answer from memory.')
+        ->and($result->citations)->toBeEmpty()
+        ->and($result->provenance->resultKind)->toBe(ResultKind::ModelAnswer)
+        ->and($result->provenance->retrievalMethods->all())->toBe([RetrievalMethod::ModelOnly])
+        ->and($result->provenance->corpora)->toBeEmpty();
+});
+
+it('rejects empty, malformed, or invalidly grounded success payloads safely', function (mixed $payload): void {
     Http::fake(['https://kagi.com/api/v0/fastgpt' => Http::response($payload)]);
 
     expect(fn () => kagiDriver()->run(kagiRequest()))

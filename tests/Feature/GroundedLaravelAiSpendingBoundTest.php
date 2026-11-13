@@ -1359,28 +1359,6 @@ it('settles a runtime timeout after a conforming no-raw response as possibly acc
     }
 });
 
-it('settles an ungrounded required-grounding response without raw capture as possibly accepted, never not sent', function (): void {
-    ResearchAgent::fake([
-        new TextResponse(
-            'An answer without provider-reported evidence.',
-            new AiUsage(inputTokens: 900, outputTokens: 120),
-            new Meta('openrouter', 'openai/gpt-6-luna'),
-        ),
-    ])->preventStrayPrompts();
-
-    $collected = variantResearch('openrouter-grounded', 'Answer without provider-reported evidence.')->run();
-    $diagnostic = $collected->diagnostics()[0];
-
-    // The inference dispatch ran before the grounding check rejected the
-    // mapped result, and the SDK exposed no raw exchange: the recorded
-    // unanswered attempt keeps the settlement PossiblyAccepted instead of
-    // falsely releasing a spent reservation as NotSent.
-    expect($collected->result('probe')['error']['code'])->toBe('laravel_ai.ungrounded_response')
-        ->and($diagnostic['code'])->toBe('laravel_ai.ungrounded_response')
-        ->and($diagnostic['submission_state'])->toBe(SubmissionState::PossiblyAccepted->value)
-        ->and($collected->evidence('probe'))->toBeEmpty();
-});
-
 it('fails the preflight closed before the catalog lookup when the shared deadline is exhausted', function (): void {
     config()->set('librarium.profiles.openrouter-chat.options', [
         'web_search' => true,

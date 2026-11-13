@@ -782,13 +782,8 @@ final readonly class LaravelAiDriver implements DefinesSpendingBound, Driver
             citationByteOffsets: $request->profile->provider === 'gemini',
         );
 
-        if ($request->profile->grounding === GroundingPolicy::Required && $result->citations->isEmpty()) {
-            throw new DriverException(
-                'laravel_ai.ungrounded_response',
-                'The AI provider returned no evidence for the grounded response.',
-            );
-        }
-
+        // An answer that cites nothing is returned, mapped as an ungrounded
+        // model answer with zero citations, whatever the grounding policy.
         return $result;
     }
 

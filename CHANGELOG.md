@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Accept a complete, well-formed answer that cites nothing on every grounded
+  profile, including `required` grounding and research reports, instead of
+  failing it as `invalid_response` or `laravel_ai.ungrounded_response`. It is
+  recorded honestly as uncited: `model_answer`, `model_only` retrieval, no
+  corpora and zero citations, as optional grounding already was. This covers
+  Brave Answers (a stream that finished with `stop` and had no `<citation>`
+  tags; its `<usage>` cost is now read), Perplexity Agent (keeps its
+  `search_results` and `usage.cost`), xAI Grok (a `completed` response with no
+  annotations), Kagi FastGPT (no references), Laravel AI grounded profiles,
+  OpenAI and Gemini Deep Research, Exa Research and Parallel Research.
+  Truncated, errored or malformed responses stay rejected, and so does a
+  report whose annotations are all unusable.
+- Add `XaiGrokDriver::map()`, which maps one decoded xAI Responses body
+  without sending anything, so a consumer can read a response it kept again
+  with the installed reader, as it can with the Perplexity Agent and Brave
+  Answers mappers.
 - Stop discarding grounded Perplexity Agent answers over `search_results`
   metadata. Trim whitespace around result titles and snippets, which are page
   excerpts and often end mid-whitespace, and drop an uncited result whose URL

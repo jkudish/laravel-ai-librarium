@@ -7,6 +7,7 @@ namespace Jkudish\LaravelAiLibrarium\Drivers\Brave;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\Response;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
+use Jkudish\LaravelAiLibrarium\Drivers\UncitedAnswer;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Responses\Citation;
@@ -14,7 +15,6 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ContentFormat;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\SourceKind;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
-use Jkudish\LaravelAiLibrarium\Responses\ResultProvenance;
 use Jkudish\LaravelAiLibrarium\Responses\Source;
 use Jkudish\LaravelAiLibrarium\Responses\Usage;
 
@@ -38,7 +38,12 @@ final readonly class BraveAnswersResultMapper
             throw new DriverException('brave.invalid_response', 'Brave Answers returned no answer.');
         }
 
-        if ($parsed['citations'] === []) {
+        // A finished answer that cites nothing is still an answer: it is
+        // recorded as an ungrounded model answer with zero citations. Citation
+        // tags that are all invalid stay malformed evidence, and an uncited
+        // stream must have finished with `stop`.
+        $cited = $parsed['citations'] !== [];
+        if (! $cited && ($parsed['citation_tags'] > 0 || $stream['finish_reason'] !== 'stop')) {
             throw new DriverException('brave.invalid_response', 'Brave Answers returned no valid citations.');
         }
 
@@ -50,12 +55,7 @@ final readonly class BraveAnswersResultMapper
             requestedProfile: $request->requestedProfile->id,
             provider: $request->profile->provider,
             profile: $request->profile->id,
-            provenance: new ResultProvenance(
-                resultKind: $request->profile->resultKind,
-                retrievalMethods: $request->profile->retrievalMethods,
-                corpora: $request->profile->corpora,
-                observedAt: $now,
-            ),
+            provenance: UncitedAnswer::provenance($request->profile, $cited, $now),
             citations: collect($parsed['citations']),
             completedAt: $now,
             model: $stream['model'] ?? $request->profile->model,
@@ -63,7 +63,7 @@ final readonly class BraveAnswersResultMapper
         );
     }
 
-    /** @return array{content: string, model: ?string, usage: ?array<array-key, mixed>} */
+    /** @return array{content: string, model: ?string, usage: ?array<array-key, mixed>, finish_reason: ?string} */
     private function stream(Response $response, DriverRequest $request): array
     {
         $body = $response->toPsrResponse()->getBody();
@@ -71,6 +71,7 @@ final readonly class BraveAnswersResultMapper
         $content = '';
         $model = null;
         $usage = null;
+        $finish = null;
         $bytes = 0;
         $raw = '';
         $complete = false;
@@ -99,18 +100,18 @@ final readonly class BraveAnswersResultMapper
                 $buffer .= $chunk;
                 while (preg_match('/\r?\n\r?\n/', $buffer, $match, PREG_OFFSET_CAPTURE) === 1) {
                     $boundary = $match[0][1];
-                    $this->consumeEvent(substr($buffer, 0, $boundary), $content, $model, $usage);
+                    $this->consumeEvent(substr($buffer, 0, $boundary), $content, $model, $usage, $finish);
                     $buffer = substr($buffer, $boundary + strlen($match[0][0]));
                 }
             }
 
             if (trim($buffer) !== '') {
-                $this->consumeEvent($buffer, $content, $model, $usage);
+                $this->consumeEvent($buffer, $content, $model, $usage, $finish);
             }
 
             $complete = true;
 
-            return ['content' => $content, 'model' => $model, 'usage' => $usage];
+            return ['content' => $content, 'model' => $model, 'usage' => $usage, 'finish_reason' => $finish];
         } finally {
             $request->captureResponse($response, Operation::Inline, $raw);
 
@@ -121,7 +122,7 @@ final readonly class BraveAnswersResultMapper
     }
 
     /** @param array<array-key, mixed>|null $usage */
-    private function consumeEvent(string $event, string &$content, ?string &$model, ?array &$usage): void
+    private function consumeEvent(string $event, string &$content, ?string &$model, ?array &$usage, ?string &$finish): void
     {
         $lines = preg_split('/\r?\n/', $event);
         if (! is_array($lines)) {
@@ -153,6 +154,11 @@ final readonly class BraveAnswersResultMapper
             $model = trim($reportedModel);
         }
 
+        $reportedFinish = data_get($payload, 'choices.0.finish_reason');
+        if (is_string($reportedFinish)) {
+            $finish = $reportedFinish;
+        }
+
         $delta = data_get($payload, 'choices.0.delta.content');
         if (is_string($delta)) {
             $content .= $delta;
@@ -165,18 +171,20 @@ final readonly class BraveAnswersResultMapper
     }
 
     /**
-     * @return array{content: string, citations: list<Citation>, usage: ?array<array-key, mixed>}
+     * @return array{content: string, citations: list<Citation>, citation_tags: int, usage: ?array<array-key, mixed>}
      */
     private function parseTags(string $value): array
     {
         $content = '';
         $citations = [];
+        $citationTags = 0;
         $seen = [];
         $usage = null;
         $offset = 0;
 
         while (($tag = $this->nextTag($value, $offset)) !== null) {
             $content .= substr($value, $offset, $tag['offset'] - $offset);
+            $citationTags += $tag['name'] === 'citation' ? 1 : 0;
             $payloadOffset = $tag['offset'] + strlen($tag['open']);
             $closingOffset = $this->closingTagOffset($value, $payloadOffset, $tag['close']);
 
@@ -206,7 +214,7 @@ final readonly class BraveAnswersResultMapper
 
         $content .= substr($value, $offset);
 
-        return ['content' => $content, 'citations' => $citations, 'usage' => $usage];
+        return ['content' => $content, 'citations' => $citations, 'citation_tags' => $citationTags, 'usage' => $usage];
     }
 
     /** @return array{name: string, open: string, close: string, offset: int}|null */

@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
 use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
+use Jkudish\LaravelAiLibrarium\Drivers\UncitedAnswer;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Recovery\RecoveryRequest;
@@ -16,7 +17,6 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ContentFormat;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\SourceKind;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
-use Jkudish\LaravelAiLibrarium\Responses\ResultProvenance;
 use Jkudish\LaravelAiLibrarium\Responses\SearchResult;
 use Jkudish\LaravelAiLibrarium\Responses\Source;
 use Jkudish\LaravelAiLibrarium\Responses\Usage;
@@ -60,9 +60,12 @@ final readonly class PerplexityAgentResultMapper
         [$content, $results] = $this->output($response);
         $citations = $this->citations($content, $results);
 
-        if ($content === '' || $citations->isEmpty()) {
+        if ($content === '') {
             throw $this->invalidGroundedResponse();
         }
+        // A completed answer that cites nothing is recorded as an ungrounded
+        // model answer with zero citations; its search results stay retained.
+        $cited = $citations->isNotEmpty();
 
         $completedAt = $this->completedAt(data_get($response, 'completed_at'));
 
@@ -72,15 +75,10 @@ final readonly class PerplexityAgentResultMapper
             requestedProfile: $request->requestedProfile->id,
             provider: $request->profile->provider,
             profile: $request->profile->id,
-            provenance: new ResultProvenance(
-                resultKind: $request->profile->resultKind,
-                retrievalMethods: $request->profile->retrievalMethods,
-                corpora: $request->profile->corpora,
-                // Perplexity's whole-second completed_at can equal created_at, the
-                // moment the request arrived, so it can precede the dispatch.
-                // The answer was observed when this response was read.
-                observedAt: CarbonImmutable::now(),
-            ),
+            // Perplexity's whole-second completed_at can equal created_at, the
+            // moment the request arrived, so it can precede the dispatch.
+            // The answer was observed when this response was read.
+            provenance: UncitedAnswer::provenance($request->profile, $cited, CarbonImmutable::now()),
             citations: $citations,
             completedAt: $completedAt,
             model: $model,

@@ -216,9 +216,39 @@ it('normalizes output text, strict deduplicated citations, usage, total tokens, 
         ->not->toContain('raw');
 });
 
-it('rejects required-grounding output without valid citations', function (array $annotations): void {
+it('returns a completed answer that cites nothing as an ungrounded model answer with its reported cost', function (): void {
+    // Universal Yums Audit, 2026-11-13: Grok answered 11 prompts without
+    // searching X, and each complete answer was rejected.
+    $response = xaiGrokResponse();
+    data_set($response, 'output.0.content.0.annotations', []);
+    Http::fake(['https://api.x.ai/v1/responses' => Http::response($response)]);
+
+    $result = xaiGrokDriver()->run(xaiGrokRequest());
+
+    expect($result->citations)->toBeEmpty()
+        ->and($result->provenance->resultKind)->toBe(ResultKind::ModelAnswer)
+        ->and($result->provenance->retrievalMethods->all())->toBe([RetrievalMethod::ModelOnly])
+        ->and($result->provenance->corpora)->toBeEmpty()
+        ->and($result->usage?->actualCost)->toBe('0.0300244');
+});
+
+it('maps a kept response body again without sending anything', function (): void {
+    $response = xaiGrokResponse();
+    data_set($response, 'output.0.content.0.annotations', []);
+    Http::fake();
+
+    $result = xaiGrokDriver()->map($response, xaiGrokRequest());
+
+    expect($result->citations)->toBeEmpty()
+        ->and($result->provenance->resultKind)->toBe(ResultKind::ModelAnswer)
+        ->and($result->usage?->actualCost)->toBe('0.0300244');
+    Http::assertNothingSent();
+});
+
+it('rejects required-grounding output whose citations are all invalid or that did not complete', function (array $annotations, string $status): void {
     $response = xaiGrokResponse();
     data_set($response, 'output.0.content.0.annotations', $annotations);
+    data_set($response, 'status', $status);
     Http::fake(['https://api.x.ai/v1/responses' => Http::response($response)]);
 
     expect(fn () => xaiGrokDriver()->run(xaiGrokRequest()))
@@ -227,12 +257,12 @@ it('rejects required-grounding output without valid citations', function (array 
                 ->and($exception->getMessage())->not->toContain('provider-secret');
         });
 })->with([
-    'no annotations' => [[]],
+    'uncited and incomplete' => [[], 'incomplete'],
     'all annotations invalid' => [[
         ['type' => 'url_citation', 'url' => 'javascript:provider-secret'],
         ['type' => 'url_citation', 'url' => 'https://user:provider-secret@example.com/source'],
         ['type' => 'file_citation', 'file_id' => 'provider-secret'],
-    ]],
+    ], 'completed'],
 ]);
 
 it('rejects invalid Profile options during preflight', function (array $options): void {

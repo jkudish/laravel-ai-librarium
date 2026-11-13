@@ -72,9 +72,11 @@ final readonly class OpenAiResearchResultMapper
     private function agentResponse(array $response, DriverRequest|RecoveryRequest $request, ?array $usage): AgentResponse
     {
         $parts = $this->outputTextParts($response);
-        $citations = $this->citations($response);
+        [$citations, $annotations] = $this->citations($response);
 
-        if (! $this->hasCompletedWebSearchCall($response) || $parts === [] || $citations->isEmpty()) {
+        // A report that cites nothing is an ungrounded answer with zero
+        // citations; annotations that are all invalid stay malformed.
+        if (! $this->hasCompletedWebSearchCall($response) || $parts === [] || ($citations->isEmpty() && $annotations > 0)) {
             throw new DriverException(
                 'openai.invalid_response',
                 'OpenAI returned an incomplete grounded research report.',
@@ -128,13 +130,14 @@ final readonly class OpenAiResearchResultMapper
 
     /**
      * @param  array<array-key, mixed>  $response
-     * @return Collection<int, Citation>
+     * @return array{Collection<int, Citation>, int}
      */
-    private function citations(array $response): Collection
+    private function citations(array $response): array
     {
         /** @var list<Citation> $citations */
         $citations = [];
         $seen = [];
+        $annotations = 0;
 
         foreach ($this->records(data_get($response, 'output')) as $item) {
             if (data_get($item, 'type') !== 'message') {
@@ -147,6 +150,7 @@ final readonly class OpenAiResearchResultMapper
                 }
 
                 foreach ($this->records(data_get($content, 'annotations')) as $annotation) {
+                    $annotations++;
                     if (data_get($annotation, 'type') !== 'url_citation') {
                         continue;
                     }
@@ -167,7 +171,7 @@ final readonly class OpenAiResearchResultMapper
             }
         }
 
-        return collect($citations);
+        return [collect($citations), $annotations];
     }
 
     /** @param array<array-key, mixed> $response */

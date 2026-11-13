@@ -70,8 +70,10 @@ citations. Gemini scraper and Google AI Mode do not report a retrieval list.
 The Perplexity agent retains every `search_results` entry, not just cited ones.
 For direct Claude, only text-block `web_search_result_location` citations count
 as citations; web-search tool results and fetched pages form `search_results`.
-Claude grounding (including required-grounding validation) now depends on real
-citations, not the SDK's conflated retrieval/citation metadata.
+Claude grounding now depends on real citations, not the SDK's conflated
+retrieval/citation metadata. A complete answer that cites nothing is accepted
+on every grounded profile, `required` included, as an uncited `model_answer`
+with `model_only` retrieval, no corpora and zero citations.
 
 OpenAI Responses web-search profiles request
 `include: ['web_search_call.action.sources']`. Quick OpenAI uses the SDK's

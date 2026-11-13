@@ -613,8 +613,27 @@ it('strictly validates referenced search evidence and keeps only cited results',
     'invalid result URL scheme' => ['output.0.results.0.url', 'file:///etc/passwd'],
     'duplicate stringified ID' => ['output.0.results.1.id', '1'],
     'unknown source' => ['output.0.results.0.source', 'private'],
-    'no cited evidence' => ['output.1.content.0.text', 'An answer without markers.'],
 ]);
+
+it('returns a completed answer that cites nothing as an ungrounded model answer, keeping its search results and cost', function (): void {
+    // Universal Yums Audit, 2026-11-13: Perplexity returned complete answers
+    // with search results but no citation markers, and each was rejected while
+    // its unit stayed held at the reserved maximum.
+    $response = perplexityCompletedResponse();
+    data_set($response, 'output.1.content.0.text', 'An answer without markers.');
+    Http::fake(['https://api.perplexity.ai/v1/agent' => Http::response($response)]);
+
+    $result = perplexityAgentDriver()->run(perplexityAgentRequest('perplexity-sonar-pro'));
+
+    expect($result->content)->toBe('An answer without markers.')
+        ->and($result->citations)->toBeEmpty()
+        ->and($result->provenance->resultKind)->toBe(ResultKind::ModelAnswer)
+        ->and($result->provenance->retrievalMethods->all())->toBe([RetrievalMethod::ModelOnly])
+        ->and($result->provenance->corpora)->toBeEmpty()
+        ->and($result->searchResults?->map(fn ($item) => $item->url)->all())
+        ->toBe(['https://example.com/first', 'https://news.example.com/story', 'https://uncited.example.com/private'])
+        ->and($result->usage?->actualCost)->toBe('0.0125');
+});
 
 it('rejects an answer that cites a result whose URL fails evidence screening', function (): void {
     $response = perplexityCompletedResponse();

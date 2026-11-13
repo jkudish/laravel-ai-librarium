@@ -309,7 +309,21 @@ it('rejects a retrieval response that arrives after the shared deadline', functi
     Http::assertSentCount(2);
 });
 
-it('requires a web search call, output text, and provider-reported web citations for a grounded report', function (array $mutation): void {
+it('returns a completed report that cites nothing as an ungrounded model answer', function (): void {
+    $response = openAiCompletedResponse();
+    data_set($response, 'output.1.content.0.annotations', []);
+    Http::fakeSequence()
+        ->push(['id' => 'resp_research_1', 'status' => 'queued'])
+        ->push($response);
+
+    $result = openAiResearchDriver()->run(openAiResearchRequest());
+
+    expect($result->citations)->toBeEmpty()
+        ->and($result->provenance->resultKind)->toBe(ResultKind::ModelAnswer)
+        ->and($result->provenance->retrievalMethods->all())->toBe([RetrievalMethod::ModelOnly]);
+});
+
+it('requires a web search call, output text, and valid web citations when a grounded report cites', function (array $mutation): void {
     $response = openAiCompletedResponse();
     data_set($response, $mutation['path'], $mutation['value']);
     Http::fakeSequence()
@@ -327,7 +341,6 @@ it('requires a web search call, output text, and provider-reported web citations
     'failed web search call' => [['path' => 'output.0.status', 'value' => 'failed']],
     'unrecognized web search action' => [['path' => 'output.0.action.type', 'value' => 'unknown']],
     'no output text' => [['path' => 'output.1.content.0.text', 'value' => '   ']],
-    'no citations' => [['path' => 'output.1.content.0.annotations', 'value' => []]],
     'malformed citation' => [[
         'path' => 'output.1.content.0.annotations',
         'value' => [['type' => 'url_citation', 'url' => 'https://bad host/source']],

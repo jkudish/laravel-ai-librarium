@@ -13,6 +13,7 @@ use Illuminate\Support\Str;
 use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
 use Jkudish\LaravelAiLibrarium\Contracts\DefinesSpendingBound;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
+use Jkudish\LaravelAiLibrarium\Drivers\UncitedAnswer;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Responses\Citation;
@@ -20,7 +21,6 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\CitationDerivation;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\ContentFormat;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\SourceKind;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
-use Jkudish\LaravelAiLibrarium\Responses\ResultProvenance;
 use Jkudish\LaravelAiLibrarium\Responses\Source;
 use Jkudish\LaravelAiLibrarium\Responses\Usage;
 use Jkudish\LaravelAiLibrarium\SpendingBound;
@@ -162,8 +162,11 @@ final readonly class KagiFastGptDriver implements DefinesSpendingBound, Driver
             throw $this->invalidResponse();
         }
 
+        // An answer with no references is an ungrounded model answer with
+        // zero citations; references that are all invalid stay malformed.
         $citations = $this->citations($references);
-        if ($citations->isEmpty()) {
+        $cited = $citations->isNotEmpty();
+        if (! $cited && $references !== []) {
             throw $this->invalidResponse();
         }
 
@@ -176,12 +179,7 @@ final readonly class KagiFastGptDriver implements DefinesSpendingBound, Driver
             requestedProfile: $request->requestedProfile->id,
             provider: $request->profile->provider,
             profile: $request->profile->id,
-            provenance: new ResultProvenance(
-                resultKind: $request->profile->resultKind,
-                retrievalMethods: $request->profile->retrievalMethods,
-                corpora: $request->profile->corpora,
-                observedAt: $completedAt,
-            ),
+            provenance: UncitedAnswer::provenance($request->profile, $cited, $completedAt),
             citations: $citations,
             completedAt: $completedAt,
             usage: $usage,
