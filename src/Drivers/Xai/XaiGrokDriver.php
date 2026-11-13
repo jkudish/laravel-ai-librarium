@@ -131,7 +131,17 @@ final readonly class XaiGrokDriver implements Driver
             throw $this->httpFailure($response);
         }
 
-        $json = $this->json($response);
+        return $this->map($this->json($response), $request);
+    }
+
+    /**
+     * Maps one decoded xAI Responses body. Sends nothing, so a consumer can
+     * read a response it kept again with this reader.
+     *
+     * @param  array<array-key, mixed>  $json
+     */
+    public function map(array $json, DriverRequest $request): ResearchResult
+    {
         if (array_key_exists('error', $json) && $json['error'] !== null) {
             throw new DriverException('xai.invalid_response', 'xAI returned an unsuccessful response.');
         }

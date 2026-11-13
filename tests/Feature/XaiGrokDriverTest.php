@@ -232,6 +232,19 @@ it('returns a completed answer that cites nothing as an ungrounded model answer 
         ->and($result->usage?->actualCost)->toBe('0.0300244');
 });
 
+it('maps a kept response body again without sending anything', function (): void {
+    $response = xaiGrokResponse();
+    data_set($response, 'output.0.content.0.annotations', []);
+    Http::fake();
+
+    $result = xaiGrokDriver()->map($response, xaiGrokRequest());
+
+    expect($result->citations)->toBeEmpty()
+        ->and($result->provenance->resultKind)->toBe(ResultKind::ModelAnswer)
+        ->and($result->usage?->actualCost)->toBe('0.0300244');
+    Http::assertNothingSent();
+});
+
 it('rejects required-grounding output whose citations are all invalid or that did not complete', function (array $annotations, string $status): void {
     $response = xaiGrokResponse();
     data_set($response, 'output.0.content.0.annotations', $annotations);

@@ -14,6 +14,10 @@
   OpenAI and Gemini Deep Research, Exa Research and Parallel Research.
   Truncated, errored or malformed responses stay rejected, and so does a
   report whose annotations are all unusable.
+- Add `XaiGrokDriver::map()`, which maps one decoded xAI Responses body
+  without sending anything, so a consumer can read a response it kept again
+  with the installed reader, as it can with the Perplexity Agent and Brave
+  Answers mappers.
 - Stop discarding grounded Perplexity Agent answers over `search_results`
   metadata. Trim whitespace around result titles and snippets, which are page
   excerpts and often end mid-whitespace, and drop an uncited result whose URL
