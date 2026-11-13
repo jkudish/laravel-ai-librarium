@@ -40,8 +40,10 @@ final readonly class GeminiDeepResultMapper
     public function toAgentResponse(array $interaction, DriverRequest|RecoveryRequest $request): AgentResponse
     {
         $text = $this->str(data_get($interaction, 'output_text')) ?? implode("\n", $this->textParts($interaction));
-        $citations = $this->citations($interaction);
-        if ($text === '' || $citations->isEmpty()) {
+        [$citations, $annotations] = $this->citations($interaction);
+        // A report that cites nothing is an ungrounded answer with zero
+        // citations; annotations that are all invalid stay malformed.
+        if ($text === '' || ($citations->isEmpty() && $annotations > 0)) {
             throw $this->invalidResponse();
         }
 
@@ -88,13 +90,14 @@ final readonly class GeminiDeepResultMapper
 
     /**
      * @param  array<array-key, mixed>  $interaction
-     * @return Collection<int, Citation>
+     * @return array{Collection<int, Citation>, int}
      */
-    private function citations(array $interaction): Collection
+    private function citations(array $interaction): array
     {
         /** @var list<Citation> $citations */
         $citations = [];
         $seen = [];
+        $annotations = 0;
 
         foreach ($this->records(data_get($interaction, 'steps')) as $step) {
             if (data_get($step, 'type') !== 'model_output') {
@@ -107,6 +110,7 @@ final readonly class GeminiDeepResultMapper
                 }
 
                 foreach ($this->records(data_get($content, 'annotations')) as $annotation) {
+                    $annotations++;
                     $type = data_get($annotation, 'type');
                     $url = match ($type) {
                         'url_citation', 'place_citation' => $this->evidenceUrl(data_get($annotation, 'url')),
@@ -133,7 +137,7 @@ final readonly class GeminiDeepResultMapper
             }
         }
 
-        return collect($citations);
+        return [collect($citations), $annotations];
     }
 
     private function usage(mixed $value): Usage

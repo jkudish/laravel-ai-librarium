@@ -33,8 +33,10 @@ final readonly class ProfileCompatibility
     {
         $provenance = $result->provenance;
 
-        if ($profile->grounding === GroundingPolicy::Optional
-            && $profile->resultKind === ResultKind::GroundedAnswer
+        // A grounded profile's answer that cites nothing is an ungrounded
+        // model answer with zero citations.
+        if ($profile->grounding !== GroundingPolicy::None
+            && in_array($profile->resultKind, [ResultKind::GroundedAnswer, ResultKind::ResearchReport], true)
             && $profile->observation === ObservationMode::ApiOutput
             && $provenance->resultKind === ResultKind::ModelAnswer) {
             return $result->citations->isEmpty()

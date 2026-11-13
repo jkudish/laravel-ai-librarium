@@ -123,6 +123,21 @@ it('submits, polls, retrieves, and normalizes one durable Research report', func
         ->not->toContain('testing-parallel-key');
 });
 
+it('records a completed report that cites nothing as an uncited model answer', function (): void {
+    Http::fake(['https://api.parallel.ai/v1/tasks/runs*' => Http::sequence()
+        ->push(parallelResearchRun('queued'), 202)
+        ->push(parallelResearchRun('completed'))
+        ->push(parallelResearchResult(['type' => 'text', 'content' => 'A report that cites nothing.', 'basis' => []]))]);
+
+    $result = app(ParallelResearchDriver::class)->run(parallelResearchRequest());
+
+    expect($result->content)->toBe('A report that cites nothing.')
+        ->and($result->citations)->toBeEmpty()
+        ->and($result->provenance->resultKind)->toBe(ResultKind::ModelAnswer)
+        ->and($result->provenance->retrievalMethods->all())->toBe([RetrievalMethod::ModelOnly])
+        ->and($result->provenance->corpora)->toBeEmpty();
+});
+
 it('retries only transient status and result retrieval, never the submission', function (): void {
     Http::fake(['https://api.parallel.ai/v1/tasks/runs*' => Http::sequence()
         ->push(parallelResearchRun('queued'), 202)

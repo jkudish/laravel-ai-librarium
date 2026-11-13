@@ -377,38 +377,6 @@ it('settles a runtime timeout after a conforming no-raw Luna response as possibl
     }
 });
 
-it('settles an ungrounded required-grounding Luna response without raw capture as possibly accepted, never not sent', function (): void {
-    $prompt = 'Answer without provider-reported evidence.';
-    config()->set('librarium.profiles.openrouter-chat.options', array_merge(lunaBoundedOptions(), [
-        'max_prompt_bytes' => strlen($prompt),
-    ]));
-    config()->set('librarium.profiles.openrouter-chat.grounding', 'required');
-    Http::fake(lunaCatalogFake());
-    ResearchAgent::fake([
-        new TextResponse(
-            'An answer without provider-reported evidence.',
-            new AiUsage(inputTokens: 900, outputTokens: 120),
-            new Meta('openrouter', 'openai/gpt-6-luna-20260922'),
-        ),
-    ])->preventStrayPrompts();
-
-    $collected = variantResearch('openrouter-chat', $prompt)->run();
-    $diagnostic = $collected->diagnostics()[0];
-
-    // The inference dispatch ran before the grounding check rejected the
-    // mapped result, and the SDK exposed no raw exchange: the recorded
-    // unanswered attempt keeps the settlement PossiblyAccepted instead of
-    // falsely releasing a spent reservation as NotSent.
-    expect($collected->result('probe')['error']['code'])->toBe('laravel_ai.ungrounded_response')
-        ->and($diagnostic['code'])->toBe('laravel_ai.ungrounded_response')
-        ->and($diagnostic['submission_state'])->toBe(SubmissionState::PossiblyAccepted->value)
-        ->and($diagnostic['operation'])->toBe(Operation::Inline->value)
-        ->and($collected->evidence('probe'))->toBeEmpty();
-    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://openrouter.ai/api/v1/model/openai/gpt-6-luna');
-    Http::assertNotSent(fn (Request $request): bool => $request->url() === 'https://openrouter.ai/api/v1/chat/completions');
-    Http::assertSentCount(1);
-});
-
 it('fails the Luna preflight closed before the catalog lookup when the shared deadline is exhausted', function (): void {
     config()->set('librarium.profiles.openrouter-chat.options', lunaBoundedOptions());
     Http::fake(lunaCatalogFake());

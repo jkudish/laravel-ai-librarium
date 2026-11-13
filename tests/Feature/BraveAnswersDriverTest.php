@@ -148,9 +148,26 @@ it('falls back from final SSE tokens to safe legacy usage headers and nested cos
         ->and($usage?->actualCost)->toBe('0.29');
 });
 
-it('rejects required-grounding answers without a valid citation safely', function (array $deltas): void {
+it('returns a finished answer that cites nothing as an ungrounded model answer with its reported cost', function (): void {
+    // Universal Yums Audit, 2026-11-13: Brave streamed complete answers with a
+    // <usage> cost and no citation tags, and each was rejected before its cost
+    // was read.
+    $usage = '<usage>'.json_encode(['X-Request-Tokens-In' => 8797, 'X-Request-Tokens-Out' => 222, 'X-Request-Total-Cost' => 0.049095], JSON_THROW_ON_ERROR).'</usage>';
+    Http::fake(['https://api.search.brave.com/*' => Http::response(braveSse(['Universal Yums is a popular snack box.', $usage], finishReason: 'stop'))]);
+
+    $result = braveDriver()->run(braveRequest());
+
+    expect($result->content)->toBe('Universal Yums is a popular snack box.')
+        ->and($result->citations)->toBeEmpty()
+        ->and($result->provenance->resultKind)->toBe(ResultKind::ModelAnswer)
+        ->and($result->provenance->retrievalMethods->all())->toBe([RetrievalMethod::ModelOnly])
+        ->and($result->provenance->corpora)->toBeEmpty()
+        ->and($result->usage?->actualCost)->toBe('0.049095');
+});
+
+it('rejects answers whose citations are all invalid or uncited answers that did not finish safely', function (array $deltas, ?string $finishReason): void {
     /** @var list<string> $deltas */
-    $body = braveSse($deltas, terminate: false);
+    $body = braveSse($deltas, terminate: false, finishReason: $finishReason);
     Http::fake(['https://api.search.brave.com/*' => Http::response($body)]);
 
     try {
@@ -163,7 +180,8 @@ it('rejects required-grounding answers without a valid citation safely', functio
             ->and($exception->getMessage())->not->toContain('<usage>');
     }
 })->with([
-    'no citation tags' => [['Safe answer without citation tags. provider-secret']],
+    'uncited answer without a finish reason' => [['Safe answer without citation tags. provider-secret'], null],
+    'uncited answer cut off at the length limit' => [['Safe answer without citation tags. provider-secret'], 'length'],
     'all malformed or invalid citations' => [[
         'Safe answer.',
         '<citation>{not-json}</citation>',
@@ -171,7 +189,7 @@ it('rejects required-grounding answers without a valid citation safely', functio
         '<citation>{"url":"https://user:pass@example.com/nope"}</citation>',
         '<usage>{"X-Request-Tokens-In":2',
         'provider-secret-after-incomplete-tag',
-    ]],
+    ], 'stop'],
 ]);
 
 it('rejects malformed, oversized, and interrupted streams safely', function (mixed $fake, string $code): void {
@@ -391,13 +409,16 @@ function braveProfile(?string $credential = 'testing-brave-secret', string $mode
  * @param  list<string>  $deltas
  * @param  array<array-key, mixed>|null  $usage
  */
-function braveSse(array $deltas, ?array $usage = null, bool $terminate = true): string
+function braveSse(array $deltas, ?array $usage = null, bool $terminate = true, ?string $finishReason = null): string
 {
     $events = [];
     foreach ($deltas as $delta) {
         $events[] = 'data: '.json_encode([
             'choices' => [['delta' => ['content' => $delta]]],
         ], JSON_THROW_ON_ERROR);
+    }
+    if ($finishReason !== null) {
+        $events[] = 'data: '.json_encode(['choices' => [['delta' => ['content' => ''], 'finish_reason' => $finishReason]]], JSON_THROW_ON_ERROR);
     }
     if ($usage !== null) {
         $events[] = 'data: '.json_encode(['choices' => [], 'usage' => $usage], JSON_THROW_ON_ERROR);

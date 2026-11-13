@@ -14,6 +14,7 @@ use Jkudish\LaravelAiLibrarium\Collection\Enums\Operation;
 use Jkudish\LaravelAiLibrarium\Contracts\Driver;
 use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
 use Jkudish\LaravelAiLibrarium\Drivers\TerminalRedaction;
+use Jkudish\LaravelAiLibrarium\Drivers\UncitedAnswer;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Profiles\Enums\GroundingPolicy;
@@ -26,7 +27,6 @@ use Jkudish\LaravelAiLibrarium\Responses\Enums\ResultKind;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\RetrievalMethod;
 use Jkudish\LaravelAiLibrarium\Responses\Enums\SourceKind;
 use Jkudish\LaravelAiLibrarium\Responses\ResearchResult;
-use Jkudish\LaravelAiLibrarium\Responses\ResultProvenance;
 use Jkudish\LaravelAiLibrarium\Responses\Source;
 use Jkudish\LaravelAiLibrarium\Responses\Usage;
 use stdClass;
@@ -279,8 +279,12 @@ final readonly class XaiGrokDriver implements Driver
             throw new DriverException('xai.invalid_response', 'xAI returned a response without output text.');
         }
 
-        $citations = $this->citations($json);
-        if ($citations->isEmpty()) {
+        // A completed answer that cites nothing (Grok answered without
+        // searching) is recorded as an ungrounded model answer with zero
+        // citations. Annotations that are all invalid stay malformed evidence.
+        [$citations, $annotations] = $this->citations($json);
+        $cited = $citations->isNotEmpty();
+        if (! $cited && ($annotations > 0 || data_get($json, 'status') !== 'completed')) {
             throw new DriverException('xai.invalid_response', 'xAI returned a grounded response without valid citations.');
         }
 
@@ -294,12 +298,7 @@ final readonly class XaiGrokDriver implements Driver
             requestedProfile: $request->requestedProfile->id,
             provider: $request->profile->provider,
             profile: $request->profile->id,
-            provenance: new ResultProvenance(
-                resultKind: $request->profile->resultKind,
-                retrievalMethods: $request->profile->retrievalMethods,
-                corpora: $request->profile->corpora,
-                observedAt: $completedAt,
-            ),
+            provenance: UncitedAnswer::provenance($request->profile, $cited, $completedAt),
             citations: $citations,
             completedAt: $completedAt,
             model: $model,
@@ -336,13 +335,14 @@ final readonly class XaiGrokDriver implements Driver
 
     /**
      * @param  array<array-key, mixed>  $json
-     * @return Collection<int, Citation>
+     * @return array{Collection<int, Citation>, int}
      */
-    private function citations(array $json): Collection
+    private function citations(array $json): array
     {
         /** @var list<Citation> $citations */
         $citations = [];
         $seen = [];
+        $annotations = 0;
 
         foreach ($this->records(data_get($json, 'output')) as $item) {
             $contents = is_array(data_get($item, 'content'))
@@ -357,6 +357,7 @@ final readonly class XaiGrokDriver implements Driver
 
                 $text = is_string(data_get($part, 'text')) ? data_get($part, 'text') : '';
                 foreach ($this->records(data_get($part, 'annotations')) as $annotation) {
+                    $annotations++;
                     if (data_get($annotation, 'type') !== 'url_citation') {
                         continue;
                     }
@@ -380,7 +381,7 @@ final readonly class XaiGrokDriver implements Driver
             }
         }
 
-        return collect($citations);
+        return [collect($citations), $annotations];
     }
 
     /** @param array<array-key, mixed> $annotation */

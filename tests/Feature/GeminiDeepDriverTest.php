@@ -472,7 +472,21 @@ it('maps non-retryable retrieval failures and malformed bodies without exposing 
     'missing status' => [['id' => geminiDeepInteractionId(), 'raw' => 'provider-secret'], 200, 'gemini_deep.invalid_response'],
 ]);
 
-it('rejects terminal reports without usable cited text and redacts signed-only citations', function (string $case): void {
+it('returns a completed report that cites nothing as an ungrounded model answer', function (): void {
+    $completed = geminiDeepInteraction('completed', completed: true);
+    data_set($completed, 'steps.0.content.0.annotations', []);
+    Http::fakeSequence()
+        ->push(geminiDeepInteraction('completed'))
+        ->push($completed);
+
+    $result = app(GeminiDeepDriver::class)->run(geminiDeepRequest());
+
+    expect($result->citations)->toBeEmpty()
+        ->and($result->provenance->resultKind)->toBe(ResultKind::ModelAnswer)
+        ->and($result->provenance->retrievalMethods->all())->toBe([RetrievalMethod::ModelOnly]);
+});
+
+it('rejects terminal reports without usable text or with only invalid citations, and redacts signed-only citations', function (string $case): void {
     $completed = geminiDeepInteraction('completed', completed: true);
     if ($case === 'blank report') {
         $completed['output_text'] = ' ';

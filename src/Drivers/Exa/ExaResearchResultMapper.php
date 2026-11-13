@@ -7,6 +7,7 @@ namespace Jkudish\LaravelAiLibrarium\Drivers\Exa;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Jkudish\LaravelAiLibrarium\Drivers\EvidenceUrl;
+use Jkudish\LaravelAiLibrarium\Drivers\UncitedAnswer;
 use Jkudish\LaravelAiLibrarium\Exceptions\DriverException;
 use Jkudish\LaravelAiLibrarium\Execution\DriverRequest;
 use Jkudish\LaravelAiLibrarium\Recovery\RecoveryRequest;
@@ -64,13 +65,15 @@ final readonly class ExaResearchResultMapper
             requestedProfile: $request->requestedProfile->id,
             provider: $request->profile->provider,
             profile: $request->profile->id,
-            provenance: new ResultProvenance(
-                resultKind: $request->profile->resultKind,
-                retrievalMethods: $request->profile->retrievalMethods,
-                corpora: $request->profile->corpora,
-                observedAt: $completedAt,
-                observationMode: $request->profile->observation,
-            ),
+            provenance: $citations->isEmpty()
+                ? UncitedAnswer::provenance($request->profile, false, $completedAt)
+                : new ResultProvenance(
+                    resultKind: $request->profile->resultKind,
+                    retrievalMethods: $request->profile->retrievalMethods,
+                    corpora: $request->profile->corpora,
+                    observedAt: $completedAt,
+                    observationMode: $request->profile->observation,
+                ),
             citations: $citations,
             completedAt: $completedAt,
             usage: $totalCost === null ? null : new Usage(
