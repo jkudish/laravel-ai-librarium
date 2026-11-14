@@ -23,6 +23,15 @@ final readonly class ResponseRedactor
         'x-request-id',
         'openai-request-id',
         'cf-ray',
+        // Anthropic's rate-limit state: counts and RFC 3339 reset times.
+        'anthropic-ratelimit-requests-remaining',
+        'anthropic-ratelimit-requests-reset',
+        'anthropic-ratelimit-tokens-remaining',
+        'anthropic-ratelimit-tokens-reset',
+        'anthropic-ratelimit-input-tokens-remaining',
+        'anthropic-ratelimit-input-tokens-reset',
+        'anthropic-ratelimit-output-tokens-remaining',
+        'anthropic-ratelimit-output-tokens-reset',
     ];
 
     public function __construct(

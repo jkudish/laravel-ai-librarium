@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Keep Anthropic's rate-limit headers in captured evidence:
+  `anthropic-ratelimit-{requests,tokens,input-tokens,output-tokens}-remaining`
+  and `-reset`, so a consumer can wait for the reset of an exhausted limit
+  instead of only `retry-after`. Anthropic's limit and other headers are still
+  dropped.
 - Add the opt-in `resolve_links` option to the SearchAPI AI Overview profile.
   It resolves reference links' `link_token`s to page URLs through SearchAPI's
   free Google Resolve API before the capture is redacted, within SearchAPI's
