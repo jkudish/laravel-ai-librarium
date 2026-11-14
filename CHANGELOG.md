@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Add the opt-in `resolve_links` option to the SearchAPI AI Overview profile.
+  It resolves reference links' `link_token`s to page URLs through SearchAPI's
+  free Google Resolve API before the capture is redacted, within SearchAPI's
+  120-a-minute and 5-at-a-time per-account limits, and captures each resolve
+  exchange as a `retrieve` operation. Unresolved links keep their publisher
+  origin, and resolve failures never fail the answer. Off by default: page-level
+  AI Overview citations, and so their counts, change only for profiles that opt in.
+- Keep Google AI Mode reference links that SearchAPI returns as Google
+  redirects as their `url`/`q` target or publisher origin instead of dropping
+  them. Other surfaces still drop Google links.
 - Accept a complete, well-formed answer that cites nothing on every grounded
   profile, including `required` grounding and research reports, instead of
   failing it as `invalid_response` or `laravel_ai.ungrounded_response`. It is

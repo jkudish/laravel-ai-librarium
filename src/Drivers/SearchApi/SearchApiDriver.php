@@ -54,7 +54,10 @@ final readonly class SearchApiDriver implements DefinesSpendingBound, Driver
         'searchapi-google-ai-overview' => ['mode' => 'overview', 'surface' => 'google_ai_overview'],
     ];
 
-    public function __construct(private SearchApiResultMapper $mapper) {}
+    public function __construct(
+        private SearchApiResultMapper $mapper,
+        private SearchApiLinkResolver $resolver,
+    ) {}
 
     /** @return array<string, mixed> */
     public static function profileOptionRules(): array
@@ -62,6 +65,7 @@ final readonly class SearchApiDriver implements DefinesSpendingBound, Driver
         return [
             'zero_retention' => ['sometimes', 'boolean'],
             'request_timeout_seconds' => ['sometimes', 'integer:strict', 'min:1', 'max:'.self::MAX_REQUEST_TIMEOUT_SECONDS],
+            'resolve_links' => ['sometimes', 'boolean'],
         ];
     }
 
@@ -75,7 +79,7 @@ final readonly class SearchApiDriver implements DefinesSpendingBound, Driver
         return match ($descriptor['mode']) {
             'search' => $this->runSearch($request, $descriptor['engine'] ?? 'google', $zeroRetention),
             'surface' => $this->runSurface($request, $descriptor, $zeroRetention),
-            'overview' => $this->runOverview($request, $zeroRetention),
+            'overview' => $this->runOverview($request, $zeroRetention, $this->resolveLinks($request) && ! $zeroRetention),
             default => throw $this->fail('searchapi.unsupported_profile', 'The requested SearchAPI profile is not supported.', $zeroRetention, false),
         };
     }
@@ -138,8 +142,12 @@ final readonly class SearchApiDriver implements DefinesSpendingBound, Driver
      * token), or no ai_overview at all. Only the token shape costs a second
      * request. "No overview on this SERP" and "an overview the driver could
      * not read" fail with distinct codes.
+     *
+     * With the resolve_links option (never under zero retention), the
+     * reference links' link_tokens are then resolved to page URLs through
+     * the free Google Resolve API; see SearchApiLinkResolver.
      */
-    private function runOverview(DriverRequest $request, bool $zeroRetention): ResearchResult
+    private function runOverview(DriverRequest $request, bool $zeroRetention, bool $resolveLinks): ResearchResult
     {
         $first = $this->requestJson($request, 'google', ['q' => $request->prompt], $zeroRetention);
         $overview = data_get($first, 'ai_overview');
@@ -149,7 +157,7 @@ final readonly class SearchApiDriver implements DefinesSpendingBound, Driver
 
         $inline = $this->mapper->normalizeOverview($overview);
         if ($inline['content'] !== '') {
-            return $this->overviewResult($request, $inline, $first);
+            return $this->overviewResult($request, $this->withResolvedLinks($request, $overview, $inline, $resolveLinks), $first);
         }
 
         $pageToken = $this->str(data_get($overview, 'page_token'));
@@ -167,7 +175,24 @@ final readonly class SearchApiDriver implements DefinesSpendingBound, Driver
                 : $this->noOverview($zeroRetention);
         }
 
-        return $this->overviewResult($request, $loaded, $second);
+        return $this->overviewResult($request, $this->withResolvedLinks($request, $second, $loaded, $resolveLinks), $second);
+    }
+
+    /**
+     * @param  array<array-key, mixed>  $data
+     * @param  array{content: string, citations: Collection<int, Citation>}  $normalized
+     * @return array{content: string, citations: Collection<int, Citation>}
+     */
+    private function withResolvedLinks(DriverRequest $request, array $data, array $normalized, bool $resolveLinks): array
+    {
+        $tokens = $resolveLinks ? $this->mapper->overviewLinkTokens($data) : [];
+        if ($tokens === []) {
+            return $normalized;
+        }
+
+        $resolved = $this->resolver->resolve($request, $tokens, $this->mapper->destinationUrl(...));
+
+        return $resolved === [] ? $normalized : $this->mapper->normalizeOverview($data, $resolved);
     }
 
     /**
@@ -314,6 +339,16 @@ final readonly class SearchApiDriver implements DefinesSpendingBound, Driver
     private function zeroRetention(DriverRequest $request): bool
     {
         $value = data_get($request->profile->options, 'zero_retention', false);
+        if (! is_bool($value)) {
+            throw new DriverException('searchapi.invalid_options', 'The SearchAPI profile received invalid options.', false);
+        }
+
+        return $value;
+    }
+
+    private function resolveLinks(DriverRequest $request): bool
+    {
+        $value = data_get($request->profile->options, 'resolve_links', false);
         if (! is_bool($value)) {
             throw new DriverException('searchapi.invalid_options', 'The SearchAPI profile received invalid options.', false);
         }
