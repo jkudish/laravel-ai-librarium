@@ -51,6 +51,28 @@ it('stores automatically redacted evidence without exposing it in the public Run
     expect(Librarium::find($run->id())->evidence('collected'))->toBe($run->evidence('collected'));
 });
 
+it('keeps Anthropic rate-limit remaining and reset headers and drops its other headers', function (): void {
+    $kept = [];
+    foreach (['requests', 'tokens', 'input-tokens', 'output-tokens'] as $limit) {
+        $kept["anthropic-ratelimit-{$limit}-remaining"] = ['0'];
+        $kept["anthropic-ratelimit-{$limit}-reset"] = ['2026-09-11T12:01:30Z'];
+    }
+    FakeRuntimeDriver::$outcomes['collected-quick'] = [function (DriverRequest $request) use ($kept): never {
+        $request->captureResponse(new Response(new PsrResponse(429, [
+            ...array_map(static fn (array $values): string => $values[0], $kept),
+            'Anthropic-Ratelimit-Requests-Limit' => '50',
+            'Anthropic-Organization-Id' => 'org-secret-token',
+            'Anthropic-Priority-Input-Tokens-Remaining' => '0',
+            'X-Api-Key' => 'secret-token',
+        ], '{"type":"error","error":{"type":"rate_limit_error"}}')), Operation::Inline);
+        throw new DriverException('test.rate_limited', 'Safe provider failure.', false);
+    }];
+    $run = Librarium::research('Research')->only(['collected'])->run();
+    ksort($kept);
+    expect($run->evidence('collected')[0]['headers'])->toBe($kept)
+        ->and(json_encode($run->evidence('collected')))->not->toContain('secret-token');
+});
+
 it('omits unsafe evidence without losing a successful answer', function (string $body, array $headers, ?string $pattern, string $reason): void {
     if ($pattern !== null) {
         config(['librarium.redaction.patterns' => [$pattern]]);
