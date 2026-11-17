@@ -11,7 +11,11 @@ use Jkudish\LaravelAiLibrarium\LibrariumManager;
 use Jkudish\LaravelAiLibrarium\PendingResearch;
 
 it('plans the new surface without calls or storage and preserves input', function (): void {
-    config(['services.you.key' => 'placeholder', 'librarium.groups.focused' => ['you', 'openai', 'brave']]);
+    config([
+        'services.you.key' => 'placeholder',
+        'librarium.groups.focused' => ['you', 'openai', 'brave'],
+        'ai-pricing.prices.you:research-standard.requests' => ['amount' => '50', 'per' => '1000', 'currency' => 'USD'],
+    ]);
     $run = Librarium::research("  Exact question.\n")->deep()->only(['focused'])->skip(['openai'])->maxCost('0.05')->dryRun();
     expect($run->status())->toBe('planned')
         ->and($run->toArray()['question'])->toBe("  Exact question.\n")
