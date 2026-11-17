@@ -267,7 +267,6 @@ final readonly class ExaResearchDriver implements DefinesSpendingBound, DurableD
         return (is_int($cost) || is_float($cost))
             && $cost >= 1
             && $cost <= 100
-            && (! is_float($cost) || is_finite($cost))
             && in_array($effort, self::METERED_EFFORTS, true);
     }
 
