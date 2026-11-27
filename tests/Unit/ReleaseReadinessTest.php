@@ -9,10 +9,7 @@ require_once dirname(__DIR__, 2).'/tools/ReleaseReadiness.php';
 /** @return array<string, mixed> */
 function releaseReadinessComposerFixture(): array
 {
-    $composer = json_decode(file_get_contents(dirname(__DIR__, 2).'/composer.json'), true, 512, JSON_THROW_ON_ERROR);
-    $composer['require']['jkudish/librarium-spec'] = '^0.1';
-
-    return $composer;
+    return json_decode(file_get_contents(dirname(__DIR__, 2).'/composer.json'), true, 512, JSON_THROW_ON_ERROR);
 }
 
 /** @return array<string, mixed> */
@@ -61,7 +58,7 @@ it('keeps the supported compatibility policy and stable minimum stability', func
     ['require', 'jkudish/laravel-ai-pricing', '^0.2.2'], ['require', 'jkudish/laravel-ai-pricing', '^0.3.1'],
     ['require', 'jkudish/laravel-ai-pricing', '^0.3.0 || ^0.4.1'], ['require', 'laravel/ai', '^1.0'],
     ['require', 'laravel/prompts', '^0.3.11'], ['require-dev', 'orchestra/testbench', '^10.0'],
-    ['require', 'jkudish/librarium-spec', 'dev-main'],
+    ['require', 'jkudish/librarium-spec', 'dev-main'], ['require', 'jkudish/librarium-spec', '^1.1'],
 ]);
 
 it('rejects release evidence with credentials, query strings, fragments or invalid digests', function (mixed $evidence): void {

@@ -10,7 +10,8 @@ use Illuminate\Validation\ValidationException;
 use Jkudish\LaravelAiLibrarium\Drivers\DataForSeo\DataForSeoCredential;
 
 /**
- * @phpstan-type Variant array{php: ?string, env?: string, requires?: array<string, string>, options?: array<string, mixed>}
+ * @phpstan-type Mapping array{php: ?string, env?: string, requires?: array<string, string>, options?: array<string, mixed>}
+ * @phpstan-type Variant array{php: ?string, env?: string, requires?: array<string, string>, options?: array<string, mixed>, by_collector?: array<string, Mapping>}
  * @phpstan-type Option array{type?: string, default?: mixed, values?: list<string>, items?: list<string>, variants?: array<string, Variant>}
  * @phpstan-type CatalogEntry array{id: string, name: string, kind: string, php_credential?: string, variants?: array<string, Variant>, options?: array<string, Option>, collectors?: array<string, Variant>}
  */
@@ -63,6 +64,7 @@ final class SourceCatalog
     public function selectionCatalog(array $options = [], string $depth = 'quick'): array
     {
         $items = [];
+        $bindings = $this->bindings();
         foreach ($this->entries() as $id => $entry) {
             $settings = $this->settings($id);
             $collector = $settings['collector'] ?? null;
@@ -71,7 +73,7 @@ final class SourceCatalog
                 && ($options[$id]['collector'] ?? $collector) === 'dataforseo') {
                 $settings['key'] = DataForSeoCredential::encode($this->config->get('services.dataforseo.login'), $this->config->get('services.dataforseo.password'));
             }
-            $available = ! $engine || (is_string($collector) && (isset($this->collectors[$collector]) || in_array($collector, ['searchapi', 'dataforseo'], true) && isset($entry['collectors'][$collector])));
+            $available = ! $engine || (is_string($collector) && (isset($this->collectors[$collector]) || isset($bindings[$entry['collectors'][$collector]['php'] ?? ''])));
             $items[$id] = [
                 'configured' => ($settings['enabled'] ?? true) !== false && filled($settings['key'] ?? null) && (! $engine || is_string($collector) && $available),
                 'deep' => isset($entry['variants']['deep']) || isset($settings['deep']),
@@ -131,8 +133,10 @@ final class SourceCatalog
     {
         $entry = $this->entries()[$id];
         $settings = $this->settings($id);
-        $dataforseo = $depth === 'quick' && isset($entry['options']['collector']['variants']['dataforseo'])
-            && ($overrides['collector'] ?? $settings['collector'] ?? 'direct') === 'dataforseo';
+        $sourceCollector = $overrides['collector'] ?? $settings['collector'] ?? $entry['options']['collector']['default'] ?? null;
+        $dataforseo = $depth === 'quick' && isset($entry['options']['collector']['variants']['dataforseo']) && $sourceCollector === 'dataforseo';
+        // Collectors with required controls read them from the source's configured options.
+        $collectorOptions = $dataforseo || ($depth === 'quick' && $sourceCollector === 'cloro' && isset($entry['options']['collector']['variants']['cloro']));
         if ($dataforseo) {
             $settings['key'] = DataForSeoCredential::encode($this->config->get('services.dataforseo.login'), $this->config->get('services.dataforseo.password'));
         }
@@ -144,7 +148,9 @@ final class SourceCatalog
             }
         }
         if ($id === 'google' && isset($overrides['collector'])) {
-            $configuredKey = $this->config->get('librarium.sources.google.key');
+            // A configured key belongs to the configured collector; never send it to another provider.
+            $configuredKey = $overrides['collector'] === ($this->config->get('librarium.sources.google.collector') ?? 'searchapi')
+                ? $this->config->get('librarium.sources.google.key') : null;
             $settings['key'] = $configuredKey ?? (is_string($overrides['collector']) ? $this->config->get('services.'.$overrides['collector'].'.key') : null);
         }
         $options = [];
@@ -163,6 +169,10 @@ final class SourceCatalog
             }
             if (is_string($value) && isset($rule['variants'][$value]) && ! (in_array($name, ['quick', 'collector'], true) && $depth !== 'quick') && ! ($name === 'deep_effort' && $depth !== 'deep')) {
                 $mapping = $rule['variants'][$value];
+                // by_collector (spec 1.2) replaces the mapping and its requires for the effective collector.
+                if (is_string($sourceCollector) && isset($mapping['by_collector'][$sourceCollector])) {
+                    $mapping = $mapping['by_collector'][$sourceCollector];
+                }
                 foreach ($mapping['requires'] ?? [] as $required => $expected) {
                     if (($overrides[$required] ?? $settings[$required] ?? $entry['options'][$required]['default'] ?? null) !== $expected) {
                         throw ValidationException::withMessages(['options.'.$id => "{$name} requires {$required}={$expected}."]);
@@ -190,19 +200,19 @@ final class SourceCatalog
                 return $profile;
             }
             $variant = is_string($collector) ? ($entry['collectors'][$collector]['php'] ?? null) : null;
-            if ($collector === 'dataforseo') {
-                $priority = $overrides['priority'] ?? $settings['priority'] ?? 'standard';
-                if (! in_array($priority, ['standard', 'live'], true)) {
-                    throw ValidationException::withMessages(['options.'.$id.'.priority' => 'Use standard or live.']);
+            $priorityRule = is_string($collector) ? ($entry['collectors'][$collector]['options']['priority'] ?? null) : null;
+            if (is_array($priorityRule)) {
+                $priority = $overrides['priority'] ?? $settings['priority'] ?? $priorityRule['default'] ?? 'standard';
+                $priorities = is_array($priorityRule['values'] ?? null) ? array_values(array_filter($priorityRule['values'], is_string(...))) : [];
+                if (! in_array($priority, $priorities, true)) {
+                    throw ValidationException::withMessages(['options.'.$id.'.priority' => 'Use '.implode(' or ', $priorities).'.']);
                 }
-                if ($priority === 'live' && is_string($variant)) {
-                    $variant .= '-live';
+                if ($priority === 'live') {
+                    $variant = $priorityRule['php_live'] ?? null;
                 }
             }
         }
-        /** @var array{profiles: array<string, array<string, mixed>>} $bindings */
-        $bindings = require __DIR__.'/Profiles/bindings.php';
-        $binding = is_string($variant) ? ($bindings['profiles'][$variant] ?? null) : null;
+        $binding = is_string($variant) ? ($this->bindings()[$variant] ?? null) : null;
         $custom = $settings[$depth] ?? null;
         if (is_array($custom)) {
             $binding = $custom;
@@ -218,7 +228,7 @@ final class SourceCatalog
         $binding['credential'] = $settings['key'] ?? null;
         $binding['enabled'] = ($settings['enabled'] ?? true) !== false;
         $driverOptions = is_array($binding['options'] ?? null) ? $binding['options'] : [];
-        if ($dataforseo && is_array($settings['options'] ?? null)) {
+        if ($collectorOptions && is_array($settings['options'] ?? null)) {
             $driverOptions = array_replace($driverOptions, $settings['options']);
         }
         if ($entry['kind'] === 'engine' || is_array($custom)) {
@@ -271,5 +281,14 @@ final class SourceCatalog
         }
 
         return $profile;
+    }
+
+    /** @return array<string, array<string, mixed>> */
+    private function bindings(): array
+    {
+        /** @var array{profiles: array<string, array<string, mixed>>} $bindings */
+        $bindings = require __DIR__.'/Profiles/bindings.php';
+
+        return $bindings['profiles'];
     }
 }

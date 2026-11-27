@@ -20,7 +20,7 @@ name or a group/source collision is an error.
 | exa | Search | Research | None |
 | firecrawl | Search | None | sources: web/news, limit |
 | gemini | Grounded | Deep Research | quick: grounded/chat, collector: direct/dataforseo |
-| google | SERP search | None | collector: searchapi/serpapi/serpbase, vertical: web/news (news requires serpbase) |
+| google | SERP search | None | collector: searchapi/serpapi/serpbase/cloro, vertical: web/news (news requires serpbase or cloro) |
 | grok | Web search | None | search: web/x/both |
 | jina | Search | None | None |
 | kagi | FastGPT | None | None |
@@ -174,11 +174,13 @@ caching to those models. This is an SDK integration limitation; OpenRouter
 
 ## Engines are named-only sources
 
-`chatgpt`, `gemini-app`, `google-ai-mode`, `google-ai-overview` and `copilot`
-carry `observation: surface`. Set `engines.collector` to `searchapi`,
-`dataforseo`, or the optional `firecrawl` adapter; override per engine.
-DataForSEO supports ChatGPT, Gemini App and Google AI Mode; SearchAPI supports
-all five. Engines never join default selection and have no deep variant.
+`chatgpt`, `gemini-app`, `google-ai-mode`, `google-ai-overview`, `copilot` and
+`bing-ai-mode` carry `observation: surface`. Set `engines.collector` to
+`searchapi`, `dataforseo`, `cloro`, or the optional `firecrawl` adapter;
+override per engine. DataForSEO supports ChatGPT, Gemini App and Google AI
+Mode; SearchAPI supports all but Bing AI Mode; Cloro supports all but Copilot.
+An engine its collector does not support is skipped with `no_collector`.
+Engines never join default selection and have no deep variant.
 
 ```php
 // config/librarium.php
@@ -219,11 +221,51 @@ from the billed `inline` searches. Google AI Mode redirect links, which
 SearchAPI returns without a token, fall back to their publisher origin instead
 of being dropped.
 
-SerpBase uses `services.serpbase.key`. The Google source's `vertical: news`
-selects its news endpoint. Locale/page/device controls are driver-level rather
+SerpBase uses `services.serpbase.key`. With `collector: serpbase`, the Google
+source's `vertical: news` selects its news endpoint. Locale/page/device controls are driver-level rather
 than shared source options. It makes one POST without retries or pagination;
 relative news dates stay text. Its policy allows query/account/IP logging;
 no zero-retention promise is inferred.
+
+## Cloro
+
+Cloro (`services.cloro.key`, Bearer) collects ChatGPT, Gemini App, Google AI
+Mode, Google AI Overview and Bing AI Mode (`bing.com/copilotsearch`, a
+different product from `copilot`) in logged-out browser sessions, so results
+carry `context.authentication: anonymous` and no model choice. ChatGPT reports
+`model` only sometimes. `country`, an uppercase ISO code, is required and has
+no default; put it in the collector `options`:
+
+```php
+'engines' => ['collector' => 'cloro', 'options' => ['country' => 'US']],
+'sources' => ['google' => ['collector' => 'cloro', 'options' => ['country' => 'US']]],
+```
+
+Google AI Mode and the Google endpoints also accept `hl`, `location` and
+`device`; the Google News endpoint accepts `hl` and `device`.
+
+`priority: standard` (default) submits one async task under an idempotency key
+derived from the Run and saves its signed handle; a lost acknowledgement is
+recovered from Cloro's 409 instead of creating a second task. Cloro deletes
+finished tasks 24 hours after they were created, so a handle refreshed later
+fails with the non-retryable `cloro.task_expired`, although Cloro billed the
+task. `priority: live` makes one synchronous call and never retries it.
+
+The answer's `sources` and `citationPills` become citations. ChatGPT
+entities, fan-out queries, shopping cards, ads and every other extra stay in
+the redacted evidence only. Google AI Overview fails with `cloro.no_ai_overview`
+when Google shows none; Cloro still charges the add-on, and organic results
+never substitute. Bing AI Mode prompts are limited to 3,500 characters once
+URL-encoded (388 CJK characters), checked before any request.
+
+The `google` collector makes one synchronous call for web and, with `vertical:
+news`, Google News; it has no `priority`. Cloro reports credits, not USD, so
+`cost.reported` stays null: `X-Credits-Charged` (sync) and
+`credits.creditsCharged` (async) are kept in evidence. Price estimates come
+from the `cloro:<surface>` identities, which are unavailable until you
+configure your plan's per-credit rate in `ai-pricing.prices` (async base
+credits; live and SERP calls add 2). A free plan allows one concurrent request:
+a second one fails with `cloro.rate_limited` and is not retried.
 
 ## Deep options and waiting
 

@@ -57,6 +57,7 @@ it('registers the six SearchAPI Profiles with explicit configured-only pricing a
 it('declares canonical surface semantics for all five SearchAPI surface Profiles', function (): void {
     config(['librarium.engines.collector' => 'searchapi']);
     $profiles = collect(Librarium::sources()['engines'])
+        ->filter(fn (array $engine): bool => in_array('searchapi', $engine['collectors'], true))
         ->map(fn (array $engine) => app(SourceCatalog::class)->profile($engine['id'], 'quick'));
 
     expect($profiles)->toHaveCount(5);
@@ -529,7 +530,7 @@ it('registers SearchAPI engines in shared catalog order without adding API basel
     config(['librarium.engines.collector' => 'searchapi']);
     expect(app(ProfileCatalog::class)->find('searchapi')?->isEligible())->toBeTrue()
         ->and(array_column(Librarium::sources()['engines'], 'id'))->toBe([
-            'chatgpt', 'gemini-app', 'google-ai-mode', 'google-ai-overview', 'copilot',
+            'chatgpt', 'gemini-app', 'google-ai-mode', 'google-ai-overview', 'copilot', 'bing-ai-mode',
         ]);
 });
 
