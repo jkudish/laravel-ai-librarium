@@ -10,6 +10,15 @@ Coverage should include materially different source variants and collectors,
 not repeat saved groups. DataForSEO standard/live, You answer/inline research/deep,
 Google collectors and verticals, Grok web/X/both, and each durable provider are
 distinct boundaries. Firecrawl search is core; browser Interact/Agent is adapter.
+Cloro standard (async task) and live (sync) are distinct boundaries per
+surface, and its `google` web and news calls are a SERP boundary.
+
+`composer test:live:cloro` (needs `LIBRARIUM_LIVE_TESTS=1` and `CLORO_API_KEY`)
+runs four standard surfaces, three live surfaces and Google web and news once
+each: about 47 credits. Cloro's free plan allows one concurrent request, so the
+cases run sequentially and must not run in parallel. It reports credits, not
+USD; read them from `x-credits-charged` or `credits.creditsCharged` in
+evidence and check `GET /v1/credits` before and after.
 
 Before spending, retain heads, runtime/dependency inventory, current provider
 contract review, the approved ledger and exact payload controls. Unknown or

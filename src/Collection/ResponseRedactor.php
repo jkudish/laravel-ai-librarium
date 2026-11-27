@@ -23,6 +23,8 @@ final readonly class ResponseRedactor
         'x-request-id',
         'openai-request-id',
         'cf-ray',
+        // Cloro's charge for a sync call; async tasks report it in the body.
+        'x-credits-charged',
         // Anthropic's rate-limit state: counts and RFC 3339 reset times.
         'anthropic-ratelimit-requests-remaining',
         'anthropic-ratelimit-requests-reset',

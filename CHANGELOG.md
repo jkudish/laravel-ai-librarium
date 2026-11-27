@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Add the Cloro collector (librarium-spec 1.2): `chatgpt`, `gemini-app`,
+  `google-ai-mode`, `google-ai-overview` and the new `bing-ai-mode` engine,
+  each with `priority: standard` (a recoverable async task, default) or `live`
+  (one synchronous call), plus `collector: cloro` on `google` for web and,
+  through the spec's `by_collector` map, `vertical: news`. `country` is
+  required. Results report `cost.reported: null`; Cloro's credits stay in the
+  evidence, and `x-credits-charged` is now a kept evidence header. Entities,
+  fan-out queries, shopping cards and ads stay evidence-only. A task refreshed
+  after Cloro's 24-hour retention fails with the non-retryable
+  `cloro.task_expired`.
+- Engine `priority` now follows each collector's catalog `php_live` id instead
+  of a DataForSEO-only `-live` suffix, and an engine collector is available
+  whenever its catalog `php` id has a binding.
+- Require `jkudish/librarium-spec` `^1.2`.
 - Keep Anthropic's rate-limit headers in captured evidence:
   `anthropic-ratelimit-{requests,tokens,input-tokens,output-tokens}-remaining`
   and `-reset`, so a consumer can wait for the reset of an exhausted limit

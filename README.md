@@ -69,7 +69,7 @@ A Run's status is `done` when every source succeeded, `partial` when some failed
 - Librarium never resubmits paid work or falls back to another source automatically. Inline work cannot resume after the process dies. Durable tasks with a saved handle can.
 - Built-in file storage supports local Laravel disks only. Built-in cache storage supports process-local ArrayStore or standalone Redis 7+. Other backends need a custom `RunStore`.
 - The database store's migration is optional and never runs automatically.
-- AI answer engines need a collector: SearchAPI, DataForSEO, or the separate [Firecrawl adapter](https://github.com/jkudish/laravel-ai-librarium-firecrawl). Engine results are observations of a consumer AI product (`observation: surface`), not API answers.
+- AI answer engines need a collector: SearchAPI, DataForSEO, Cloro, or the separate [Firecrawl adapter](https://github.com/jkudish/laravel-ai-librarium-firecrawl). Engine results are observations of a consumer AI product (`observation: surface`), not API answers.
 - Provider text and URLs are untrusted. Escape rendered content and verify consequential claims. Agreement between sources is not independent confirmation.
 - Your application owns queue workers, authorization, retention, and evidence policy.
 

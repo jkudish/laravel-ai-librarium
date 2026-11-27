@@ -42,7 +42,7 @@ it('rebuilds the bundled Profiles when their service credentials change', functi
 });
 
 it('resolves every shared PHP variant and collector mapping through the source catalog', function (): void {
-    config(['services.firecrawl.key' => 'placeholder', 'services.dataforseo.login' => 'placeholder-login', 'services.dataforseo.password' => 'placeholder-password']);
+    config(['services.firecrawl.key' => 'placeholder', 'services.dataforseo.login' => 'placeholder-login', 'services.dataforseo.password' => 'placeholder-password', 'librarium.sources.google.options' => ['country' => 'US']]);
     $data = Spec::read('sources.json');
     $catalog = app(SourceCatalog::class);
     $resolved = [];
@@ -61,15 +61,23 @@ it('resolves every shared PHP variant and collector mapping through the source c
                 $options = [$name => $value, ...($variant['requires'] ?? [])];
                 expect($catalog->profile($entry['id'], $depth, $options)->id)->toBe($variant['php']);
                 $resolved[] = $variant['php'];
+                foreach ($variant['by_collector'] ?? [] as $collector => $mapping) {
+                    expect($catalog->profile($entry['id'], $depth, [$name => $value, 'collector' => $collector])->id)->toBe($mapping['php']);
+                    $resolved[] = $mapping['php'];
+                }
             }
         }
     }
     foreach ($data['engines'] as $entry) {
-        foreach (['searchapi', 'dataforseo'] as $collector) {
+        foreach (['searchapi', 'dataforseo', 'cloro'] as $collector) {
             if (! isset($entry['collectors'][$collector])) {
                 continue;
             }
-            config(['librarium.engines' => ['collector' => $collector, 'options' => $collector === 'dataforseo' ? ['location_code' => 2840, 'language_code' => 'en'] : []]]);
+            config(['librarium.engines' => ['collector' => $collector, 'options' => match ($collector) {
+                'dataforseo' => ['location_code' => 2840, 'language_code' => 'en'],
+                'cloro' => ['country' => 'US'],
+                default => [],
+            }]]);
             $variant = $entry['collectors'][$collector];
             expect($catalog->profile($entry['id'], 'quick')->id)->toBe($variant['php']);
             $resolved[] = $variant['php'];
@@ -79,5 +87,5 @@ it('resolves every shared PHP variant and collector mapping through the source c
             }
         }
     }
-    expect(array_unique($resolved))->toHaveCount(51); // Retained bindings, core Firecrawl and four LLM Responses collectors.
+    expect(array_unique($resolved))->toHaveCount(63); // Retained bindings, core Firecrawl, four LLM Responses collectors and twelve Cloro variants.
 });

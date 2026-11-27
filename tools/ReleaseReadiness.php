@@ -31,6 +31,8 @@ final readonly class ReleaseReadiness
         'illuminate/support' => '^13.30',
         'illuminate/validation' => '^13.30',
         'jkudish/laravel-ai-pricing' => '^0.3.1 || ^0.4.1',
+        // 1.2 adds the Cloro collector, bing-ai-mode and by_collector mappings.
+        'jkudish/librarium-spec' => '^1.2',
         'laravel/ai' => '^1.0.1',
         'laravel/prompts' => '^0.3.15',
         'league/commonmark' => '^2.10.2',

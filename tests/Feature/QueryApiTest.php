@@ -61,7 +61,7 @@ it('validates options without constructing drivers or exposing credentials', fun
 });
 
 it('reports all shared sources and preserves driver validation', function (): void {
-    expect(Librarium::sources()['sources'])->toHaveCount(16)->and(Librarium::sources()['engines'])->toHaveCount(5);
+    expect(Librarium::sources()['sources'])->toHaveCount(16)->and(Librarium::sources()['engines'])->toHaveCount(6);
     config(['librarium.sources.firecrawl.key' => "unsafe\nkey"]);
     expect(fn () => Librarium::research('q')->only(['firecrawl'])->dryRun())->toThrow(ValidationException::class);
     Http::assertNothingSent();
