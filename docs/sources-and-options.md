@@ -266,6 +266,14 @@ from the `cloro:<surface>` identities, which are unavailable until you
 configure your plan's per-credit rate in `ai-pricing.prices` (async base
 credits; live and SERP calls add 2). A free plan allows one concurrent request:
 a second one fails with `cloro.rate_limited` and is not retried.
+## Serply (live-unverified)
+
+Serply (`serply-search`, `services.serply.key`) is live-unverified and not a
+`google` collector yet: it joins the shared catalog only after a live canary.
+It always sends `gl` (default `us`), because Serply's results drift between
+calls when the location is unpinned, deduplicates results by link and trims
+them to `num` (1 to 10), and retries one 502. Its `serply:search` price is
+unavailable until configured.
 
 ## Deep options and waiting
 
