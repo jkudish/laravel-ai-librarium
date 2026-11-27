@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-// Not run yet: Serply ships only after this canary passes (one request, one credit).
+// One request, one credit. The Profile reads services.serply.key when the catalog loads.
 beforeEach(function (): void {
     $key = getenv('SERPLY_API_KEY');
     if (! is_string($key) || trim($key) === '') {
         $this->markTestSkipped('Set SERPLY_API_KEY to run the live Serply canary.');
     }
 
-    config()->set('librarium.profiles.serply-search.credential', $key);
+    config()->set('services.serply.key', $key);
 });
 
 it('runs one live Serply search', function (): void {
