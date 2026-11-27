@@ -148,7 +148,9 @@ final class SourceCatalog
             }
         }
         if ($id === 'google' && isset($overrides['collector'])) {
-            $configuredKey = $this->config->get('librarium.sources.google.key');
+            // A configured key belongs to the configured collector; never send it to another provider.
+            $configuredKey = $overrides['collector'] === ($this->config->get('librarium.sources.google.collector') ?? 'searchapi')
+                ? $this->config->get('librarium.sources.google.key') : null;
             $settings['key'] = $configuredKey ?? (is_string($overrides['collector']) ? $this->config->get('services.'.$overrides['collector'].'.key') : null);
         }
         $options = [];

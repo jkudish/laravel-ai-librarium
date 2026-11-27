@@ -116,6 +116,31 @@ it('recovers the existing task from an idempotency conflict after a lost acknowl
     Http::assertSent(fn (Request $request): bool => $request->url() === 'https://api.cloro.dev/v1/async/task/'.CLORO_TASK_ID);
 });
 
+it('retries one server error on submit under the same idempotency key', function (): void {
+    $keys = [];
+    Http::fake(function (Request $request) use (&$keys) {
+        if ($request->method() === 'POST') {
+            $keys[] = $request->data()['idempotencyKey'];
+
+            return count($keys) === 1
+                ? Http::response(['success' => false, 'error' => ['code' => 'INTERNAL_ERROR', 'message' => 'Internal']], 500)
+                : Http::response(['success' => true, 'task' => ['id' => CLORO_TASK_ID, 'taskType' => 'CHATGPT', 'status' => 'QUEUED']]);
+        }
+
+        return Http::response(cloroTask('CHATGPT', 'COMPLETED', ['text' => "Joe's CRM.", 'sources' => []]));
+    });
+
+    expect(Librarium::research('q')->only(['chatgpt'])->run()->result('chatgpt')['status'])->toBe('done')
+        ->and($keys)->toHaveCount(2)->and(array_unique($keys))->toHaveCount(1);
+});
+
+it('never sends the configured Google key to a collector chosen per request', function (): void {
+    config(['librarium.sources.google' => ['collector' => 'searchapi', 'key' => 'my-searchapi-key', 'options' => ['country' => 'US']], 'services.cloro.key' => 'testing-cloro-key']);
+
+    expect(app(SourceCatalog::class)->profile('google', 'quick', ['collector' => 'cloro'])->credential)->toBe('testing-cloro-key')
+        ->and(app(SourceCatalog::class)->profile('google', 'quick', ['collector' => 'searchapi'])->credential)->toBe('my-searchapi-key');
+});
+
 it('fails a task Cloro already deleted without retrying or resubmitting', function (): void {
     Http::fake(function (Request $request) {
         return $request->method() === 'POST'
@@ -190,6 +215,7 @@ it('maps google vertical news to Cloro News through by_collector and keeps SerpB
     $result = Librarium::research('interest rates')->only(['google'])->options(['google' => ['vertical' => 'news']])->run()->result('google');
 
     expect($result['status'])->toBe('done')
+        ->and($result['provenance']['collector'])->toBe('cloro')
         ->and($result['citations'])->toBe([['url' => 'https://news.example/a', 'title' => 'Rates rise']]);
     Http::assertSent(fn (Request $request): bool => $request->data() === ['query' => 'interest rates', 'country' => 'GB']);
 });

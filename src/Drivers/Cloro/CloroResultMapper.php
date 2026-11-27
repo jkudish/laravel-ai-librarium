@@ -114,6 +114,7 @@ final readonly class CloroResultMapper
                 retrievalMethods: $request->profile->retrievalMethods,
                 corpora: $request->profile->corpora,
                 observedAt: $now,
+                collector: 'cloro',
             ),
             citations: $this->citations($candidates, CitationDerivation::ProviderReported, $news ? SourceKind::NewsArticle : SourceKind::WebPage),
             completedAt: $now,
@@ -178,7 +179,7 @@ final readonly class CloroResultMapper
 
     private function markdown(string $value): string
     {
-        $escaped = htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $escaped = htmlspecialchars($value, ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8');
 
         return str_replace(
             ['\\', '`', '*', '_', '{', '}', '[', ']', '(', ')', '#', '+', '-', '.', '!', '|', '~', '=', '^', '$'],

@@ -184,18 +184,22 @@ readonly class CloroDriver implements DefinesSpendingBound, Driver
         // The idempotency key makes a second attempt safe: Cloro answers a
         // reused key with 409 and the existing task instead of a new task.
         for ($attempt = 0; ; $attempt++) {
-            $this->remainingSeconds($request);
+            $remaining = $this->remainingSeconds($request);
             try {
-                $response = $this->http($request, self::TASK_TIMEOUT_SECONDS)->post(self::ORIGIN.'/v1/async/task', $body);
-                break;
+                $response = $this->http($request, min(self::TASK_TIMEOUT_SECONDS, $remaining))->post(self::ORIGIN.'/v1/async/task', $body);
             } catch (ConnectionException) {
                 $request->captureNoResponse(Operation::Submit);
                 if ($attempt > 0) {
                     throw new DriverException('cloro.ambiguous_submission', 'The Cloro task submission outcome is unknown.', false);
                 }
+
+                continue;
+            }
+            $request->captureResponse($response, Operation::Submit);
+            if (! $response->serverError() || $attempt > 0) {
+                break;
             }
         }
-        $request->captureResponse($response, Operation::Submit);
 
         if ($response->status() === 409) {
             $existing = data_get($this->json($response), 'error.details.taskId');
@@ -235,7 +239,7 @@ readonly class CloroDriver implements DefinesSpendingBound, Driver
         $request->captureResponse($response, Operation::Retrieve);
 
         if ($response->status() === 404) {
-            throw new DriverException('cloro.task_expired', 'Cloro no longer has this task. It deletes finished tasks 24 hours after they were created.', false);
+            throw new DriverException('cloro.task_expired', 'Cloro no longer has this task; it deletes finished tasks 24 hours after creation.', false);
         }
         if ($response->failed() || $response->redirect()) {
             throw $this->httpFailure($response);
@@ -276,7 +280,7 @@ readonly class CloroDriver implements DefinesSpendingBound, Driver
     private function result(DriverRequest|RecoveryRequest $request, string $sku, array $endpoint, array $data, string $mode, int|float|null $credits): ResearchResult
     {
         $meta = array_filter([
-            'endpoint' => '/v1/monitor/'.$endpoint['path'],
+            'endpoint' => $mode === 'live' ? '/v1/monitor/'.$endpoint['path'] : '/v1/async/task ('.$endpoint['task'].')',
             'mode' => $mode,
             'credits_charged' => $credits,
             'requested_controls' => (object) array_intersect_key($request->profile->options, array_flip($endpoint['options'])),

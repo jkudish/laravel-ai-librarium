@@ -262,8 +262,8 @@ The `google` collector makes one synchronous call for web and, with `vertical:
 news`, Google News; it has no `priority`. Cloro reports credits, not USD, so
 `cost.reported` stays null: `X-Credits-Charged` (sync) and
 `credits.creditsCharged` (async) are kept in evidence. Price estimates come
-from the `cloro:<surface>` identities in laravel-ai-pricing, which are
-unavailable until you configure your plan's per-credit rate (async base
+from the `cloro:<surface>` identities, which are unavailable until you
+configure your plan's per-credit rate in `ai-pricing.prices` (async base
 credits; live and SERP calls add 2). A free plan allows one concurrent request:
 a second one fails with `cloro.rate_limited` and is not retried.
 
