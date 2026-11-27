@@ -24,6 +24,7 @@ use Jkudish\LaravelAiLibrarium\Drivers\Perplexity\PerplexitySearchDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\SearchApi\SearchApiDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\SerpApi\SerpApiDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\SerpBase\SerpBaseDriver;
+use Jkudish\LaravelAiLibrarium\Drivers\Serply\SerplyDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Tavily\TavilySearchDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Valyu\ValyuResearchDriver;
 use Jkudish\LaravelAiLibrarium\Drivers\Valyu\ValyuSearchDriver;
@@ -1010,6 +1011,23 @@ return [
                 'usage' => ['successful_search_request' => 1],
                 'conservative' => true,
             ],
+        ],
+        // Not in the shared catalog until a live Serply canary passes; select it
+        // as a Profile only. Pricing stays unavailable until configured.
+        'serply-search' => [
+            'driver' => SerplyDriver::class,
+            'provider' => 'serply',
+            'model' => null,
+            'result_kind' => 'search_results',
+            'grounding' => 'none',
+            'observation' => 'api_output',
+            'corpora' => ['web'],
+            'retrieval_methods' => ['search_endpoint'],
+            'prompt' => '{{ query }}',
+            'enabled' => true,
+            'options' => ['gl' => 'us'],
+            'credential' => config('services.serply.key'),
+            'pricing' => ['provider' => 'serply', 'model' => 'search', 'usage' => ['requests' => 1], 'conservative' => true],
         ],
         'serpbase-search' => [
             'driver' => SerpBaseDriver::class,

@@ -16,6 +16,10 @@
   of a DataForSEO-only `-live` suffix, and an engine collector is available
   whenever its catalog `php` id has a binding.
 - Require `jkudish/librarium-spec` `^1.2`.
+- Add the `serply-search` Profile (Serply Google Search, `services.serply.key`).
+  Live-unverified and not in the shared catalog: select it as a Profile only.
+  It always sends `gl` (default `us`), deduplicates results by link, trims them
+  to `num` (at most 10) and retries a 502 once.
 - Keep Anthropic's rate-limit headers in captured evidence:
   `anthropic-ratelimit-{requests,tokens,input-tokens,output-tokens}-remaining`
   and `-reset`, so a consumer can wait for the reset of an exhausted limit
